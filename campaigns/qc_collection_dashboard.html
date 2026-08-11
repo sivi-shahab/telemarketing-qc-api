@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<title>QC Collection Dashboard — 02123557599</title>
+<style>
+  :root{
+    --navy:#1E2761;
+    --navy-dark:#141B47;
+    --navy-deeper:#0E1333;
+    --ice:#CADCFC;
+    --ink:#20232D;
+    --muted:#6B7280;
+    --line:#E4E7F0;
+    --card:#F6F7FB;
+    --good:#1B7A5A;
+    --good-bg:#E3F3EC;
+    --bad:#B3261E;
+    --bad-bg:#FBEAE8;
+    --warn:#8A5A00;
+    --warn-bg:#FBF0DA;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Calibri,Arial,sans-serif;
+    background:#F1F3F9;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{
+    background:var(--navy);
+    color:#fff;
+    padding:18px 32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .topbar .brand{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  .brand .mark{
+    width:34px;height:34px;border-radius:8px;
+    background:var(--navy-dark);
+    border:1px solid #3B4694;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:13px;color:var(--ice);
+  }
+  .brand .title{font-size:15px;font-weight:600;letter-spacing:.2px;}
+  .brand .subtitle{font-size:12px;color:var(--ice);opacity:.85;}
+  .topbar .meta{font-size:12px;color:var(--ice);text-align:right;line-height:1.5;}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 24px 60px;}
+
+  .banner{
+    display:flex;gap:12px;align-items:flex-start;
+    background:var(--warn-bg);
+    border:1px solid #E9CE8E;
+    border-radius:10px;
+    padding:14px 16px;
+    margin-bottom:24px;
+    font-size:13px;color:var(--warn);line-height:1.55;
+  }
+  .banner svg{flex:none;margin-top:1px;}
+
+  .summary-row{
+    display:grid;
+    grid-template-columns:1.3fr repeat(3,1fr);
+    gap:14px;
+    margin-bottom:28px;
+  }
+  .summary-card{
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;
+  }
+  .summary-card.result{
+    background:var(--navy);color:#fff;border:none;
+    display:flex;flex-direction:column;justify-content:center;
+  }
+  .summary-card .label{font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 6px;}
+  .summary-card.result .label{color:var(--ice);}
+  .summary-card .value{font-size:26px;font-weight:700;margin:0;}
+  .summary-card .sub{font-size:12px;color:var(--muted);margin:6px 0 0;}
+  .summary-card.result .sub{color:var(--ice);}
+  .pill{
+    display:inline-block;font-size:12.5px;font-weight:600;
+    padding:4px 12px;border-radius:20px;
+  }
+  .pill.bad{background:rgba(255,255,255,.14);color:#FFD9D5;}
+
+  h2.section-title{
+    font-size:13px;text-transform:uppercase;letter-spacing:.6px;
+    color:var(--muted);font-weight:700;margin:0 0 12px;
+  }
+
+  .identity-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+    gap:14px;margin-bottom:30px;
+  }
+  .id-card{
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;
+  }
+  .id-card .head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+  .id-card .avatar{
+    width:38px;height:38px;border-radius:50%;
+    background:var(--ice);color:var(--navy);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:13px;flex:none;
+  }
+  .id-card .avatar.icon{background:var(--card);color:var(--navy);}
+  .id-card .name{font-size:14.5px;font-weight:700;margin:0;}
+  .id-card .role{font-size:12px;color:var(--muted);margin:2px 0 0;}
+  .id-card table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .id-card td{padding:5px 0;border-top:1px solid var(--line);}
+  .id-card tr:first-child td{border-top:none;}
+  .id-card td.k{color:var(--muted);}
+  .id-card td.v{text-align:right;font-weight:600;}
+  .id-card td.v.missing{color:var(--muted);font-weight:500;font-style:italic;}
+  .id-card td.v.flag{color:var(--bad);}
+
+  .checklist{display:flex;flex-direction:column;gap:10px;margin-bottom:30px;}
+  .item{
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:14px 18px;
+  }
+  .item.fail{border-color:#EFC3BE;}
+  .item .row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;}
+  .item .pasal{font-size:11.5px;color:var(--muted);margin:0 0 3px;}
+  .item .req{font-size:14px;font-weight:600;margin:0;}
+  .status{
+    flex:none;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;
+  }
+  .status.ya{background:var(--good-bg);color:var(--good);}
+  .status.tidak{background:var(--bad-bg);color:var(--bad);}
+  .item .note{font-size:12.5px;color:var(--muted);margin:9px 0 0;line-height:1.55;}
+  .item .quote{font-size:12px;color:#8A8FA3;margin:6px 0 0;font-style:italic;}
+
+  .footer-note{
+    font-size:11.5px;color:var(--muted);line-height:1.6;
+    border-top:1px solid var(--line);padding-top:16px;margin-top:8px;
+  }
+  .footer-note b{color:var(--ink);}
+
+  @media (max-width:720px){
+    .summary-row{grid-template-columns:1fr 1fr;}
+    .summary-row .summary-card.result{grid-column:1 / -1;}
+    .topbar{padding:16px 18px;}
+    .wrap{padding:20px 16px 40px;}
+  }
+  @media print{
+    .topbar{background:var(--navy) !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    body{background:#fff;}
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">QC</div>
+      <div>
+        <div class="title">QC Collection Dashboard</div>
+        <div class="subtitle">PT Bank Mega &middot; POJK Nomor 22 Tahun 2023</div>
+      </div>
+    </div>
+    <div class="meta">
+      Audio file: 02123557599.wav<br>
+      Digenerate 2026-08-04 13:07 &middot; durasi 131 detik
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="banner">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      <div>Panggilan ini adalah verifikasi kepegawaian ke PT Faldo, bukan penagihan ke Cardholder. Institusi penelepon yang disebut dalam transkrip adalah <b>PT Aura</b>, bukan PT Bank Mega — checklist tetap dijalankan apa adanya sesuai transkrip, namun hasil perlu dibaca dengan konteks ini.</div>
+    </div>
+
+    <div class="summary-row">
+      <div class="summary-card result">
+        <p class="label">Hasil akhir</p>
+        <p class="value">Tidak compliant</p>
+        <span class="pill bad">6 dari 7 indikator YA</span>
+      </div>
+      <div class="summary-card">
+        <p class="label">Total terpenuhi</p>
+        <p class="value">6 / 7</p>
+        <p class="sub">Indikator YA</p>
+      </div>
+      <div class="summary-card">
+        <p class="label">Indikator gagal</p>
+        <p class="value">No. 2</p>
+        <p class="sub">Perkenalan institusi</p>
+      </div>
+      <div class="summary-card">
+        <p class="label">Status audio</p>
+        <p class="value" style="font-size:20px;">Aman</p>
+        <p class="sub">2 speaker &middot; netral 100%</p>
+      </div>
+    </div>
+
+    <h2 class="section-title">Identitas panggilan</h2>
+    <div class="identity-grid">
+
+      <div class="id-card">
+        <div class="head">
+          <div class="avatar">IT</div>
+          <div>
+            <p class="name">Ibu Tiwi</p>
+            <p class="role">Agent</p>
+          </div>
+        </div>
+        <table>
+          <tr><td class="k">Jenis kelamin</td><td class="v">Wanita</td></tr>
+          <tr><td class="k">Durasi bicara</td><td class="v">92.2s (70.4%)</td></tr>
+          <tr><td class="k">Profil emosi</td><td class="v">Netral 100%</td></tr>
+          <tr><td class="k">Institusi disebut</td><td class="v flag">Tidak disebut</td></tr>
+        </table>
+      </div>
+
+      <div class="id-card">
+        <div class="head">
+          <div class="avatar icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"></path><path d="M5 21V7l8-4v18"></path><path d="M19 21V11l-6-4"></path><path d="M9 9v.01"></path><path d="M9 12v.01"></path><path d="M9 15v.01"></path><path d="M9 18v.01"></path></svg>
+          </div>
+          <div>
+            <p class="name">PT Faldo Sumber Daya Mandiri</p>
+            <p class="role">Perusahaan yang dihubungi</p>
+          </div>
+        </div>
+        <table>
+          <tr><td class="k">Narahubung</td><td class="v missing">Pria, nama tidak disebut</td></tr>
+          <tr><td class="k">No. telepon</td><td class="v">021-2355-7599</td></tr>
+          <tr><td class="k">Alamat kantor</td><td class="v missing">Tidak disebutkan</td></tr>
+          <tr><td class="k">Durasi bicara</td><td class="v">20.4s (15.6%)</td></tr>
+        </table>
+      </div>
+
+      <div class="id-card">
+        <div class="head">
+          <div class="avatar icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="7" r="4"></circle><path d="M2 21v-2a6 6 0 0 1 6-6h1"></path><circle cx="17.5" cy="15.5" r="3.5"></circle><path d="M22 22l-2-2"></path></svg>
+          </div>
+          <div>
+            <p class="name">Ferdianus Rigi</p>
+            <p class="role">Pihak terkait / nasabah</p>
+          </div>
+        </div>
+        <table>
+          <tr><td class="k">Nasabah dari</td><td class="v">PT Aura</td></tr>
+          <tr><td class="k">Dicatat bekerja di</td><td class="v">PT Faldo Sumber Daya Mandiri</td></tr>
+          <tr><td class="k">No. induk pegawai</td><td class="v missing">Tidak tersedia</td></tr>
+          <tr><td class="k">Status verifikasi</td><td class="v flag">Belum terkonfirmasi</td></tr>
+        </table>
+      </div>
+
+    </div>
+
+    <h2 class="section-title">Hasil checklist &middot; 7 indikator POJK 22/2023</h2>
+    <div class="checklist">
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">1 &middot; Pasal 4 ayat (1)</p>
+            <p class="req">Salam pembuka di awal panggilan</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Deskcoll mengucapkan salam di awal, meski responsif atas sapaan nasabah lebih dulu.</p>
+        <p class="quote">"Halo, selamat pagi." &middot; 00:53</p>
+      </div>
+
+      <div class="item fail">
+        <div class="row">
+          <div>
+            <p class="pasal">2 &middot; Pasal 4 ayat (1); Pasal 61 ayat (3) huruf c</p>
+            <p class="req">Perkenalan nama dan institusi Bank Mega</p>
+          </div>
+          <span class="status tidak">TIDAK</span>
+        </div>
+        <p class="note">Nama (Ibu Tiwi) disebutkan, tapi institusi PT Bank Mega atau fungsi penagihan tidak pernah disampaikan.</p>
+        <p class="quote">"Ini perkenalkan Pak, saya dengan Ibu Tiwi mau konfirmasi..." &middot; 00:56</p>
+      </div>
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">3 &middot; Pasal 61 ayat (3) huruf c</p>
+            <p class="req">Nama terdaftar (asli/samaran)</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Nama diberikan tanpa indikasi mengelak, meski keterkaitan dengan Bank Mega tidak pernah dikonfirmasi.</p>
+        <p class="quote">"...saya dengan Ibu Tiwi..." &middot; 00:56</p>
+      </div>
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">4 &middot; Pasal 62 ayat (2) huruf c</p>
+            <p class="req">Tidak menagih ke pihak selain Cardholder</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Deskcoll hanya menanyakan keberadaan/cabang kerja Ferdianus Rigi, tidak membuka info tunggakan.</p>
+        <p class="quote">"Iya beliau ada di cabang mana ya?" &middot; 01:15</p>
+      </div>
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">5 &middot; Pasal 62 ayat (2) huruf a</p>
+            <p class="req">Tidak mempermalukan Cardholder</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Tidak ditemukan ucapan atau tindakan yang bermaksud mempermalukan pihak mana pun.</p>
+        <p class="quote">Tidak ada evidence relevan (tidak ada pelanggaran).</p>
+      </div>
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">6 &middot; Pasal 22 ayat (1) huruf a; Pasal 62 ayat (2) huruf c</p>
+            <p class="req">Tidak membuka info hutang ke pihak ketiga</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Tidak ada informasi tunggakan/kewajiban yang diungkap ke PT Faldo sepanjang panggilan.</p>
+        <p class="quote">Tidak ada evidence relevan (tidak ada pelanggaran).</p>
+      </div>
+
+      <div class="item">
+        <div class="row">
+          <div>
+            <p class="pasal">7 &middot; Pasal 62 ayat (2) huruf a dan huruf b</p>
+            <p class="req">Tidak ada tekanan, kekerasan, ancaman verbal</p>
+          </div>
+          <span class="status ya">YA</span>
+        </div>
+        <p class="note">Nada percakapan netral di kedua belah pihak, tidak ditemukan kata kasar atau ancaman.</p>
+        <p class="quote">Tidak ada evidence relevan (tidak ada pelanggaran).</p>
+      </div>
+
+    </div>
+
+    <div class="footer-note">
+      <b>Catatan:</b> dashboard ini adalah mockup tampilan hasil audit QC Collection, dibangun dari transkripsi audio 02123557599.wav. Field yang ditandai <i>"tidak disebutkan"</i> atau <i>"tidak tersedia"</i> memang tidak ada dasarnya pada transkrip — tidak diasumsikan. Hasil ini <b>bukan</b> keputusan resmi kepatuhan; wajib direview manusia sebelum digunakan sebagai dasar tindakan, dan skema checklist ini didesain untuk panggilan penagihan Cardholder, bukan verifikasi kepegawaian seperti pada sampel ini.
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,28 @@
+.env
+credentials.md
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.coverage
+.venv/
+venv/
+/tmp/
+dist/
+build/
+*.log
+.DS_Store
+
+# Volume compose (postgres/redis/minio) — jangan pernah masuk git.
+data/
+
+# Data nasabah asli. TIDAK BOLEH masuk repo ini dalam bentuk apa pun.
+csv_bank/
+*.csv
+example
+example_final
+.env
+*.env
+__pycache__/

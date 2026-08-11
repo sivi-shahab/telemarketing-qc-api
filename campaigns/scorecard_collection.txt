@@ -1,0 +1,58 @@
+[
+	{
+		"category": "Pembukaan & Identifikasi Petugas",
+		"item_code": "SC_COL_1",
+		"requirement": "Agent (deskcoll) menyampaikan salam pembuka sesuai waktu (Pagi/Siang/Sore/Malam) pada awal pembicaraan",
+		"kb_reference": "KB_COL_1",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pembukaan & Identifikasi Petugas",
+		"item_code": "SC_COL_2",
+		"requirement": "Agent (deskcoll) memperkenalkan diri (nama) dan menyebutkan petugas penagihan dari PT Bank Mega",
+		"kb_reference": "KB_COL_2",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pembukaan & Identifikasi Petugas",
+		"item_code": "SC_COL_3",
+		"requirement": "Agent (deskcoll) menggunakan nama asli/samaran/nama udara yang terdaftar di Bank Mega saat melakukan penagihan ke Cardholder",
+		"kb_reference": "KB_COL_3",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Verifikasi Nasabah & Kerahasiaan Data",
+		"item_code": "SC_COL_4",
+		"requirement": "Agent (deskcoll) tidak melakukan penagihan kepada selain Cardholder, atau hanya untuk mencari/meminta informasi dan/atau menitipkan pesan",
+		"kb_reference": "KB_COL_4",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Etika & Cara Penagihan",
+		"item_code": "SC_COL_5",
+		"requirement": "Agent (deskcoll) tidak melakukan suatu tindakan dengan maksud untuk mempermalukan Cardholder atau pihak lain yang berkaitan dengan Cardholder",
+		"kb_reference": "KB_COL_5",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Verifikasi Nasabah & Kerahasiaan Data",
+		"item_code": "SC_COL_6",
+		"requirement": "Agent (deskcoll) tidak memberikan informasi kewajiban/hutang Cardholder kepada pihak ketiga kecuali dengan izin Cardholder atau kepada pihak yang secara resmi menyatakan akan menyelesaikan tagihan",
+		"kb_reference": "KB_COL_6",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Etika & Cara Penagihan",
+		"item_code": "SC_COL_7",
+		"requirement": "Agent (deskcoll) tidak melakukan penagihan dengan tekanan, kekerasan, ancaman secara verbal (kata-kata kasar, tidak senonoh, bahasa mengancam, atau pernyataan niat/rencana merugikan, menyulitkan, atau mencelakakan pihak lain)",
+		"kb_reference": "KB_COL_7",
+		"weight": 1,
+		"tolerable": "NO"
+	}
+]

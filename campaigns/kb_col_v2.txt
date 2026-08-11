@@ -1,0 +1,101 @@
+[
+  {
+    "kb_code": "KB_COL_1",
+    "no": 1,
+    "indikator": "Apakah deskcoll mengucapkan salam selamat Pagi / Siang / Sore / Malam pada awal pembicaraan kepada penerima telepon?",
+    "pasal": "Pasal 4 ayat (1)",
+    "polarity": "POSITIVE",
+    "evidence_scope": "START_OF_CALL",
+    "criteria_ya": "Salam yang sesuai waktu (pagi/siang/sore/malam) diucapkan di AWAL pembicaraan, sebelum konten substantif lain.",
+    "criteria_tidak": "Tidak ada salam sama sekali, atau salam baru muncul setelah pembahasan substantif dimulai.",
+    "example_phrases": [
+      "Selamat pagi Bapak/Ibu",
+      "Selamat siang, bisa berbicara dengan Bapak/Ibu?",
+      "Selamat sore, mohon waktunya sebentar"
+    ],
+    "notes": "Ketiadaan bukti pada transkrip dianggap TIDAK (silence is not compliance)."
+  },
+  {
+    "kb_code": "KB_COL_2",
+    "no": 2,
+    "indikator": "Apakah deskcoll Memperkenalkan diri kepada nasabah nama dan petugas penagihan dari PT Bank Mega?",
+    "pasal": "Pasal 4 ayat (1); Pasal 61 ayat (3) huruf c",
+    "polarity": "POSITIVE",
+    "evidence_scope": "START_OF_CALL",
+    "criteria_ya": "Deskcoll menyebutkan NAMA dirinya DAN menyatakan mewakili/menghubungi atas nama PT Bank Mega (fungsi penagihan). Kedua unsur wajib ada.",
+    "criteria_tidak": "Salah satu atau kedua unsur (nama, institusi) tidak disebutkan.",
+    "example_phrases": [
+      "Perkenalkan saya (Nama Petugas) dari tim penagihan Bank Mega",
+      "Saya (Nama Petugas), menghubungi dari PT Bank Mega"
+    ],
+    "notes": "Jika hanya nama disebut tanpa institusi (atau sebaliknya), tetap TIDAK."
+  },
+  {
+    "kb_code": "KB_COL_3",
+    "no": 3,
+    "indikator": "Apakah deskcoll menggunakan nama Asli/samaran/nama udara yang terdaftar di Bank Mega pada saat melakukan penagihan ke Cardholder?",
+    "pasal": "Pasal 61 ayat (3) huruf c",
+    "polarity": "POSITIVE",
+    "evidence_scope": "START_OF_CALL",
+    "criteria_ya": "Deskcoll memberikan nama (asli/samaran/nama udara) yang disampaikan sebagai identitas resmi, tanpa indikasi menghindar atau menyangkal keterkaitan dengan Bank Mega saat ditanya.",
+    "criteria_tidak": "Deskcoll menolak memberi nama, memberi jawaban yang jelas mengelak, atau menyangkal mewakili Bank Mega saat ditanya langsung.",
+    "example_phrases": [
+      "Nama saya (Nama Petugas/Nama Udara) dari Bank Mega"
+    ],
+    "notes": "Jika transkrip sama sekali tidak memuat konten terkait nama, tandai TIDAK dengan catatan 'Tidak ada informasi nama pada transkrip.' Jangan berasumsi negatif tanpa dasar dari ketiadaan informasi tentang status registrasi."
+  },
+  {
+    "kb_code": "KB_COL_4",
+    "no": 4,
+    "indikator": "Apakah deskcoll tidak melakukan penagihan kepada selain Cardholder, atau hanya untuk mencari atau meminta informasi, dan atau menitipkan pesan?",
+    "pasal": "Pasal 62 ayat (2) huruf c",
+    "polarity": "PROHIBITION",
+    "evidence_scope": "WHOLE_CALL",
+    "criteria_ya": "Komunikasi penagihan hanya dengan Cardholder; jika pihak ketiga yang mengangkat, deskcoll hanya mencari keberadaan Cardholder atau menitip pesan netral tanpa membuka info tunggakan.",
+    "criteria_tidak": "Deskcoll membahas tunggakan, menekan pembayaran, atau meminta informasi tentang Cardholder dari pihak ketiga melebihi sekadar mencari keberadaannya.",
+    "forbidden_phrases": [
+      "Tolong sampaikan ke (Nama) bahwa utangnya menunggak Rp...",
+      "Ibu/Bapak sebagai (hubungan dengan Cardholder) bisa bantu bayar tagihannya?"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_5",
+    "no": 5,
+    "indikator": "Apakah deskcoll tidak melakukan suatu tindakan dengan maksud untuk mempermalukan Cardholder atau pihak lain yang berkaitan dengan Cardholder?",
+    "pasal": "Pasal 62 ayat (2) huruf a",
+    "polarity": "PROHIBITION",
+    "evidence_scope": "WHOLE_CALL",
+    "criteria_ya": "Tidak ada tindakan/ucapan yang bermaksud mempermalukan Cardholder atau pihak terkait di mana pun dalam transkrip.",
+    "criteria_tidak": "Ada ancaman mempermalukan (mis. mengumumkan ke tetangga/kantor) atau ucapan merendahkan.",
+    "forbidden_phrases": [
+      "Kalau tidak bayar, saya kasih tahu tetangga/kantor Bapak/Ibu",
+      "kami umumkan ke tetangga-tetangga"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_6",
+    "no": 6,
+    "indikator": "Apakah deskcoll tidak memberikan informasi kewajiban atau hutang Cardholder kepada pihak ketiga kecuali dengan izin dari Cardholder atau kepada pihak yang secara resmi menyatakan akan menyelesaikan tagihan Cardholder?",
+    "pasal": "Pasal 22 ayat (1) huruf a; Pasal 62 ayat (2) huruf c",
+    "polarity": "PROHIBITION",
+    "evidence_scope": "WHOLE_CALL",
+    "criteria_ya": "Info hutang hanya diberikan ke Cardholder, atau ke pihak ketiga yang eksplisit diizinkan Cardholder dalam call ATAU yang eksplisit menyatakan akan menyelesaikan tagihan.",
+    "criteria_tidak": "Info tunggakan/status hutang diungkap ke pihak ketiga tanpa salah satu dari dua syarat di atas terpenuhi secara eksplisit dalam transkrip.",
+    "notes": "Jangan berasumsi pihak ketiga 'berwenang' tanpa pernyataan eksplisit pada transkrip."
+  },
+  {
+    "kb_code": "KB_COL_7",
+    "no": 7,
+    "indikator": "Apakah deskcoll tidak melakukan penagihan dengan melakukan tekanan, kekerasan, ancaman secara verbal seperti menggunakan kata-kata yang kasar, tidak senonoh dan bahasa yang mengancam, (mengancam menyatakan maksud/niat/rencana untuk melakukan sesuatu yang merugikan, menyulitkan atau mencelakakan pihak lain)?",
+    "pasal": "Pasal 62 ayat (2) huruf a dan huruf b",
+    "polarity": "PROHIBITION",
+    "evidence_scope": "WHOLE_CALL",
+    "criteria_ya": "Tidak ada tekanan, kekerasan, atau ancaman verbal (kata kasar, tidak senonoh, bahasa mengancam, pernyataan niat merugikan/mencelakakan) di mana pun dalam transkrip.",
+    "criteria_tidak": "Satu kejadian saja dari hal di atas cukup untuk TIDAK, meskipun sisa panggilan berjalan baik.",
+    "forbidden_phrases": [
+      "pokoknya bayar sekarang, titik",
+      "kalau tidak bayar, awas saja",
+      "kami datangi rumahnya"
+    ]
+  }
+]
