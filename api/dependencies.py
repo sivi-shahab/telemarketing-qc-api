@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     minio_documents_source_prefix: str = ""
     minio_bucket_audio: str = os.getenv("MINIO_BUCKET_AUDIO", "audio")
     minio_bucket_sales_database: str = os.getenv("MINIO_BUCKET_SALES_DATABASE", "sales-database")
-    minio_bucket_qc_database: str = os.getenv("MINIO_BUCKET_QC_DATABASE", "qc-database")
+    # minio_bucket_qc_database: str = os.getenv("MINIO_BUCKET_QC_DATABASE", "qc-database")
 
     # HTTPS wajib untuk cdn.bankmega.local (beda dari MinIO docker-internal yang
     # http biasa) -- dipakai saat bikin client Minio(). Default False supaya
@@ -191,7 +191,7 @@ def ensure_buckets():
         settings.minio_bucket_documents,
         settings.minio_bucket_audio,
         settings.minio_bucket_sales_database,
-        settings.minio_bucket_qc_database,
+        # settings.minio_bucket_qc_database,
     ]:
         try:
             if not client.bucket_exists(bucket):
