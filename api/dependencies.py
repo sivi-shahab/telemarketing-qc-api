@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -8,9 +9,12 @@ from fastapi.security import APIKeyHeader
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from minio import Minio
 
 from dotenv import load_dotenv
+
+from services.multi_bucket_minio import build_minio_client
+
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
 
@@ -27,6 +31,8 @@ class Settings(BaseSettings):
     postgres_user: str = os.getenv("POSTGRES_USER", "bankqc")
     postgres_password: str = "changeme"
     postgres_password: str = os.getenv("POSTGRES_PASSWORD", "changeme")
+    # Schema tujuan semua tabel aplikasi. Kosong = 'public' (DB lokal).
+    postgres_schema: str = os.getenv("POSTGRES_SCHEMA", "")
     
     # ============================================
     # Redis Configuration
@@ -48,35 +54,31 @@ class Settings(BaseSettings):
     minio_bucket_audio: str = os.getenv("MINIO_BUCKET_AUDIO", "audio")
     minio_bucket_sales_database: str = os.getenv("MINIO_BUCKET_SALES_DATABASE", "sales-database")
     minio_bucket_qc_database: str = os.getenv("MINIO_BUCKET_QC_DATABASE", "qc-database")
-    
-    # minio_endpoint: str = os.getenv("MINIO_ENDPOINT", "cdn.bankmega.local")
-    # # [NEW] HTTPS wajib untuk cdn.bankmega.local (beda dari docker-internal
-    # # yang http biasa) -- secure=True dipakai saat bikin client Minio().
-    # minio_secure: bool = os.getenv("MINIO_SECURE", "true").lower() == "true"
 
-    # # --- Kredensial per-bucket (BARU, menggantikan 1 admin key global) ---
-    # minio_access_key_transcripts: str = os.getenv("MINIO_ACCESS_KEY_TRANSCRIPTS", "voicetotextdm")
-    # minio_secret_key_transcripts: str = os.getenv("MINIO_SECRET_KEY_TRANSCRIPTS", "rXzgmtI5qNG7JM6g7kgu0qzLcPRxqDUW3F3Zs1IF")
-    # minio_access_key_results: str = os.getenv("MINIO_ACCESS_KEY_RESULTS", "vtt-results")
-    # minio_secret_key_results: str = os.getenv("MINIO_SECRET_KEY_RESULTS", "r4xc3TnR9B2Rals1CPivKNXuaedhuVjYvHRQUFU5")
-    # minio_access_key_campaigns: str = os.getenv("MINIO_ACCESS_KEY_CAMPAIGNS", "vtt-campaigns")
-    # minio_secret_key_campaigns: str = os.getenv("MINIO_SECRET_KEY_CAMPAIGNS", "43u7X2Lwz8NZBuF4mQC0L7076xglEuoV4ULjxWdB")
-    # minio_access_key_documents: str = os.getenv("MINIO_ACCESS_KEY_DOCUMENTS", "vtt-documents")
-    # minio_secret_key_documents: str = os.getenv("MINIO_SECRET_KEY_DOCUMENTS", "qNSJbC0X5ecN93Sk5nNVVxvNZczIBkdb2eGgiIQ3")
-    # minio_access_key_audio: str = os.getenv("MINIO_ACCESS_KEY_AUDIO", "vtt-audio")
-    # minio_secret_key_audio: str = os.getenv("MINIO_SECRET_KEY_AUDIO", "0ZDW8BVRLNvdtCqalP0YGM1trf3pa0S2MHGppWnD")
-    # minio_access_key_sales_database: str = os.getenv("MINIO_ACCESS_KEY_SALES_DATABASE", "vtt-sales-db")
-    # minio_secret_key_sales_database: str = os.getenv("MINIO_SECRET_KEY_SALES_DATABASE", "QoWxIapOYvHUZF00afu8uiosS38nzDNtOZqdu0dN")
- 
-    # # --- Nama bucket (TIDAK BERUBAH, sama seperti sebelumnya) ---
-    # minio_bucket_transcripts: str = os.getenv("MINIO_BUCKET_TRANSCRIPTS", "transcripts")
-    # minio_bucket_results: str = os.getenv("MINIO_BUCKET_RESULTS", "results")
-    # minio_bucket_campaigns: str = os.getenv("MINIO_BUCKET_CAMPAIGNS", "campaigns")
-    # minio_bucket_documents: str = os.getenv("MINIO_BUCKET_DOCUMENTS", "documents")
-    # minio_transcripts_source_prefix: str = ""
-    # minio_documents_source_prefix: str = ""
-    # minio_bucket_audio: str = os.getenv("MINIO_BUCKET_AUDIO", "audio")
-    # minio_bucket_sales_database: str = os.getenv("MINIO_BUCKET_SALES_DATABASE", "sales-database")
+    # HTTPS wajib untuk cdn.bankmega.local (beda dari MinIO docker-internal yang
+    # http biasa) -- dipakai saat bikin client Minio(). Default False supaya
+    # deployment lokal lama tetap jalan tanpa mengisi MINIO_SECURE.
+    minio_secure: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+    # --- Kredensial per-bucket (menggantikan 1 admin key global) ---
+    # Default KOSONG, bukan nilai asli: kredensial hanya boleh datang dari .env.
+    # Semua kosong = mode lama (minio_access_key/minio_secret_key global).
+    minio_access_key_transcripts: str = os.getenv("MINIO_ACCESS_KEY_TRANSCRIPTS", "")
+    minio_secret_key_transcripts: str = os.getenv("MINIO_SECRET_KEY_TRANSCRIPTS", "")
+    minio_access_key_results: str = os.getenv("MINIO_ACCESS_KEY_RESULTS", "")
+    minio_secret_key_results: str = os.getenv("MINIO_SECRET_KEY_RESULTS", "")
+    minio_access_key_campaigns: str = os.getenv("MINIO_ACCESS_KEY_CAMPAIGNS", "")
+    minio_secret_key_campaigns: str = os.getenv("MINIO_SECRET_KEY_CAMPAIGNS", "")
+    minio_access_key_documents: str = os.getenv("MINIO_ACCESS_KEY_DOCUMENTS", "")
+    minio_secret_key_documents: str = os.getenv("MINIO_SECRET_KEY_DOCUMENTS", "")
+    minio_access_key_audio: str = os.getenv("MINIO_ACCESS_KEY_AUDIO", "")
+    minio_secret_key_audio: str = os.getenv("MINIO_SECRET_KEY_AUDIO", "")
+    minio_access_key_sales_database: str = os.getenv("MINIO_ACCESS_KEY_SALES_DATABASE", "")
+    minio_secret_key_sales_database: str = os.getenv("MINIO_SECRET_KEY_SALES_DATABASE", "")
+    # qc-database belum punya kredensial sendiri di CDN -- selama kosong, bucket
+    # itu dilewati saat mapping dan pemakaiannya error jelas, bukan diam-diam.
+    minio_access_key_qc_database: str = os.getenv("MINIO_ACCESS_KEY_QC_DATABASE", "")
+    minio_secret_key_qc_database: str = os.getenv("MINIO_SECRET_KEY_QC_DATABASE", "")
 
     # ============================================
     # LLM Configuration
@@ -131,11 +133,17 @@ def get_settings() -> Settings:
 # --- Database ---
 
 def _make_engine(settings: Settings):
+    connect_args = {}
+    if settings.postgres_schema:
+        # Model tidak menyebut schema sama sekali, jadi search_path yang
+        # mengarahkan semua query ke schema aplikasi.
+        connect_args["options"] = f"-csearch_path={settings.postgres_schema},public"
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,
         pool_size=10,
         max_overflow=20,
+        connect_args=connect_args,
     )
 
 
@@ -157,19 +165,19 @@ def get_db() -> Generator[Session, None, None]:
 
 # --- MinIO ---
 
-_minio_client: Minio = None
+_minio_client = None
 
 
-def get_minio() -> Minio:
+def get_minio():
+    """Client MinIO milik API (lazy, satu instance per proses).
+
+    Bisa berupa ``Minio`` biasa (mode admin key global) atau
+    ``MultiBucketMinioClient`` (mode kredensial per-bucket / CDN) — API-nya sama
+    sehingga semua pemanggil di routers tidak perlu berubah.
+    """
     global _minio_client
     if _minio_client is None:
-        settings = get_settings()
-        _minio_client = Minio(
-            settings.minio_endpoint,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
-            secure=False,
-        )
+        _minio_client = build_minio_client(get_settings())
     return _minio_client
 
 
@@ -185,8 +193,16 @@ def ensure_buckets():
         settings.minio_bucket_sales_database,
         settings.minio_bucket_qc_database,
     ]:
-        if not client.bucket_exists(bucket):
-            client.make_bucket(bucket)
+        try:
+            if not client.bucket_exists(bucket):
+                client.make_bucket(bucket)
+        except Exception as exc:
+            # Di mode per-bucket (CDN) bucket sudah disiapkan tim infra dan
+            # kredensialnya TIDAK punya hak makeBucket; qc-database malah belum
+            # punya kredensial sama sekali. Startup API tidak boleh mati karena
+            # itu -- kalau bucket-nya memang bermasalah, error-nya muncul jelas
+            # saat bucket itu dipakai.
+            logger.warning("[minio] Lewati ensure bucket '%s': %s", bucket, exc)
 
 
 # --- API Key Authentication (legacy, kept for backward compat) ---

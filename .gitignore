@@ -26,3 +26,4 @@ example_final
 .env
 *.env
 __pycache__/
+.env.bak.20260812
