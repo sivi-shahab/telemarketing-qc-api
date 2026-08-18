@@ -1,0 +1,1012 @@
+[
+	"conversation_phases": {
+		"Greeting": {
+			"description": "Salam pembuka dan perkenalan."
+		},
+		"Probing": {
+			"description": "Informasi bahwa nasabah berhak mendapatkan fasilitas Mega Cashline"
+		},
+		"Penjelasan Mega Cashline": {
+			"description": "Penjelasan detail produk Mega Cashline. Item pada kategori ini boleh disebutkan di fase mana saja dan di panggilan mana saja; evidence diambil dari penyebutan PALING BARU sebelum segmen Final Konfirmasi. PALING BARU dinilai memakai posisi (call_index, timestamp) - bandingkan call_index dulu, baru timestamp - BUKAN timestamp saja. Bila panggilan lebih dari satu, segmen Final Konfirmasi yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Jika item tidak disebutkan sama sekali sebelum Final Konfirmasi, ambil evidence dari segmen Final Konfirmasi."
+		},
+		"Penjelasan Mega Ultima Shield": {
+			"description": "Penjelasan informasi premi, health declaration, benefit dari produk Mega Ultima Shield. Only evaluated when the customer is interested in MUS for the Cashline card (mus_interest_status = INTERESTED); otherwise the items in this category are skipped (TIDAK_DINILAI) and do not affect the score. Kategori ini KHUSUS menilai MUS yang menempel pada fasilitas Mega Cashline; MUS untuk kartu kredit non-Cashline TIDAK termasuk (informational only)."
+		},
+		"Verifikasi": {
+			"description": "Verifikasi data nasabah, terdiri dari verifikasi statik dan dinamis"
+		},
+		"Final Konfirmasi Mega Cashline": {
+			"description": "Konfirmasi ulang detail produk Mega Cashline dan memastikan nasabah sudah memahami produk yang telah disetujui. Evidence untuk item pada kategori ini WAJIB diambil dari segmen Final Konfirmasi (recap penutup saat agent mengulang/menegaskan detail Mega Cashline yang disetujui)."
+		},
+		"Final Konfirmasi Mega Ultima Shield": {
+			"description": "Konfirmasi customer consent, informasi detail, dan memastikan nasbah paham produk Mega Ultima Shield yang telah disetujui. Only evaluated when the customer is interested in MUS for the Cashline card (mus_interest_status = INTERESTED); otherwise the items in this category are skipped (TIDAK_DINILAI) and do not affect the score. Kategori ini KHUSUS menilai MUS yang menempel pada fasilitas Mega Cashline; MUS untuk kartu kredit non-Cashline TIDAK termasuk (informational only)."
+		},
+		"Legal Statement Mega Cashline": {
+			"description": "Konfirmasi persetujuan produk Mega Cashline"
+		},
+		"Legal Statement Mega Ultima Shield": {
+			"description": "Konfirmasi persetujuan produk Mega Ultima Shield. Only evaluated when the customer is interested in MUS for the Cashline card (mus_interest_status = INTERESTED); otherwise the items in this category are skipped (TIDAK_DINILAI) and do not affect the score. Kategori ini KHUSUS menilai MUS yang menempel pada fasilitas Mega Cashline; MUS untuk kartu kredit non-Cashline TIDAK termasuk (informational only)."
+		}
+	},
+	{
+		"kb_code": "KB_CL_1",
+		"category": "Greeting",
+		"requirement": "Agent menyampaikan salam pembuka",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Selamat pagi Bapak",
+			"Selamat siang Ibu",
+			"Selamat sore Pak",
+			"Selamat Pagi, bisa berbicara dengan Bapak/Ibu YYY?",
+			"Selamat Siang, bisa berbicara dengan Bapak/Ibu YYY?",
+			"Selamat Sore, bisa berbicara dengan Bapak/Ibu YYY?"
+		]
+	},
+	{
+		"kb_code": "KB_CL_2",
+		"category": "Greeting",
+		"requirement": "Agent menyebutkan nama agent",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Perkenalkan saya dengan (Nama agent)",
+			"Perkenalkan nama saya (Nama agent)"
+		]
+	},
+	{
+		"kb_code": "KB_CL_3",
+		"category": "Greeting",
+		"requirement": "Agent menyebutkan nama Bank Mega",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"dari Kartu Kredit Bank Mega",
+			"dari Card Centre Bank Mega",
+			"dari Bank Mega",
+			"pusat informasi Bank Mega",
+			"layanan informasi Bank Mega",
+			"pusat layanan bank mega"
+		]
+	},
+	{
+		"kb_code": "KB_CL_4",
+		"category": "Greeting",
+		"requirement": "Agent menanyakan kesediaan waktu nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Mohon maaf mengganggu waktunya ya Pak/Bu",
+			"Izin meminta waktunya sebentar ya, Pak/Bu",
+			"Boleh minta waktunya sebentar, Pak/Bu?",
+			"Berkenan kami minta waktunya sebentar Pak/Bu untuk menyampaikan informasi promo-promo menarik yang bermanfaat untuk Bapak/Ibu",
+			"Kami ijin minta waktunya sebentar Pak/Bu, karna ada informasi promo yang bisa Bapak/Ibu manfaatkan",
+			"izin waktunya ya Pak/Bu",
+			"izin waktunya kembali ya Pak/Bu"
+		],
+		"scoring_rule": "SESUAI HANYA jika agent secara EKSPLISIT meminta atau menanyakan kesediaan WAKTU nasabah — ditandai penyebutan kata 'waktu' ATAU permintaan waktu yang jelas (mis. 'minta waktunya sebentar', 'berkenan minta waktunya', 'izin waktunya', 'boleh minta waktunya?'). Frasa izin/pembuka GENERIK yang TIDAK menyebut kesediaan waktu nasabah — mis. 'mohon izin', 'izin sebentar', 'permisi', 'mohon izin sebentar ya' — TIDAK memenuhi requirement ini dan dinilai BELUM_SESUAI, meskipun terdengar sopan. Kata kunci pembeda: adanya permintaan atas WAKTU nasabah, bukan sekadar permintaan izin."
+	},
+	{
+		"kb_code": "KB_CL_5",
+		"category": "Probing",
+		"requirement": "Agent menawarkan produk Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Bapak/Ibu mendapatkan fasilitas Mega Cashline",
+			"Bapak/Ibu terpilih untuk menggunakan fasilitas Mega Cashline",
+			"Bapak/Ibu terpilih untuk dapat menikmati Fasilitas Mega Cashline",
+			"kami dengan senang hati menginformasikan Bapak/Ibu terpilih untuk dapat menikmati Fasilitas Mega Cashline serta perlindungan atas tagihan fasilitas Mega Cashline",
+			"Mega Cashline ini merupakan pinjaman dana tunai tanpa agunan dalam bentuk limit kartu virtual yang limitnya bisa dicairkan langsung ke rekening Bapak/Ibu"
+		]
+	},
+	{
+		"kb_code": "KB_CL_6",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan tenor cicilan Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details": {
+			"tenor_cicilan": [12, 24, 36]
+		},
+		"example_phrases": [
+			"Tenor cicilan ada 12, 24 dan 36 bulan",
+			"Bapak/Ibu bisa ambil 12, 24, atau maksimal 36 bulan",
+			"jangka waktu yang tersedia adalah 12, 24 atau 36 bulan",
+			"dari limit yang tersedia mau ambil tenor yang mana?"
+		]
+	},
+	{
+		"kb_code": "KB_CL_7",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan bunga Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"must_include_term": "effective rate",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi. Penyebutan bunga WAJIB menyertakan kata \"effective rate\" (atau ejaan \"efektif rate\"); jika \"effective rate\"/\"efektif rate\" tidak disebutkan, item BELUM_SESUAI."
+		},
+		"scoring_rule": "SESUAI HANYA jika penyebutan bunga MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '1,75% - 2,2% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI (bunga tidak sesuai acuan). Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
+		"details" : {
+			"suku_bunga_cicilan" : "1,75% - 2,2% flat per bulan",
+			"suku_bunga_revolving" : "0,1%/hari (berlaku untuk pencairan dana via ATM Bank Mega)"
+		},
+		"example_phrases": [
+			"Bunganya 1,75% per bulan dihitung berdasarkan effective rate",
+			"Bunga flat 1,75% sampai 2,2% per bulan berdasarkan efektif rate",
+			"Bunga promonya di xx% per bulan dihitung berdasarkan effective rate"
+		]
+	},
+	{
+		"kb_code": "KB_CL_8",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan biaya provisi Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"scoring_rule": "SESUAI HANYA jika penyebutan provisi MEMUAT KEDUA unsur: (1) BESARAN — angka persentase (simbol '%' atau kata 'persen') dari LIMIT KREDIT / total limit yang disetujui (mis. '2% dari limit kredit'); DAN (2) WAKTU MULAI BERLAKU — dinyatakan dikenakan/berlaku MULAI TAHUN KE-2 (terima variasi ejaan/ASR: 'mulai tahun ke-2', 'mulai tahun kedua', 'mulai tahun ke 2', 'tahun ke-2', 'tahun kedua'). Jika unsur 'mulai tahun ke-2' TIDAK disebut -> BELUM_SESUAI (reason: penyebutan provisi tidak menyatakan mulai tahun ke-2). Bentuk baku: 'xx% dari limit kredit mulai tahun ke-2'.",
+		"details" : {
+			"biaya_provisi" : "2% dari total limit yang disetujui dan akan dikenakan mulai tahun ke 2"
+		},
+		"example_phrases": [
+			"biaya provisi Mega Cashline sebesar 2% dari total limit yang disetujui dan akan dikenakan mulai tahun ke 2"
+		]
+	},
+	{
+		"kb_code": "KB_CL_9",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan nominal cicilan Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details" : {
+			"cicilan_bulanan" : "(jumlah pinjaman / tenor) + (jumlah pinjaman x bunga)"
+		}
+		"example_phrases": [
+			"Jika Bapak/Ibu memilih tenor xx bulan, maka nominal cicilan bulanan sebesar xx Rupiah",
+			"Nominal cicilan yang dibayarkan sebesar xx Rupiah"
+		]
+	},
+	{
+		"kb_code": "KB_CL_10",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan nominal pencairan Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details" : {
+			"limit_pencairan_minimal" : "2 juta Rupiah"
+			"limit_pencairan_maksimal" : "200 juta Rupiah"
+		}
+		"example_phrases": [
+			"Dana yang dapat kami cairkan yaitu sebesar Rp xxx (sebutkan nominal dana) dari limit yang tersedia",
+			"Bapak/Ibu dapat mencairkan dana tunai dengan limit sebesar Rp xxx",
+			"Dana tunai dengan limit 2 juta hingga xx juta Rupiah (xx tidak boleh lebih dari 200)"
+		]
+	},
+	{
+		"kb_code": "KB_CL_11",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan biaya admin Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details" : {
+			"biaya_admin" : {
+				"pencairan <= 20 juta rupiah" : "150 ribu Rupiah",
+				"pencairan > 20 juta rupiah sampai <= 50 juta rupiah" : "300 ribu Rupiah",
+				"pencairan > 50 juta rupiah" : "500 ribu Rupiah"
+			}
+		}
+		"example_phrases": [
+			"Biaya Administrasi Mega Cashline sebesar xxx Rupiah (sesuai tiering)",
+			"biaya admin sebesar xxx Rupiah",
+			"dikenakan admin sebesar xxx Rupiah"
+		]
+	},
+	{
+		"kb_code": "KB_CL_12",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent memastikan rekening pencairan dengan meminta dan menerima konfirmasi nama bank dari customer",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "BANK_NAME",
+				"description": "Nama bank tujuan pencairan dana Mega Cashline"
+			}
+		],
+		"agent_example_phrases": [
+			"untuk dana ini akan ditransfer ke bank apa Pak/Bu?",
+			"pencairannya nanti ke bank apa ya Pak/Bu?",
+			"boleh diinformasikan nama bank untuk pencairan dananya?"
+		],
+		"customer_example_responses": [
+			"ke BCA",
+			"ke Bank Mandiri",
+			"rekening saya di BRI"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_13",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menyebutkan atau menanyakan nama pemilik rekening pencairan dana Mega Cashline; jawaban/konfirmasi customer TIDAK diwajibkan.",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"interaction_rule": {
+			"type": "AGENT_STATES_OR_ASKS",
+			"customer_response_required": false,
+			"note": "Requirement terpenuhi bila AGENT menyebutkan atau menanyakan nama pemilik rekening pencairan Mega Cashline; jawaban/konfirmasi dari customer TIDAK diwajibkan."
+		},
+		"required_customer_entities": [],
+		"agent_example_phrases": [
+			"rekening pencairannya atas nama xxx ya",
+			"boleh disebutkan rekeningnya atas nama siapa?",
+			"apakah rekeningnya atas nama xxx?"
+		],
+		"customer_example_responses": [
+			"(opsional - tidak wajib ada jawaban customer)",
+			"atas nama XXX"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_MENTION"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_14",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menanyakan nomor rekening pencairan dana Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ACCOUNT_NUMBER",
+				"description": "Nomor rekening pencairan Mega Cashline"
+			}
+		],
+		"agent_example_phrases": [
+			"boleh disebutkan nomor rekeningnya Pak/Bu?",
+			"apakah benar di nomor rekening berikut?",
+			"nomor rekening nya Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"(langsung menyebutkan nomor rekening)",
+			"nomor rekeningnya 123456789000"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_15",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan ketentuan pelunasan dipercepat Mega Cashline", 
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details" : {
+			"biaya_pelunasan_dipercepat" : "7% dari sisa pokok pinjaman"
+		}
+		"example_phrases": [
+			"Apabila Bapak/Ibu memiliki rezeki lebih dan ingin melakukan pelunasan di awal sebelum berakhir tenor, bapak/ibu hanya diwajibkan untuk membayarkan sisa pokok pinjaman yang belum dibayarkan ditambah pinalty 7% saja"
+			"pelunasan dipercepat dikenakan pinalti 7$ dari sisa pokok pinjaman"
+		]
+	},
+	{
+		"kb_code": "KB_CL_16",
+		"category": "Penjelasan Mega Cashline",
+		"requirement": "Agent menjelaskan tanggal jatuh tempo atau tanggal cetak tagihan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_MENTION_BEFORE_FINAL_CONFIRMATION",
+			"fallback": "FINAL_CONFIRMATION",
+			"multi_call_note": "LATEST dan BEFORE Final Confirmation dinilai memakai posisi (call_index, timestamp), bukan timestamp saja. Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi."
+		},
+		"details" : {
+			"tanggal_cetak_tagihan" : "tanggal pemberitahuan tagihan atau tanggal cetak",
+			"tanggal_jatuh_tempo" : "20 hari kalender setelah tanggal cetak tagihan"
+		},
+		"example_phrases": [
+			"jatuh temponya 20 hari kalender setelah tanggal cetak",
+			"pembayaran maksimal 20 hari kalender setelah tanggal cetak",
+			"tagihan tercetak di tanggal 16 atau 25",
+			"tanggal cetak di tanggal 16 atau 25"
+		],
+		"scoring_rule": "SESUAI jika salah satu terpenuhi: agent menjelaskan tanggal cetak tagihan ATAU tanggal jatuh tempo Mega Cashline. Tidak harus keduanya; cukup salah satu."
+	},
+	{
+		"kb_code": "KB_CL_17",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menjelaskan besaran premi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"details" : {
+			"premi" : "0,68% per bulan dari total tagihan terhutang Mega Cashline"
+		}
+		"example_phrases": [
+			"Preminya relatif kecil, hanya 0.68% per bulan",
+			"preminya hanya 0,68% per bulan"
+		]
+	},
+	{
+		"kb_code": "KB_CL_18",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menanyakan kesediaan pernyataan Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Karena kepesertaan dalam program perlindungan tagihan ini tidak memerlukan pemeriksaan kesehatan, kami memerlukan Pernyataan Kesehatan dari Bapak/Ibu sebagai syarat pengajuan Mega Ultimate Shield. 
+			Apakah Bapak/Ibu bersedia? Mohon dijawab YA atau TIDAK"
+		]
+	},
+	{
+		"kb_code": "KB_CL_19",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menyampaikan Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Mohon dijawab sebenar-benarnya dikarenakan pernyataan ini merupakan pernyataan penting, dan merupakan pertimbangan utama dari perusahaan asuransi saat mengkaji pengajuan klaim.
+			Berikut Pernyataan Kesehatan-nya: 
+			''Saya (sebutkan nama nasabah lengkap) menyatakan bahwa saya:
+			- pertama, dalam keadaan sehat dan tidak sedang dalam pengobatan atau perawatan dari dokter untuk suatu penyakit atau kecelakaan, 
+			- kedua, saat ini tidak dirawat di rumah sakit
+			- (Khusus Wanita)ketiga, tidak dalam keadaan mengandung lebih dari 7 bulan""
+		]
+	},
+	{
+		"kb_code": "KB_CL_20",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menanyakan konfirmasi Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Mohon dijawab sebenar-benarnya dikarenakan pernyataan ini merupakan pernyataan penting, dan merupakan pertimbangan utama dari perusahaan asuransi saat mengkaji pengajuan klaim.
+			Berikut Pernyataan Kesehatan-nya: 
+			''Saya (sebutkan nama nasabah lengkap) menyatakan bahwa saya:
+			- pertama, dalam keadaan sehat dan tidak sedang dalam pengobatan atau perawatan dari dokter untuk suatu penyakit atau kecelakaan, 
+			- kedua, saat ini tidak dirawat di rumah sakit
+			- (Khusus Wanita)ketiga, tidak dalam keadaan mengandung lebih dari 7 bulan.
+			Apakah Pernyataan tersebut BENAR? Mohon dijawab YA atau TIDAK"
+		]
+	},
+	{
+		"kb_code": "KB_CL_21",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menjelaskan benefit Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"-Pertama Mohon maaf jika meninggal dunia karena kecelakaan uang pertanggungan yang didapatkan maksimum 500% dari total tagihan Mega Cashline, dan jika meninggal karena sakit maka uang pertanggungan yang didapatkan maksimum 200%.  Dimana 100% nya akan dibayarkan untuk melunasi tagihan bapak/ibu dan sisanya akan diserahkan kepada ahli waris Bapak/Ibu. 
+			- Kedua, apabila terjadi cacat tetap total manfaat santunan sebesar 100% dari total tagihan.
+			- ketiga, apabila terjadi cacat sebagian manfaat santunan hingga 10% dari total tagihan atau minimum sebesar 50 ribu selama 12 bulan
+			- Keempat, khusus untuk penyakit kritis, santunan 100% dari total tagihan Mega Cashline jika tertanggung untuk pertama kalinya terdiagnosa minimum salah satu penyakit kritis setelah mengikuti program Mega Ultima Shield ini. Penyakit kritis yang di cover seperti:
+				a. Infark Miokard; atau
+				b. Penyakit Pembuluh darah Koroner yang membutuhkan operasi by pass; atau
+				c. Stroke; atau 
+				d. Kanker; atau 
+				e. Gagal Fungsi Organ (Gagal Ginjal dan Gagal Hati),
+
+			Bapak/ibu jika saya hitung perkiraan premi dari Mega Cashline yang diambil, hanya Rp.xxxxx (Agent hitung dari dana cashline x 0.68%) di cicilan pertama, dan dibulan berikutnya premi ini akan berkurang sesuai dengan sisa tagihan Mega Cashline karena sebagian sudah mulai Bapak/Ibu bayarkan."
+		]
+	},
+	{
+		"kb_code": "KB_CL_22",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menjelaskan Ringkasan Informasi Produk dan Layanan (RIPLAY) dan sertifikat asuransi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Untuk informasi lebih lengkap mengenai fitur, manfaat, risiko, pengecualian, persyaratan dan tata cara klaim dapat dilihat pada Ringkasan Informasi Produk dan Layanan (RIPLAY) personal produk Mega Ultima Shield yang akan kami kirimkan melalui email. 
+			Sementara untuk Ringkasan Produk versi umum, dapat Bapak/Ibu unduh di website PFI Mega Life.
+			Setelah bapak/ibu menerima ringkasan tersebut, mohon dipelajari. Apabila ada pertanyaan mengenai Mega Ultima Shield silahkan menghubungi Customer Service PFI Mega Life di 021-29545555.
+			Sebagai bukti keikutsertaan dalam produk Mega Ultima Shield, maka akan dikirimkan salinan Sertifikat Asuransi  melalui whatsapp sesuai dengan nomor handphone yang terdaftar pada sistem Bank Mega dan akan  diterima paling lambat 10 hari kerja setelah  penawaran ini. Dan untuk hardcopy Sertifikat Asuransi akan dititipkan di PFI Mega Life.
+			Produk Mega Ultima Shield ini merupakan produk asuransi PT. PFI Mega Life Insurance yang telah disetujui OJK dan bukan merupakan produk maupun tanggung jawab Bank Mega serta tidak termasuk dalam cakupan program penjaminan pemerintah. PT. PFI Mega Life Insurance adalah Perusahaan asuransi jiwa yang berizin dan diawasi oleh OJK"
+		]
+	},
+	{
+		"kb_code": "KB_CL_23_1",
+		"category": "Verifikasi",
+		"verification_type": "STATIC",
+		"requirement": "Agent memverifikasi tanggal lahir nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "BIRTH_DATE",
+				"description": "Tanggal lahir customer"
+			}
+		],
+		"rules": [
+			"tanggal lahir WAJIB benar",
+			"TAHUN LAHIR 2000-AN WAJIB 4 DIGIT: bila tahun lahir nasabah >= 2000, nasabah HARUS menyebutkan tahunnya lengkap 4 digit (mis. lahir 6 Juni 2005 -> '06 06 2005'). Menyebut 2 digit saja ('06 06 05') AMBIGU (1905 atau 2005) sehingga verifikasi DITOLAK LANGSUNG -> BELUM_SESUAI, meskipun tanggal dan bulannya benar, dan TIDAK masuk zona dokumen pendukung KTP. Untuk tahun lahir <= 1999, tahun 2 digit tetap diterima (mis. lahir 6 Juni 1955 boleh '06 06 55'). Lihat ATURAN TAHUN LAHIR 20XX WAJIB 4 DIGIT di prompt.",
+			"maksimal 3 kali pengulangan / pergantian pertanyaan statik",
+			"STATIC CONSISTENCY: keluarkan SEMUA penyebutan/jawaban tanggal lahir dari customer (maksimal 3 penyebutan), lalu bandingkan antar-penyebutan. Jika kesamaan (similarity) antar-penyebutan >= 90%, cocokkan SEMUA penyebutan itu ke acuan ascend lalu pakai penyebutan dengan similarity TERTINGGI terhadap ascend (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Jika kesamaan antar-penyebutan < 90% (customer memberi jawaban berbeda-beda), verifikasi DITOLAK -> BELUM_SESUAI, meskipun salah satu penyebutan cocok dengan acuan. Lihat STATIC VERIFICATION CONSISTENCY RULE di prompt."
+		],
+		"agent_example_phrases": [
+			"mohon dibantu tanggal lahirnya?",
+			"boleh disebutkan tanggal lahirnya?
+		],
+		"customer_example_responses": [
+			"(langsung menyebut tanggal lahir)"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_23_2",
+		"category": "Verifikasi",
+		"verification_type": "STATIC",
+		"requirement": "Agent memverifikasi nama ibu kandung nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "MOTHER_NAME",
+				"description": "Nama ibu kandung customer"
+			}
+		],
+		"rules": [
+			"nama ibu kandung WAJIB benar",
+			"maksimal 3 kali pengulangan / pergantian pertanyaan statik",
+			"STATIC CONSISTENCY: keluarkan SEMUA penyebutan/jawaban nama ibu kandung dari customer (maksimal 3 penyebutan), lalu bandingkan antar-penyebutan. Jika kesamaan (similarity) antar-penyebutan >= 90%, cocokkan SEMUA penyebutan itu ke acuan ascend lalu pakai penyebutan dengan similarity TERTINGGI terhadap ascend (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Jika kesamaan antar-penyebutan < 90% (customer memberi jawaban berbeda-beda), verifikasi DITOLAK -> BELUM_SESUAI, meskipun salah satu penyebutan cocok dengan acuan. Lihat STATIC VERIFICATION CONSISTENCY RULE di prompt."
+		],
+		"agent_example_phrases": [
+			"mohon dibantu Nama Ibu Kandung?",
+			"boleh dibantu nama ibu kandungnya Pak/Bu?
+		],
+		"customer_example_responses": [
+			"(langsung menyebut nama ibu kandung)"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_24",
+		"category": "Verifikasi Dinamis",
+		"verification_type": "DYNAMIC",
+		"requirement": "Agent melakukan verifikasi dinamis dengan minimal 2 pertanyaan",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"min_verification_required": 2,
+		"allowed_parameters": [
+			{
+				"param_code": "VD_1",
+				"param_name": "Alamat Pengiriman Tagihan",
+				"semantic_intent": "alamat pengiriman tagihan",
+				"priority": 9,
+				"address_source_mode": "DUAL",
+				"allowed_sources": ["AGENT", "CUSTOMER"],
+				"required_entities": ["STREET", "CITY"],
+				"evidence_rule": {
+					"quote_scope": "HYBRID_ADDRESS_WINDOW",
+					"max_window": 3,
+					"stop_condition": "MIN_REQUIRED_ENTITIES_FOUND",
+					"min_required_entities": 2,
+					"anchor_intent": "ADDRESS_REQUEST",
+					"allow_only_first_anchor": true
+				},
+				"example_phrases": [
+					"alamat pengiriman tagihan",
+					"saya bacakan alamat"
+				]
+			},
+			{
+				"param_code": "VD_2",
+				"param_name": "Alamat Rumah",
+				"semantic_intent": "Alamat Rumah nasabah yang terdaftar",
+				"priority": 7,
+				"address_source_mode": "DUAL",
+				"allowed_sources": ["AGENT", "CUSTOMER"],
+				"required_entities": ["STREET", "CITY"],
+				"evidence_rule": {
+					"quote_scope": "HYBRID_ADDRESS_WINDOW",
+					"max_window": 3,
+					"stop_condition": "MIN_REQUIRED_ENTITIES_FOUND",
+					"min_required_entities": 2,
+					"anchor_intent": "ADDRESS_REQUEST",
+					"allow_only_first_anchor": true
+				},
+				"example_phrases": [
+					"boleh disampaikan alamat rumah yang terdaftar?",
+					"saya bacakan alamat rumah Bapak/Ibu ya"
+				]
+			},
+			{
+				"param_code": "VD_3",
+				"param_name": "Nomor Telepon Rumah",
+				"semantic_intent": "verifikasi nomor telepon rumah nasabah",
+				"semantic_type": "PHONE",
+				"priority": 1,
+				"required_customer_entities": ["PHONE_DIGIT"],
+				"min_required_entities": 1,
+				"requires_explicit_value": true,
+				"evidence_rule": {
+					"quote_scope": "ACCUMULATED_CUSTOMER_WINDOW",
+					"max_window": 6,
+					"stop_condition": "DIGIT_SEQUENCE_STABLE",
+					"anchor_intent": "PHONE_HOME_REQUEST",
+					"allow_only_first_anchor": true
+				},
+				"example_phrases": [
+					"nomor telepon rumah",
+					"telepon rumah yang terdaftar"
+				]
+			},
+			{
+				"param_code": "VD_4",
+				"param_name": "alamat kantor",
+				"semantic_intent": "alamat kantor nasabah yang terdaftar",
+				"priority": 8,
+				"address_source_mode": "DUAL",
+				"allowed_sources": ["AGENT", "CUSTOMER"],
+				"required_entities": ["STREET", "CITY"],
+				"evidence_rule": {
+					"quote_scope": "HYBRID_ADDRESS_WINDOW",
+					"max_window": 3,
+					"stop_condition": "MIN_REQUIRED_ENTITIES_FOUND",
+					"min_required_entities": 2,
+					"anchor_intent": "ADDRESS_REQUEST",
+					"allow_only_first_anchor": true
+				},
+				"example_phrases": [
+					"boleh disampaikan alamat kantor yang terdaftar?",
+					"saya bacakan alamat kantor Bapak/Ibu ya"
+				]
+			},
+			{
+				"param_code": "VD_5",
+				"param_name": "nomor telepon kantor",
+				"semantic_intent": "nomor telepon kantor nasabah yang terdaftar",
+				"semantic_type": "PHONE",
+				"priority": 3,
+				"required_customer_entities": ["PHONE_DIGIT"],
+				"min_required_entities": 1,
+				"requires_explicit_value": true,
+				"evidence_rule": {
+					"quote_scope": "ACCUMULATED_CUSTOMER_WINDOW",
+					"max_window": 6,
+					"stop_condition": "DIGIT_SEQUENCE_STABLE",
+					"anchor_intent": "PHONE_OFFICE_REQUEST",
+					"allow_only_first_anchor": true
+				},
+				"example_phrases": [
+					"nomor telepon kantor",
+					"telepon kantor yang terdaftar"
+				]
+			},
+			{
+				"param_code": "VD_6",
+				"param_name": "alamat email terdaftar",
+				"semantic_intent": "alamat email terdaftar nasabah",
+				"priority": 2,
+				"example_phrases": [
+					"boleh disebutkan alamat email yang terdaftar?"
+				]
+			},
+			{
+				"param_code": "VD_7",
+				"param_name": "nama kartu suplement",
+				"accepts_none": true,
+				"semantic_intent": "nama yant tertera pada kartu suplement nasabah",
+				"priority": 4,
+				"example_phrases": [
+					"boleh disebutkan nama kartu suplement yang dimiliki?"
+				]
+			},
+			{
+				"param_code": "VD_8",
+				"param_name": "jumlah kartu suplement",
+				"accepts_none": true,
+				"semantic_intent": "jumlah kartu suplement yang dimiliki nasabah",
+				"priority": 5,
+				"example_phrases": [
+					"boleh disebutkan jumlah kartu suplement yang dimiliki saat ini?"
+				]
+			},
+			{
+				"param_code": "VD_9",
+				"param_name": "nama keluarga dekat/relasi",
+				"semantic_intent": "nama keluarga dekat/relasi yang terdaftar",
+				"priority": 6,
+				"example_phrases": [
+					"boleh disebutkan nama keluarga dekat atau relasi?"
+				]
+			}
+		],
+		"rules": [
+			"wajib pilih minimal 2 dari allowed_parameters",
+			"kesalahan verifikasi maksimal 2 kali",
+			"kesalahan jawaban maksimal 1 kali",
+			"maksimal 4 kali pertanyaan"
+		]
+	},
+	{
+		"kb_code": "KB_CL_25",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi limit pencairan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"untuk pengajuan mega cashline dan mega ultima shield dengan detail sebagai berikut : Mega cashline sebesar 50 juta rupiah",
+			"untuk dana kita cairkan sebesar Rp xxx"
+		]
+	},
+	{
+		"kb_code": "KB_CL_26",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi tenor cicilan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"pengajuan mega cashline sebesar Rp xxx dengan tenor xx bulan",
+			"untuk dana kita cairkan dengan nominal Rp xxx dengan tenor xx bulan"
+		]
+	},
+	{
+		"kb_code": "KB_CL_27",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi bunga Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"must_include_term": "effective rate",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi DAN penyebutan bunga WAJIB menyertakan kata \"effective rate\" (atau ejaan \"efektif rate\"). Jika \"effective rate\"/\"efektif rate\" tidak disebutkan, item BELUM_SESUAI."
+		},
+		"scoring_rule": "SESUAI HANYA jika penyebutan bunga (di segmen Final Konfirmasi) MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '1,75% - 2,2% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI. Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
+		"example_phrases": [
+			"Bunga promonya di xx% per bulan dihitung berdasarkan effective rate",
+			"Dengan bunga xx% per bulan dihitung berdasarkan efektif rate",
+			"Dengan bunga xx% per bulan dihitung berdasarkan effective rate"
+		]
+	},
+	{
+		"kb_code": "KB_CL_28",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi biaya provisi Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"scoring_rule": "SESUAI HANYA jika penyebutan provisi (di segmen Final Konfirmasi) MEMUAT KEDUA unsur: (1) BESARAN — angka persentase (simbol '%' atau kata 'persen') dari LIMIT KREDIT / total limit yang disetujui (mis. '2% dari limit kredit'); DAN (2) WAKTU MULAI BERLAKU — dinyatakan dikenakan/berlaku MULAI TAHUN KE-2 (terima variasi ejaan/ASR: 'mulai tahun ke-2', 'mulai tahun kedua', 'mulai tahun ke 2', 'tahun ke-2', 'tahun kedua'). Jika unsur 'mulai tahun ke-2' TIDAK disebut -> BELUM_SESUAI (reason: penyebutan provisi tidak menyatakan mulai tahun ke-2). Bentuk baku: 'xx% dari limit kredit mulai tahun ke-2'.",
+		"details" : {
+			"biaya_provisi" : "2% dari total limit yang disetujui dan akan dikenakan mulai tahun ke 2"
+		},
+		"example_phrases": [
+			"biaya provisi Mega Cashline sebesar 2% dari total limit yang disetujui dan akan dikenakan mulai tahun ke 2"
+		]
+	},
+	{
+		"kb_code": "KB_CL_29",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi nominal cicilan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"Sehingga Cicilan per bulan untuk Dana Tunai Mega Cashline : Rp xxx",
+			"untuk angsuran per bulannya Rp xxx",
+			"sehingga perbulan Bapak/Ibu membayar sebesar Rp xxx"
+		]
+	},
+	{
+		"kb_code": "KB_CL_30",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi biaya admin Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"Admin fee sekali di awal aja Rp xxx tidak memotong dana yang diterima",
+			"biaya admin sesuai tiering Rp xxx"
+		]
+	},
+	{
+		"kb_code": "KB_CL_31",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi ketentuan limit pencairan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"Diinformasikan kembali ya Pak/ Bu bahwa limit terundang merupakan pengajuan, dan pemberian limit tergantung pada analis yang dapat bertambah atau berkurang."
+		]
+	},
+	{
+		"kb_code": "KB_CL_32",
+		"category": "Final Konfirmasi Mega Cashline",
+		"requirement": "Agent melakukan konfirmasi ketentuan pelunasan dipercepat Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
+		},
+		"example_phrases": [
+			"Apabila melakukan Pelunasan di awal sebelum berakhir tenor, bapak/ibu hanya diwajibkan untuk membayarkan sisa pokok ditambah pinalty 7% saja"
+		]
+	},
+	{
+		"kb_code": "KB_CL_33",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent melakukan konfirmasi pernyataan setuju/tidak setuju terkait sharing data customer dari Bank Mega ke PFI Mega Life atas keikutsertaan Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Untuk Mega Ultima Shield ini, merupakan produk asuransi dari PFI Mega Life Insurance yang telah disetujui OJK dan bukan merupakan produk Bank Mega. PFI Mega Life Insurance adalah Perusahaan asuransi jiwa yang berizin dan diawasi oleh OJK. Dengan demikian, Data Bapak/Ibu akan kami sampaikan kepada PFI Mega Life Insurance untuk proses keikutsertaan program asuransi ini. bapak/ibu setuju? (mohon dijawab setuju/ya)"
+		]
+	},
+	{
+		"kb_code": "KB_CL_34",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi pengiriman salinan sertifikat asuransi melalui Whatsapp dan hardcopy sertifikat asuransi disimpan di PFI Mega Life Insurance",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Sebagai bukti keikutsertaan Bapak/ibu dalam produk Mega Ultima Shield, maka akan dikirimkan salinan sertifikat asuransi melalui whatsapp sesuai dengan nomor handphone yang terdaftar pada sistem Bank Mega dan akan diterima paling lambat 10 hari kerja setelah penawaran ini. 
+			Sebagai informasi, hardcopy sertifikat asuransi disimpan di PFI Mega Life Insurance. 
+			Bapak/ibu akan memperoleh Ringkasan Informasi Produk dan Layanan personal produk Mega Ultima Shield yang akan dikirimkan melalui email, atau untuk melihat versi umum, dapat Bapak/Ibu unduh di website PFI Mega Life Insurance (www.pfimegalife.co.id)"
+		]
+	},
+	{
+		"kb_code": "KB_CL_35",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi klaim",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Sebagai penutup, terdapat beberapa informasi penting yang perlu kami sampaikan, agar proses claim dapat berjalan dengan baik, yaitu:
+			- Pertama, Informasikan kepada ahli waris Bapak/Ibu bahwa bapak/Ibu memiliki proteksi terhadap fasilitas Mega Cashline.
+			- Kedua, terdapat batas waktu pengajuan klaim maksimal 90 hari kalender sejak tanggal terjadinya resiko yaitu meninggal dunia, mengalami cacat atau terdiagnosa penyakit kritis."
+		]
+	},
+	{
+		"kb_code": "KB_CL_36",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi pemahaman customer terkait penjelasan produk Mega Ultima Shield dengan menyebutkan tanggal hari ini",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Baik Bapak/Ibu, saya lanjutkan pada hari ini (sebutkan tanggal) sudah mengerti dan memahami penjelasan Mega Ultima Shield dan setuju pegaktifan Mega Ultima Shield pada Kartu Kredit / Mega Cashline Bapak/Ibu, dan akan tertagih pada billing cycle Bapak/Ibu."
+		]
+	},
+	{
+		"kb_code": "KB_CL_37",
+		"category": "Legal Statement Mega Cashline",
+		"requirement": "Agent menyampaikan legal statement kepada customer terkait persetujuan Mega Cashline",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Bapak / Ibu YYY setuju untuk kami proses program Pencairan Dana Tunai dan Pengiriman Kartu Cashline? 
+			Mohon dibantu dengan jawaban IYA atau SETUJU"
+		],
+		"customer_example_responses": [
+			"IYA",
+			"SETUJU"
+		],
+		"scoring_rule": "SESUAI HANYA jika KEDUANYA terpenuhi: (1) AGENT MEMINTA PERSETUJUAN EKSPLISIT nasabah untuk MEMPROSES/MELANJUTKAN fasilitas Mega Cashline (mis. \"Bapak/Ibu setuju untuk kami proses program Pencairan Dana Tunai / fasilitas Mega Cashline? mohon dibantu jawaban IYA atau SETUJU\"), DAN (2) NASABAH MERESPONS AFIRMATIF menyetujui (\"iya\"/\"setuju\"/\"ya, setuju\"). BELUM_SESUAI bila: agent hanya MEMBACAKAN legal statement/recap TANPA meminta persetujuan eksplisit; ATAU agent hanya menanyakan KEJELASAN (\"jelas ya?\"/\"paham ya?\") bukan PERSETUJUAN; ATAU nasabah hanya menjawab \"oke\"/\"jelas\"/\"paham\" terhadap pertanyaan kejelasan (bukan terhadap permintaan persetujuan untuk diproses). CATATAN: persetujuan atas DATA PRIBADI / asuransi Mega Ultima Shield BUKAN persetujuan Mega Cashline dan TIDAK memenuhi item ini.",
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_CL_38",
+		"category": "Legal Statement Mega Ultima Shield",
+		"requirement": "Agent menyampaikan legal statement kepada customer terkait persetujuan Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Bapak / Ibu YYY setuju untuk kami aktifan program perlindungan Mega ultima shield pada kartu XXXX (sebutkan jenis kartu)? 
+			Mohon dibantu dengan jawaban IYA atau SETUJU",
+			"Bapak / Ibu YYY setuju untuk kami proses program Pencairan Dana Tunai, Pengiriman Kartu Cashline dan pengaktifan Mega ultima shield pasa kartu cashline? 
+			Mohon dibantu dengan jawaban IYA atau SETUJU",
+			"Bapak / Ibu YYY setuju untuk kami proses program Pencairan Dana Tunai, Pengiriman Kartu Cashline, pegaktifan Mega Ultima Shield pada kartu cashline serta Kartu Tambahan yaitu xxx (sebutkan jumlah kartu tambahan yang di proses) ? 
+			Mohon dibantu dengan jawaban IYA atau SETUJU",
+			"Bapak / Ibu YYY setuju untuk kami aktifan program perlindungan Mega ultima shield dan proses Kartu Tambahan yaitu xxx (sebutkan jumlah kartu tambahan yang di proses) pada kartu XXXX (sebutkan jenis kartu)? 
+			Mohon dibantu dengan jawaban IYA atau SETUJU",
+			"Bapak / Ibu YYY setuju untuk kami proses program Pencairan Dana Tunai, Pengiriman Kartu Cashline, pegaktifan Mega Ultima Shield pada kartu cashline dan kartu XXXX (sebutkan jenis kartu) serta proses Kartu Tambahan yaitu xxx (sebutkan jumlah kartu tambahan yang di proses) ?
+			Mohon dibantu dengan jawaban IYA atau SETUJU"
+		],
+		"customer_example_responses": [
+			"IYA",
+			"SETUJU"
+		],
+		"evidence_rule": {
+			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	}
+]

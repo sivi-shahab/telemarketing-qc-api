@@ -1,14 +1,23 @@
-"""Agent Error Summary — for a single result, the agent (from the cashline CSV)
+"""Agent Error Summary — for a single result, the agent (dari baris cashline)
 and campaign interest together with that result's error-code table.
 
+``agent_id`` & ``submit_time`` dibaca SNAPSHOT-FIRST: dari
+``result_json["reference_data"]["cashline"]`` yang disimpan worker saat evaluasi —
+sumber yang SAMA dengan ``crud.cashline_agent_index()`` (hierarki Statistics,
+scope Team Leader) dan ``crud.tms_submit_time_map()`` (timer SLA H+2 Pending
+Check). Baris cashline DWH live (``crud.get_tms_cashline_by_result_id`` ->
+services/data_dwh) cuma fallback untuk result yang dievaluasi sebelum snapshot itu
+ada, jadi endpoint ini tidak lagi ikut kosong ketika App A tidak menjawab.
+
 Surfaced inside the Results row dropdown untuk SEMUA role, dengan isi yang identik:
-  Agent ID    <- tms_cashline ``agent_id`` (matched by result_id == customer ID)
+  Agent ID    <- cashline ``agent_id`` (snapshot, fallback DWH live by
+                 result_id == customer ID)
   Agent Name  <- NAME from the active sales database, matched by USER ID == agent_id;
                  falls back to the alphabetic chars of agent_id when unmatched.
   New Joiner  <- "NEW JOINER" when the agent joined < 18 days before submit_time,
                  else "-" (Sales Agent column).
   Campaign    <- evaluation ``campaign_interest`` (bullet list)
-  Tanggal     <- cashline CSV ``submit_time``
+  Tanggal     <- cashline ``submit_time`` (snapshot, fallback DWH live)
   Ticket ID / Detail Error / Reason  <- per-row from build_error_code_table().
 """
 from typing import Optional
@@ -27,6 +36,7 @@ from compliance.error_codes import (
     apply_approved_critical_compliance_appeals,
     appeals_that_flip,
     approved_appeals_only,
+    normalize_static_verification,
     build_error_code_table,
     inject_added_rows,
     relabel_error_table,
@@ -61,16 +71,43 @@ def _campaign_interest(evaluation: dict) -> list:
     if (evaluation.get("mus_interest") or {}).get("status") == "INTERESTED":
         out.append("Mega Ultima Shield")
     return out
+def _snapshot_cashline(result_data) -> dict:
+    """Snapshot baris cashline yang disisipkan worker ke ``result_json`` saat
+    evaluasi (``reference_data.cashline`` — lihat worker/tasks/process_transcript.py).
+    ``{}`` bila belum ada (hasil evaluasi sebelum snapshot itu disimpan)."""
+    if result_data is None or not isinstance(result_data.result_json, dict):
+        return {}
+    ref = result_data.result_json.get("reference_data")
+    if not isinstance(ref, dict):
+        return {}
+    cashline = ref.get("cashline")
+    return cashline if isinstance(cashline, dict) else {}
 @router.get("/agent_error_summary/{result_id}")
 def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
     """Agent + campaign + error-code rows for one result (used in the Results dropdown)."""
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=404, detail="result tidak ditemukan")
-    cid = _customer_id(result.source_files)
-    cashline_row = crud.get_tms_cashline_by_result_id(db, cid) if cid else None
-    ref = cashline_row or {}
-    agent_id = (ref.get("agent_id") or "").strip() or None
+    # [FIX] agent_id & submit_time (Tanggal) dibaca dari SNAPSHOT
+    # ``reference_data.cashline`` di result_json dulu, baru jatuh ke baris DWH
+    # live. Sebelumnya HANYA dari DWH live, jadi Agent ID/Name/Tanggal kosong
+    # ("—") tiap kali App A tidak menjawab atau field-nya tidak ikut di endpoint
+    # cache — padahal hierarki Statistics, scope Team Leader dan timer SLA H+2
+    # (crud.cashline_agent_index / tms_submit_time_map) tetap punya nilainya dari
+    # snapshot. Sekarang semuanya membaca sumber yang sama.
+    data = crud.get_result_data(db, result_id)
+    snapshot = _snapshot_cashline(data)
+    agent_id = (snapshot.get("agent_id") or "").strip() or None
+    submit_time = (snapshot.get("submit_time") or "").strip() or None
+
+    # DWH live cuma disentuh kalau snapshot belum lengkap — dua field itu satu-
+    # satunya yang dipakai endpoint ini dari baris cashline, jadi snapshot yang
+    # utuh berarti nol panggilan HTTP tiap dropdown dibuka.
+    if not (agent_id and submit_time):
+        cid = _customer_id(result.source_files)
+        ref = (crud.get_tms_cashline_by_result_id(db, cid) if cid else None) or {}
+        agent_id = agent_id or (ref.get("agent_id") or "").strip() or None
+        submit_time = submit_time or (ref.get("submit_time") or "").strip() or None
 
     # [FIX] agent_name & nj sebelumnya dipakai di response tanpa pernah di-assign
     # -> NameError setiap kali endpoint ini dipanggil. Keduanya direkonstruksi
@@ -84,10 +121,12 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
             agent_name = (entry.get("name") or "").strip() or None
         if not agent_name:
             agent_name = _agent_name(agent_id)
-    nj = new_joiner_info(cashline_row, db)
+    # Pasangan agent_id/submit_time yang sama dipakai untuk tenure & selisih hari,
+    # supaya "Agent ID", "Tanggal", "durasi_bergabung" dan "selisih_hari" tidak
+    # pernah bercerita beda sumber (new_joiner_info hanya membaca dua key ini).
+    nj = new_joiner_info({"agent_id": agent_id, "submit_time": submit_time}, db)
 
     evaluation = {}
-    data = crud.get_result_data(db, result_id)
     if data is not None and isinstance(data.result_json, dict):
         ev = data.result_json.get("evaluation")
         if isinstance(ev, dict):
@@ -105,6 +144,8 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
         # remove/change appliers nor relabel_error_table (which would treat them
         # as removes and drop the very rows they add).
         flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
+        # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
+        evaluation = normalize_static_verification(evaluation)
         evaluation = apply_approved_appeals(evaluation, flip)
         evaluation = apply_approved_card_holder_appeals(evaluation, flip)
         evaluation = apply_approved_cashline_appeals(evaluation, flip)
@@ -149,6 +190,6 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
         "durasi_bergabung": nj["tenure"] or "-",
         "selisih_hari": nj["diff_days"],  # submit_time - JOIN POSISI, in days (None if unknown)
         "campaign": _campaign_interest(evaluation),
-        "tanggal": (ref.get("submit_time") or "").strip() or None,
+        "tanggal": submit_time,
         "errors": errors,
     }

@@ -9,9 +9,13 @@ from api.auth import (
     hash_password,
     verify_password,
 )
-from api.dependencies import get_spq_head_user, get_current_user, get_db
+from api.dependencies import get_current_user, get_db
+from api.permissions import ADMIN_USER_WRITE
+from api.rbac import require
 from api.schemas.auth import (
     AccessTokenResponse,
+    MeResponse,
+    UserListItem,
     RefreshRequest,
     TokenResponse,
     UserCreate,
@@ -75,8 +79,15 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
 def create_user(
     body: UserCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_spq_head_user),
+    current_user=Depends(require(ADMIN_USER_WRITE)),
 ):
+    from db.models import Role
+
+    if db.query(Role).filter(Role.key == body.role).first() is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Role '{body.role}' tidak dikenal",
+        )
     existing = db.query(User).filter(
         (User.username == body.username) | (User.email == body.email)
     ).first()
@@ -101,21 +112,36 @@ def create_user(
     return UserResponse.model_validate(user)
 
 
-@router.get("/users", response_model=list[UserResponse])
+@router.get("/users", response_model=list[UserListItem])
 def list_users(
     db: Session = Depends(get_db),
-    current_user=Depends(get_spq_head_user),
+    current_user=Depends(require(ADMIN_USER_WRITE)),
 ):
-    """List all users (SPQ Head only), newest first."""
+    """List all users (SPQ Head only), newest first, plus campaign efektif tiap user.
+
+    Campaign dihitung per user lewat ``effective_campaigns_for``; untuk sisi sales itu
+    berarti sekali pencarian ke peta roster, yang sudah di-cache per berkas aktif —
+    jadi ratusan user tidak berarti ratusan pembacaan XLSX.
+    """
+    from api import permissions as P
+    from api.rbac import data_scope_for, effective_campaigns_for, role_label_for
+
     users = db.query(User).order_by(User.id.desc()).all()
-    return [UserResponse.model_validate(u) for u in users]
+    out = []
+    for u in users:
+        item = UserListItem.model_validate(u)
+        item.role_label = role_label_for(db, u)
+        item.campaigns = effective_campaigns_for(db, u) or []
+        item.campaign_from_roster = P.is_sales_scope(data_scope_for(db, u))
+        out.append(item)
+    return out
 
 
 @router.delete("/users/{user_id}")
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_spq_head_user),
+    current_user=Depends(require(ADMIN_USER_WRITE)),
 ):
     """Delete a user (SPQ Head only). An SPQ Head cannot delete their own account."""
     if user_id == current_user.id:
@@ -139,9 +165,16 @@ def delete_user(
     return {"deleted": True, "id": user_id, "username": username}
 
 
-@router.get("/me", response_model=UserResponse)
-def me(current_user=Depends(get_current_user)):
-    return UserResponse(
+@router.get("/me", response_model=MeResponse)
+def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    from api.rbac import (
+        data_scope_for,
+        effective_campaigns_for,
+        permissions_for,
+        role_label_for,
+    )
+
+    return MeResponse(
         id=current_user.id,
         username=current_user.username,
         name=getattr(current_user, "name", None),
@@ -149,4 +182,11 @@ def me(current_user=Depends(get_current_user)):
         role=current_user.role,
         is_active=current_user.is_active,
         created_at=getattr(current_user, "created_at", None),
+        role_label=role_label_for(db, current_user),
+        permissions=sorted(permissions_for(db, current_user)),
+        data_scope=data_scope_for(db, current_user),
+        # Campaign EFEKTIF (tag roster untuk sisi sales), bukan yang dideklarasikan
+        # role — inilah yang benar-benar dilihat user, jadi itu pula yang ditampilkan.
+        # ``None`` (tanpa pembatasan) dikirim sebagai list kosong.
+        campaigns=effective_campaigns_for(db, current_user) or [],
     )

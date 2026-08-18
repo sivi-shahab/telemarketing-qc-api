@@ -15,7 +15,6 @@ from api.dependencies import (
     get_db,
     get_minio,
     get_settings,
-    get_spq_head_user,
 )
 from api.schemas.qc_database import (
     QcDatabaseItem,
@@ -23,8 +22,10 @@ from api.schemas.qc_database import (
     QcDatabaseUploadResponse,
 )
 from db import crud
+from api.permissions import ADMIN_QC_DATABASE_WRITE
+from api.rbac import require
 
-router = APIRouter(dependencies=[Depends(get_spq_head_user)])
+router = APIRouter(dependencies=[Depends(require(ADMIN_QC_DATABASE_WRITE))])
 
 _XLSX_EXT = ".xlsx"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

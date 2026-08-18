@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import ensure_buckets
 # qc_database dinonaktifkan (bucket qc-database di-comment di api/dependencies.py)
-from api.routers import agent_error, auth, campaign, document, error_code_appeal, qc_assignment, qc_manual_check, qc_status, sales_database, stats, transcript, webhook
+from api.routers import agent_error, auth, campaign, document, error_code_appeal, qc_assignment, qc_manual_check, qc_status, role, sales_database, stats, transcript, webhook
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(role.router)
 app.include_router(transcript.router)
 app.include_router(campaign.router)
 app.include_router(document.router)

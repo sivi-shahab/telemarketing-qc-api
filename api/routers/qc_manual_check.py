@@ -9,10 +9,12 @@ survives re-checks.
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy.orm import Session
 
-from api.dependencies import get_current_user, get_db, get_qc_user
+from api.dependencies import get_current_user, get_db
 from api.qc_scope import ensure_qc_assigned_to_result
 from api.schemas.result import QcManualCheckInfo
 from db import crud
+from api.permissions import QC_MANUAL_CHECK_APPROVE
+from api.rbac import require
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -34,12 +36,12 @@ def approve_manual_check(
     result_id: str,
     note: str = Form(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_qc_user),
+    current_user=Depends(require(QC_MANUAL_CHECK_APPROVE)),
 ):
     """Mark a ticket as manually checked by the QC it is assigned to."""
     result = _validate_result(db, result_id)
     # A QC may only approve tickets assigned to them (same rule as every other
-    # QC action); non-QC roles never reach here thanks to get_qc_user.
+    # QC action); role tanpa QC_MANUAL_CHECK_APPROVE tidak pernah sampai sini.
     ensure_qc_assigned_to_result(db, current_user, result)
     return crud.create_qc_manual_check(
         db,

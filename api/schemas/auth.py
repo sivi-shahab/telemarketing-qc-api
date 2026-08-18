@@ -36,6 +36,13 @@ class UserCreate(BaseModel):
     @field_validator("role")
     @classmethod
     def validate_role(cls, v: str) -> str:
+        # Hanya normalisasi di sini. Keabsahannya dicek ke tabel ``roles`` di
+        # endpoint create_user, supaya role buatan operator ikut diterima —
+        # whitelist statis di bawah tinggal jadi rujukan role bawaan.
+        return v.lower()
+
+    @classmethod
+    def _unused_validate_role(cls, v: str) -> str:
         v = v.lower()
         if v not in VALID_ROLES:
             raise ValueError(f"role harus salah satu dari {sorted(VALID_ROLES)}")
@@ -52,3 +59,32 @@ class UserResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class UserListItem(UserResponse):
+    """Baris daftar user di menu Manage User.
+
+    ``campaigns`` = campaign EFEKTIF user tersebut. Untuk sisi sales nilainya berasal
+    dari kolom Dedicated di Sales Database, bukan dari role — ditampilkan supaya
+    SPQ Head bisa memeriksa tag itu tanpa membuka berkas roster, termasuk menemukan
+    user yang tag-nya kosong (tidak ada di roster => tidak melihat tiket apa pun).
+    """
+    role_label: str = ""
+    campaigns: list[str] = []
+    # True bila cakupan datanya sisi sales — hanya untuk role itulah "campaign kosong"
+    # berarti bermasalah; role lain memang tidak dibatasi campaign.
+    campaign_from_roster: bool = False
+
+
+class MeResponse(UserResponse):
+    """``/auth/me`` — profil PLUS hak akses yang menggerakkan menu di dashboard.
+
+    Sidebar dan guard router dulu memuat daftar role hardcoded; sekarang keduanya
+    membaca ``permissions`` di sini, sehingga role buatan operator ikut berfungsi
+    tanpa mengubah kode frontend.
+    """
+    role_label: str = ""
+    permissions: list[str] = []
+    data_scope: str = "all"
+    # Kosong = SEMUA campaign (bawaan setiap role sistem, termasuk ``qc``).
+    campaigns: list[str] = []

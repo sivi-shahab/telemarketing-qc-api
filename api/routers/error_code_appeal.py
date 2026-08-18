@@ -2,17 +2,22 @@ from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import (
-    get_spq_head_user,
     get_current_user,
     get_db,
-    get_qc_user,
-    get_team_leader_qc_user,
 )
 from api.qc_scope import ensure_qc_assigned_to_result
 from api.schemas.result import ErrorCodeAppealInfo
 from compliance.error_codes import effective_appeal_status, is_cashline_code
 from compliance.error_reasons import ERROR_REASONS
 from db import crud
+from api.permissions import (
+    ERROR_CODE_APPEAL,
+    ERROR_CODE_DIRECT_EDIT,
+    ERROR_CODE_REVIEW_SPQ,
+    ERROR_CODE_REVIEW_TL,
+    MANUAL_STATUS_DIRECT,
+)
+from api.rbac import has_perm, require
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -64,6 +69,7 @@ def _appeal_info(appeal) -> ErrorCodeAppealInfo:
         qc_risk_base=getattr(appeal, "qc_risk_base", None),
         appeal_kind=getattr(appeal, "appeal_kind", "remove"),
         add_source=getattr(appeal, "add_source", None),
+        origin=getattr(appeal, "origin", "qc"),
         requested_by_username=appeal.requested_by_username,
         requested_at=appeal.requested_at,
         tl_qc_status=appeal.tl_qc_status,
@@ -89,44 +95,35 @@ def _validate_result(db: Session, result_id: str):
     return result
 
 
-@router.post("/error_code_appeal", response_model=ErrorCodeAppealInfo)
-def submit_error_code_appeal(
-    result_id: str = Form(...),
-    error_code: str = Form(...),
-    # Optional: free-floating LLM error codes have no SC_CL item_code, yet every
-    # row is manual-checkable now. FastAPI treats an empty required Form field as
-    # "missing", so default to "" instead of Form(...).
-    item_code: str = Form(""),
-    ai_sumber: str = Form(None),
-    ai_risk_base: str = Form(None),
-    ai_details_error: str = Form(None),
-    ai_reason: str = Form(None),
-    ai_evidence: str = Form(None),
-    ai_ticket_id: str = Form(None),
-    qc_reason: str = Form(...),
-    qc_evidence: str = Form(None),
-    qc_ticket_id: str = Form(None),
-    qc_reference_value: str = Form(None),
-    qc_extracted_value: str = Form(None),
-    qc_new_error_code: str = Form(None),
-    # QC-edited Risk Base override (empty => keep the master-catalog default).
-    qc_risk_base: str = Form(None),
-    appeal_kind: str = Form("remove"),
-    # For appeal_kind='add' only: which source the new error belongs to.
-    add_source: str = Form(None),
-    db: Session = Depends(get_db),
-    current_user=Depends(get_qc_user),
-):
-    result = _validate_result(db, result_id)
-    ensure_qc_assigned_to_result(db, current_user, result)
+def _normalize_appeal_form(
+    *,
+    error_code: str,
+    item_code: str,
+    ai_sumber: str,
+    ai_risk_base: str,
+    ai_details_error: str,
+    ai_reason: str,
+    ai_evidence: str,
+    ai_ticket_id: str,
+    qc_reason: str,
+    qc_evidence: str,
+    qc_ticket_id: str,
+    qc_reference_value: str,
+    qc_extracted_value: str,
+    qc_new_error_code: str,
+    qc_risk_base: str,
+    appeal_kind: str,
+    add_source: str,
+) -> dict:
+    """Validate + normalize the appeal form fields (shared by QC submit and the
+    reviewer DIRECT edit). Returns the kwargs for ``crud.create_error_code_appeal``
+    (minus ``result_id``/``origin``/``username``). Raises 422 on invalid input.
 
+    Every Error Code row is manual-checkable: a 'remove' banding drops the error, a
+    'change' banding relabels the code to ``qc_new_error_code``, an 'add' banding
+    proposes a NEW error attached to an existing item/field (source 'others' is
+    display-only)."""
     item_code = (item_code or "").strip()
-    # Every Error Code row is manual-checkable. A 'remove' banding drops the error
-    # (flips the scorecard item / verification field); a 'change' banding relabels
-    # the code to qc_new_error_code (deduction kept only if the new code is
-    # deduction-bearing — see compliance.error_codes.DEDUCTION_BEARING_CODES); an
-    # 'add' banding proposes a NEW error code attached to an existing item/field
-    # (source 'others' is display-only).
     kind = (appeal_kind or "remove").strip().lower()
     if kind not in ("remove", "change", "add"):
         kind = "remove"
@@ -162,16 +159,38 @@ def submit_error_code_appeal(
             )
     else:
         src = None  # add_source only applies to 'add'
-    qc_reason = (qc_reason or "").strip()
-    if not qc_reason:
+    reason = (qc_reason or "").strip()
+    if not reason:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Alasan perubahan wajib diisi",
         )
+    return dict(
+        error_code=error_code,
+        item_code=item_code,
+        ai_sumber=ai_sumber,
+        ai_risk_base=ai_risk_base,
+        ai_details_error=ai_details_error,
+        ai_reason=ai_reason,
+        ai_evidence=ai_evidence,
+        ai_ticket_id=ai_ticket_id,
+        qc_reason=reason,
+        qc_evidence=(qc_evidence or "").strip() or None,
+        qc_ticket_id=(qc_ticket_id or "").strip() or None,
+        qc_reference_value=qc_ref,
+        qc_extracted_value=qc_ext,
+        qc_new_error_code=new_code,
+        qc_risk_base=(qc_risk_base or "").strip().upper() or None,
+        appeal_kind=kind,
+        add_source=src,
+    )
 
-    # Block a new appeal while the latest one for this row is still in-flight (not
-    # yet finally decided). A finally-rejected appeal — TL QC rejected, or SPQ Head
-    # rejected — may be re-appealed.
+
+def _ensure_no_active_appeal(db: Session, result_id: str, error_code: str, item_code: str):
+    """Block a new banding while the latest one for this row is still in-flight (not
+    yet finally decided). A finally-approved/rejected banding may be re-appealed. A
+    reviewer's DIRECT edit is likewise blocked while a QC appeal is pending — the
+    reviewer should decide that appeal via Review Banding instead of racing it."""
     existing = crud.error_code_appeals_for_result(db, result_id)
     latest = crud.latest_appeal_for_row(existing, error_code, item_code)
     if latest is not None and _appeal_active(latest):
@@ -180,9 +199,39 @@ def submit_error_code_appeal(
             detail="Sudah ada banding aktif untuk error code ini",
         )
 
-    appeal = crud.create_error_code_appeal(
-        db,
-        result_id=result_id,
+
+@router.post("/error_code_appeal", response_model=ErrorCodeAppealInfo)
+def submit_error_code_appeal(
+    result_id: str = Form(...),
+    error_code: str = Form(...),
+    # Optional: free-floating LLM error codes have no SC_CL item_code, yet every
+    # row is manual-checkable now. FastAPI treats an empty required Form field as
+    # "missing", so default to "" instead of Form(...).
+    item_code: str = Form(""),
+    ai_sumber: str = Form(None),
+    ai_risk_base: str = Form(None),
+    ai_details_error: str = Form(None),
+    ai_reason: str = Form(None),
+    ai_evidence: str = Form(None),
+    ai_ticket_id: str = Form(None),
+    qc_reason: str = Form(...),
+    qc_evidence: str = Form(None),
+    qc_ticket_id: str = Form(None),
+    qc_reference_value: str = Form(None),
+    qc_extracted_value: str = Form(None),
+    qc_new_error_code: str = Form(None),
+    # QC-edited Risk Base override (empty => keep the master-catalog default).
+    qc_risk_base: str = Form(None),
+    appeal_kind: str = Form("remove"),
+    # For appeal_kind='add' only: which source the new error belongs to.
+    add_source: str = Form(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require(ERROR_CODE_APPEAL)),
+):
+    result = _validate_result(db, result_id)
+    ensure_qc_assigned_to_result(db, current_user, result)
+
+    fields = _normalize_appeal_form(
         error_code=error_code,
         item_code=item_code,
         ai_sumber=ai_sumber,
@@ -192,15 +241,92 @@ def submit_error_code_appeal(
         ai_evidence=ai_evidence,
         ai_ticket_id=ai_ticket_id,
         qc_reason=qc_reason,
-        qc_evidence=(qc_evidence or "").strip() or None,
-        qc_ticket_id=(qc_ticket_id or "").strip() or None,
-        qc_reference_value=qc_ref,
-        qc_extracted_value=qc_ext,
-        qc_new_error_code=new_code,
-        qc_risk_base=(qc_risk_base or "").strip().upper() or None,
-        appeal_kind=kind,
-        add_source=src,
-        username=current_user.username,
+        qc_evidence=qc_evidence,
+        qc_ticket_id=qc_ticket_id,
+        qc_reference_value=qc_reference_value,
+        qc_extracted_value=qc_extracted_value,
+        qc_new_error_code=qc_new_error_code,
+        qc_risk_base=qc_risk_base,
+        appeal_kind=appeal_kind,
+        add_source=add_source,
+    )
+    _ensure_no_active_appeal(db, result_id, fields["error_code"], fields["item_code"])
+
+    appeal = crud.create_error_code_appeal(
+        db, result_id=result_id, origin="qc", username=current_user.username, **fields
+    )
+    return _appeal_info(appeal)
+
+
+@router.post("/error_code_appeal/direct", response_model=ErrorCodeAppealInfo)
+def direct_error_code_appeal(
+    result_id: str = Form(...),
+    error_code: str = Form(...),
+    item_code: str = Form(""),
+    ai_sumber: str = Form(None),
+    ai_risk_base: str = Form(None),
+    ai_details_error: str = Form(None),
+    ai_reason: str = Form(None),
+    ai_evidence: str = Form(None),
+    ai_ticket_id: str = Form(None),
+    qc_reason: str = Form(...),
+    qc_evidence: str = Form(None),
+    qc_ticket_id: str = Form(None),
+    qc_reference_value: str = Form(None),
+    qc_extracted_value: str = Form(None),
+    qc_new_error_code: str = Form(None),
+    qc_risk_base: str = Form(None),
+    appeal_kind: str = Form("remove"),
+    add_source: str = Form(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require(ERROR_CODE_DIRECT_EDIT)),
+):
+    """DIRECT error-code edit by Team Leader QC / SPQ Head — no approval hierarchy.
+
+    Same remove/change/add semantics and validation as a QC ``/error_code_appeal``,
+    but the banding is created already FINALIZED (auto tl-approved) so it applies
+    immediately to the score / Error Code table. ``origin`` records who did it
+    ('tl_direct' / 'spq_direct'). QC still submits through the tiered review; only
+    reviewers may edit directly. Blocked (409) while a QC appeal is pending on the
+    same row — use Review Banding for that instead."""
+    _validate_result(db, result_id)
+
+    fields = _normalize_appeal_form(
+        error_code=error_code,
+        item_code=item_code,
+        ai_sumber=ai_sumber,
+        ai_risk_base=ai_risk_base,
+        ai_details_error=ai_details_error,
+        ai_reason=ai_reason,
+        ai_evidence=ai_evidence,
+        ai_ticket_id=ai_ticket_id,
+        qc_reason=qc_reason,
+        qc_evidence=qc_evidence,
+        qc_ticket_id=qc_ticket_id,
+        qc_reference_value=qc_reference_value,
+        qc_extracted_value=qc_extracted_value,
+        qc_new_error_code=qc_new_error_code,
+        qc_risk_base=qc_risk_base,
+        appeal_kind=appeal_kind,
+        add_source=add_source,
+    )
+    _ensure_no_active_appeal(db, result_id, fields["error_code"], fields["item_code"])
+
+    # Tahap reviewer diambil dari capability, bukan nama role, supaya role buatan
+    # operator yang diberi ERROR_CODE_REVIEW_TL tercatat sebagai tl_direct.
+    origin = "tl_direct" if has_perm(db, current_user, ERROR_CODE_REVIEW_TL) else "spq_direct"
+    appeal = crud.create_error_code_appeal(
+        db, result_id=result_id, origin=origin, username=current_user.username, **fields
+    )
+    # Finalize immediately (no hierarchy): a direct edit IS the approval. Reuse the
+    # TL-QC finalize path so effective_appeal_status(appeal) == 'approved' and the
+    # apply/relabel pipeline treats it exactly like an approved banding.
+    appeal = crud.tl_review_error_code_appeal(
+        db,
+        appeal_id=appeal.id,
+        decision="approve",
+        reviewer_username=current_user.username,
+        comment=None,
     )
     return _appeal_info(appeal)
 
@@ -211,7 +337,7 @@ def tl_review_error_code_appeal(
     decision: str = Form(...),
     comment: str = Form(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_team_leader_qc_user),
+    current_user=Depends(require(ERROR_CODE_REVIEW_TL)),
 ):
     """Team Leader QC decision (Checker): 'approve'/'reject' are FINAL (banding
     applied/ditolak tanpa SPQ Head), 'escalate' meneruskan ke SPQ Head. ``comment``
@@ -243,7 +369,7 @@ def review_error_code_appeal(
     decision: str = Form(...),
     comment: str = Form(None),
     db: Session = Depends(get_db),
-    current_user=Depends(get_spq_head_user),
+    current_user=Depends(require(ERROR_CODE_REVIEW_SPQ)),
 ):
     decision = (decision or "").strip().lower()
     if decision not in VALID_DECISION:

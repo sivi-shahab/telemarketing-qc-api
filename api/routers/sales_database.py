@@ -16,16 +16,19 @@ from api.dependencies import (
     get_db,
     get_minio,
     get_settings,
-    get_spq_head_user,
 )
 from api.schemas.sales_database import (
+    RosterResponse,
+    RosterRow,
     SalesDatabaseItem,
     SalesDatabaseListResponse,
     SalesDatabaseUploadResponse,
 )
 from db import crud
+from api.permissions import ADMIN_SALES_DATABASE_WRITE
+from api.rbac import require
 
-router = APIRouter(dependencies=[Depends(get_spq_head_user)])
+router = APIRouter(dependencies=[Depends(require(ADMIN_SALES_DATABASE_WRITE))])
 
 _XLSX_EXT = ".xlsx"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -83,4 +86,57 @@ def list_sales_databases(db: Session = Depends(get_db)):
     rows = crud.list_sales_databases(db)
     return SalesDatabaseListResponse(
         items=[SalesDatabaseItem.model_validate(r) for r in rows]
+    )
+
+
+@router.get("/sales_database/roster", response_model=RosterResponse)
+def sales_database_roster(db: Session = Depends(get_db)):
+    """Isi roster Sales Database yang sedang aktif.
+
+    Sebelum ini isi roster tidak pernah bisa dilihat dari dashboard — hanya daftar
+    BERKAS-nya. Padahal kolom ``Dedicated`` di dalamnya menentukan campaign tiap
+    orang, dan karenanya menentukan tiket siapa yang mereka lihat. Tanpa tampilan
+    ini, salah isi kolom tersebut baru ketahuan saat ada yang mengeluh.
+
+    ``has_account`` menandai NIP yang sudah punya akun login, sehingga terlihat siapa
+    saja di roster yang belum bisa masuk ke dashboard.
+    """
+    from sales_lookup import active_sales_map
+    from db.models import User
+
+    row = crud.get_active_sales_database(db)
+    mapping = active_sales_map(db)
+
+    known = {
+        (u.username or "").strip().casefold()
+        for u in db.query(User.username).all()
+        if (u.username or "").strip()
+    }
+
+    rows = []
+    campaigns = set()
+    for uid, e in mapping.items():
+        ded = (e.get("dedicated") or "").strip()
+        if ded:
+            campaigns.add(ded.casefold())
+        nip = (e.get("nip_baru") or "").strip()
+        join = e.get("join_date")
+        rows.append(RosterRow(
+            user_id=uid,
+            nip_baru=nip or None,
+            name=e.get("name"),
+            dedicated=ded or None,
+            nip_tl=e.get("nip_tl"),
+            team_leader=e.get("team_leader"),
+            nip_am=e.get("nip_am"),
+            area_manager=e.get("area_manager"),
+            join_date=join.isoformat() if join else None,
+            has_account=bool(nip) and nip.casefold() in known,
+        ))
+    rows.sort(key=lambda r: ((r.dedicated or "").casefold(), (r.name or "").casefold()))
+    return RosterResponse(
+        filename=row.filename if row else None,
+        total=len(rows),
+        campaigns=sorted(campaigns),
+        rows=rows,
     )

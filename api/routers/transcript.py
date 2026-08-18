@@ -11,15 +11,19 @@ from api.dependencies import (
     get_db,
     get_evaluation_detail_user,
     get_minio,
-    get_qc_or_spq_head_user,
     get_settings,
 )
 from api.schemas.result import ResultCreateResponse, ResultResponse, TranscriptListResponse
+from api.permissions import MENU_TRANSCRIPTS, SCOPE_QC_SUPPORT_OWN
+from api.rbac import data_scope_for, has_perm
+from api.qc_scope import ensure_can_view_result, scoped_customer_ids
 from db import crud
 from sales_lookup import new_joiner_info
 from compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
+    annotate_critical_compliance_reasons,
+    derive_category_summary,
     added_appeals_visible,
     apply_added_score_appeals,
     apply_approved_appeals,
@@ -28,6 +32,7 @@ from compliance.error_codes import (
     apply_approved_critical_compliance_appeals,
     appeals_that_flip,
     approved_appeals_only,
+    normalize_static_verification,
     build_error_code_table,
     effective_appeal_status,
     inject_added_rows,
@@ -257,6 +262,7 @@ def _appeal_history_entry(a):
         "qc_new_error_code": getattr(a, "qc_new_error_code", None),
         "appeal_kind": getattr(a, "appeal_kind", "remove"),
         "add_source": getattr(a, "add_source", None),
+        "origin": getattr(a, "origin", "qc"),
         "ai_sumber": a.ai_sumber,
         "ai_risk_base": a.ai_risk_base,
         "ai_details_error": a.ai_details_error,
@@ -299,6 +305,8 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     # only); every other approved remove/change banding flips the item/field to lift
     # the score. 'add' bandings are handled separately (they lower the score).
     flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
+    # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
+    evaluation = normalize_static_verification(evaluation)
     evaluation = apply_approved_appeals(evaluation, flip)
     evaluation = apply_approved_card_holder_appeals(evaluation, flip)
     evaluation = apply_approved_cashline_appeals(evaluation, flip)
@@ -336,6 +344,12 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     # annotation so each row keeps its appeal metadata under the original code).
     table = relabel_error_table(table, [a for a in approved if _appeal_kind(a) != "add"])
     evaluation = {**evaluation, "error_code_table": table}
+    # One sentence per failed critical item, computed here so every surface renders
+    # the same wording (and the static verification items say WHY they failed).
+    evaluation = annotate_critical_compliance_reasons(evaluation)
+    # Ringkasan Kategori is derived from the scorecard rather than trusted from the
+    # LLM's own block, which can contradict it (see derive_category_summary).
+    evaluation = derive_category_summary(evaluation)
     return {**result_json, "evaluation": evaluation}
 
 
@@ -423,18 +437,32 @@ def list_transcripts(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List every transcript PDF across all tickets (one row per PDF, not per
-    ticket). QC / Team Leader QC / SPQ Head / Admin see the main set; QC Support
-    sees ONLY its own isolated (complaint) transcripts."""
-    role = getattr(current_user, "role", None)
-    if role not in ("qc", "team_leader_qc", "qc_support", "spq_head", "admin"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Akses ditolak")
-    # QC Support: isolated set (only its own uploads); everyone else excludes them.
-    iso = ({"uploaded_by_role": "qc_support"} if role == "qc_support"
+    """List transcript PDFs (one row per PDF, not per ticket), DALAM CAKUPAN role.
+
+    Cakupannya sama persis dengan menu Results (``scoped_customer_ids``): QC hanya
+    melihat transkrip tiket yang di-assign kepadanya, sisi sales hanya tiket agent di
+    bawahnya, QC Support hanya tiket complaint-nya; TL QC / SPQ Head / Admin melihat
+    semuanya. Sebelumnya endpoint ini TIDAK ter-scope sama sekali — seorang QC dengan
+    6 tiket tetap melihat 223 transkrip milik seluruh organisasi.
+
+    Termasuk pembatasan CAMPAIGN role: sejak 12 Agustus 2026 ``scoped_customer_ids``
+    ikut mengiris dengan campaign yang boleh dilihat, jadi role bertag campaign tidak
+    lagi melihat transkrip campaign lain di sini (dulu 217 transkrip cashline tetap
+    terbuka untuk role yang tag-nya CECC)."""
+    if not has_perm(db, current_user, MENU_TRANSCRIPTS):
+        # 403 ditulis sebagai angka, BUKAN status.HTTP_403_FORBIDDEN: parameter query
+        # ``status`` di atas menutupi modul ``status`` milik FastAPI, sehingga atribut
+        # itu dibaca dari None dan endpoint balas 500 alih-alih 403.
+        raise HTTPException(status_code=403, detail="Akses ditolak")
+    # Cakupan qc_support_own: himpunan terisolasi (hanya upload-annya sendiri);
+    # role lain justru mengecualikannya.
+    iso = ({"uploaded_by_role": "qc_support"}
+           if data_scope_for(db, current_user) == SCOPE_QC_SUPPORT_OWN
            else {"exclude_uploaded_by_role": "qc_support"})
     items, total = crud.list_transcripts(
         db, status=status, campaign=campaign, ticket_id=ticket_id,
-        ai_status=ai_status, page=page, limit=limit, **iso,
+        ai_status=ai_status, page=page, limit=limit,
+        customer_ids=scoped_customer_ids(db, current_user), **iso,
     )
     return TranscriptListResponse(items=items, total=total, page=page, limit=limit)
 
@@ -444,14 +472,19 @@ def transcript_pdf(
     result_id: str,
     filename: str = Query(..., description="Nama file PDF transkrip"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Stream a single transcript PDF from MinIO for the dashboard PDF viewer.
 
     The filename must belong to the result's ``source_files`` (guards against
-    arbitrary object access / path traversal)."""
+    arbitrary object access / path traversal), DAN tiketnya harus berada dalam
+    cakupan pemanggil — menyaring daftarnya saja tidak cukup: tanpa penjagaan di
+    sini, isi transkrip tiket mana pun tetap bisa diambil dengan menebak
+    ``result_id``, sehingga cakupan menu Transcripts hanya berlaku di tampilan."""
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result tidak ditemukan")
+    ensure_can_view_result(db, current_user, result)
 
     if filename not in (result.source_files or []):
         raise HTTPException(
@@ -501,11 +534,16 @@ def transcript_pdf(
 def download_transcript(
     transcript_id: str,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Download 1 PDF transkrip asli berdasarkan ID nama file (stem).
 
     Contoh: ``GET /download_transcript/061058ecB3_20260612171830`` mengunduh
     ``061058ecB3_20260612171830.pdf`` dari MinIO sebagai attachment.
+
+    Dijaga cakupan yang sama dengan ``transcript_pdf``: nama berkasnya sendiri sudah
+    memuat ticket id, jadi tanpa penjagaan ini transkrip tiket mana pun bisa diunduh
+    hanya dengan menyusun namanya.
     """
     filename = (
         transcript_id
@@ -519,6 +557,7 @@ def download_transcript(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Transcript '{filename}' tidak ditemukan",
         )
+    ensure_can_view_result(db, current_user, result)
 
     settings = get_settings()
     client = get_minio()

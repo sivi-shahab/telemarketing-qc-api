@@ -1,0 +1,314 @@
+[
+	{
+		"category": "Greeting",
+		"item_code": "SC_CL_1",
+		"requirement": "Agent menyampaikan salam pembuka",
+		"kb_reference": "KB_CL_1",
+		"weight": 2,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_CL_2",
+		"requirement": "Agent menyebutkan nama agent",
+		"kb_reference": "KB_CL_2",
+		"weight": 3,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_CL_3",
+		"requirement": "Agent menyebutkan nama Bank Mega",
+		"kb_reference": "KB_CL_3",
+		"weight": 3,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_CL_4",
+		"requirement": "Agent menanyakan kesediaan waktu nasabah",
+		"kb_reference": "KB_CL_4",
+		"weight": 7,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Probing",
+		"item_code": "SC_CL_5",
+		"requirement": "Agent menawarkan produk Mega Cashline",
+		"kb_reference": "KB_CL_5",
+		"weight": 7.5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_6",
+		"requirement": "Agent menjelaskan tenor cicilan Mega Cashline",
+		"kb_reference": "KB_CL_6",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_7",
+		"requirement": "Agent menjelaskan bunga Mega Cashline",
+		"kb_reference": "KB_CL_7",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_8",
+		"requirement": "Agent menjelaskan biaya provisi Mega Cashline",
+		"kb_reference": "KB_CL_8",
+		"weight": 4,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_9",
+		"requirement": "Agent menjelaskan nominal cicilan Mega Cashline",
+		"kb_reference": "KB_CL_9",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_10",
+		"requirement": "Agent menjelaskan nominal pencairan Mega Cashline",
+		"kb_reference": "KB_CL_10",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_11",
+		"requirement": "Agent menjelaskan biaya admin Mega Cashline",
+		"kb_reference": "KB_CL_11",
+		"weight": 5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_12",
+		"requirement": "Agent menanyakan nama bank penerima pencairan dana Mega Cashline",
+		"kb_reference": "KB_CL_12",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_13",
+		"requirement": "Agent menanyakan nama pemilik rekening pencairan dana Mega Cashline",
+		"kb_reference": "KB_CL_13",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_14",
+		"requirement": "Agent menanyakan nomor rekening pencairan dana Mega Cashline",
+		"kb_reference": "KB_CL_14",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_15",
+		"requirement": "Agent menjelaskan ketentuan pelunasan dipercepat Mega Cashline",
+		"kb_reference": "KB_CL_15",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Cashline",
+		"item_code": "SC_CL_16",
+		"requirement": "Agent menjelaskan tanggal jatuh tempo Mega Cashline",
+		"kb_reference": "KB_CL_16",
+		"weight": 1.5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_17",
+		"requirement": "Agent menjelaskan besaran premi Mega Ultima Shield",
+		"kb_reference": "KB_CL_17",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_18",
+		"requirement": "Agent menanyakan kesediaan pernyataan Health Declaration",
+		"kb_reference": "KB_CL_18",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_19",
+		"requirement": "Agent menyampaikan Health Declaration",
+		"kb_reference": "KB_CL_19",
+		"weight": 5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_20",
+		"requirement": "Agent menanyakan konfirmasi Health Declaration",
+		"kb_reference": "KB_CL_20",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_21",
+		"requirement": "Agent menjelaskan benefit Mega Ultima Shield",
+		"kb_reference": "KB_CL_21",
+		"weight": 4.5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_CL_22",
+		"requirement": "Agent menjelaskan Ringkasan Informasi Produk dan Layanan (RIPLAY) dan sertifikat asuransi Mega Ultima Shield",
+		"kb_reference": "KB_CL_22",
+		"weight": 4,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Verifikasi",
+		"item_code": "SC_CL_23_1",
+		"requirement": "Agent memverifikasi tanggal lahir nasabah",
+		"kb_reference": "KB_CL_23_1",
+		"weight": 15,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Verifikasi",
+		"item_code": "SC_CL_23_2",
+		"requirement": "Agent memverifikasi nama ibu kandung nasabah",
+		"kb_reference": "KB_CL_23_2",
+		"weight": 15,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Verifikasi Dinamis",
+		"item_code": "SC_CL_24",
+		"requirement": "Agent melakukan verifikasi dinamis dengan minimal 2 pertanyaan",
+		"kb_reference": "KB_CL_24",
+		"weight": 15,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_25",
+		"requirement": "Agent melakukan konfirmasi limit pencairan Mega Cashline",
+		"kb_reference": "KB_CL_25",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_26",
+		"requirement": "Agent melakukan konfirmasi tenor cicilan Mega Cashline",
+		"kb_reference": "KB_CL_26",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_27",
+		"requirement": "Agent melakukan konfirmasi bunga Mega Cashline",
+		"kb_reference": "KB_CL_27",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_28",
+		"requirement": "Agent melakukan konfirmasi biaya provisi Mega Cashline",
+		"kb_reference": "KB_CL_28",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_29",
+		"requirement": "Agent melakukan konfirmasi nominal cicilan Mega Cashline",
+		"kb_reference": "KB_CL_29",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_30",
+		"requirement": "Agent melakukan konfirmasi biaya admin Mega Cashline",
+		"kb_reference": "KB_CL_30",
+		"weight": 2.25,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_31",
+		"requirement": "Agent melakukan konfirmasi ketentuan limit pencairan Mega Cashline",
+		"kb_reference": "KB_CL_31",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Cashline",
+		"item_code": "SC_CL_32",
+		"requirement": "Agent melakukan konfirmasi ketentuan pelunasan dipercepat Mega Cashline",
+		"kb_reference": "KB_CL_32",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_CL_33",
+		"requirement": "Agent melakukan konfirmasi pernyataan setuju/tidak setuju terkait sharing data customer dari Bank Mega ke PFI Mega Life atas keikutsertaan Mega Ultima Shield",
+		"kb_reference": "KB_CL_33",
+		"weight": 3.25,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_CL_34",
+		"requirement": "Agent menyampaikan informasi pengiriman salinan sertifikat asuransi melalui Whatsapp dan hardcopy sertifikat asuransi disimpan di PFI Mega Life Insurance",
+		"kb_reference": "KB_CL_34",
+		"weight": 2.25,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_CL_35",
+		"requirement": "Agent menyampaikan informasi klaim",
+		"kb_reference": "KB_CL_35",
+		"weight": 3.5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_CL_36",
+		"requirement": "Agent menyampaikan informasi pemahaman customer terkait penjelasan produk Mega Ultima Shield dengan menyebutkan tanggal hari ini",
+		"kb_reference": "KB_CL_36",
+		"weight": 2.25,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Legal Statement Mega Cashline",
+		"item_code": "SC_CL_37",
+		"requirement": "Agent menyampaikan konfirmasi final kepada customer terkait persetujuan Mega Cashline",
+		"kb_reference": "KB_CL_37",
+		"weight": 7.5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Legal Statement Mega Ultima Shield",
+		"item_code": "SC_CL_38",
+		"requirement": "Agent menyampaikan konfirmasi final kepada customer terkait persetujuan Mega Ultima Shield",
+		"kb_reference": "KB_CL_38",
+		"weight": 7.5,
+		"tolerable": "NO"
+	},
+]

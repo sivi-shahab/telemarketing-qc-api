@@ -5,30 +5,49 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 from sqlalchemy.orm import Session
 
 from api.dependencies import (
     get_current_user,
     get_db,
-    get_spq_head_user,
-    get_tl_qc_or_spq_head_user,
 )
 from sales_lookup import (
+    agent_ids_for_agent,
+    agent_ids_for_am,
     agent_ids_for_hierarchy_filter,
-    cashline_agent_ids_for_agent,
-    cashline_agent_ids_for_am,
-    cashline_agent_ids_for_tl,
+    agent_ids_for_tl,
     hierarchy_filter_options,
 )
 from api.schemas.result import (
     DailyStatsResponse,
+    NamaIbuKandungResponse,
     ResultListItem,
     ResultListResponse,
     StatsResponse,
     TicketDeleteResponse,
 )
+from api.permissions import (
+    ADMIN_TICKET_DELETE,
+    ERROR_CODE_APPEAL,
+    ERROR_CODE_REVIEW_SPQ,
+    MANUAL_STATUS_REVIEW_SPQ,
+    RESULTS_EXPORT_VERIFICATION,
+    RESULTS_FILTER_QC_SIDE,
+    SCOPE_QC_ASSIGNED,
+    SCOPE_QC_SUPPORT_OWN,
+    SCOPE_SALES_AGENT,
+    SCOPE_SALES_AM,
+    SCOPE_SALES_TL,
+    STATS_FAILURE_REASON,
+    STATS_QC_PERFORMANCE,
+    is_sales_scope,
+)
+from api.rbac import data_scope_for, effective_campaigns_for, has_perm, require
+from api.qc_scope import scoped_customer_ids
 from db import crud
 from compliance.error_codes import (
+    FRAUD_REASON,
     _appeal_kind,
     added_appeals_only,
     apply_added_score_appeals,
@@ -37,6 +56,7 @@ from compliance.error_codes import (
     apply_approved_card_holder_appeals,
     apply_approved_cashline_appeals,
     apply_approved_critical_compliance_appeals,
+    annotate_critical_compliance_reasons,
     appeals_that_flip,
     approved_appeals_only,
     CARD_HOLDER_DYNAMIC_FIELDS,
@@ -45,9 +65,23 @@ from compliance.error_codes import (
     code_for_cashline_field,
     effective_appeal_status,
     not_fulfilled_reason,
+    normalize_static_verification,
+    static_consistency_failures,
+)
+from compliance.documents import (
+    DOCUMENT_TYPES,
+    card_holder_bands_apply,
+    card_holder_doc_requirements,
+    format_similarity,
 )
 from compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
 from compliance.stats_aggregate import (
+    DOC_SLA_ENABLED,
+    _doc_sla_expired,
+    category_label,
+    effective_manual_status,
+    manual_review_state,
+    manual_status_of,
     _missing_docs_map,
     _parse_ymd,
     _result_ai_status,
@@ -71,9 +105,45 @@ _CHANGE_LABELS = {
     "nik": "Perubahan NIK",
 }
 
-# Pembanding aman untuk uploaded_at yang NULL saat sorting. uploaded_at disimpan
-# sebagai naive UTC, jadi sentinel-nya juga harus naive (jangan tz-aware).
-_EPOCH = datetime.min
+# Urutan slot dokumen (sama dengan crud.allowed_doc_types_from_flags).
+_DOC_TYPE_ORDER = ["ktp", "npwp", "kk", "cover_buku_tabungan"]
+
+
+def _doc_label(doc_type: str) -> str:
+    return DOCUMENT_TYPES.get(doc_type, {}).get("label", doc_type.upper())
+
+
+def _document_requirements(flags: dict, raw_result_json, bands_apply: bool, npwp_by_limit: bool) -> list[dict]:
+    """Dokumen yang diminta tiket ini BESERTA alasannya, satu entri per pasangan
+    (dokumen, alasan): ``{"doc_type", "doc_label", "reason"}``.
+
+    Sebelumnya alasan ("Perubahan NPWP", "Limit >= 50 jt", band similarity) dan
+    daftar dokumen dikirim sebagai dua daftar terpisah, sehingga kolom Document
+    tidak bisa menyebut alasan mana milik dokumen mana. Kolom itu sekarang
+    merangkainya menjadi "Perlu Dokumen NPWP karena Perubahan NPWP".
+    """
+    out: list[dict] = []
+
+    def add(doc_type: str, reason: str) -> None:
+        if any(o["doc_type"] == doc_type and o["reason"] == reason for o in out):
+            return
+        out.append({"doc_type": doc_type, "doc_label": _doc_label(doc_type), "reason": reason})
+
+    # 1) Perubahan data TMS -> dokumen sesuai crud.CHANGE_DOC_TYPES.
+    for key, label in _CHANGE_LABELS.items():
+        if flags.get(key):
+            for doc_type in crud.CHANGE_DOC_TYPES.get(key, []):
+                add(doc_type, label)
+    # 2) Band similarity card holder (Fase #5): nama ibu kandung 80-89% -> KK,
+    #    tanggal lahir 87,5-99% -> KTP.
+    if bands_apply:
+        for req in card_holder_doc_requirements(raw_result_json):
+            add(req["doc_type"], f"{req['label']} mirip {format_similarity(req['similarity'])}%")
+    # 3) Limit pencairan >= Rp 50 juta -> NPWP.
+    if npwp_by_limit:
+        add("npwp", "Limit >= 50 jt")
+    return sorted(out, key=lambda r: _DOC_TYPE_ORDER.index(r["doc_type"])
+                  if r["doc_type"] in _DOC_TYPE_ORDER else len(_DOC_TYPE_ORDER))
 
 
 def _scoped_customer_ids(db: Session, current_user) -> Optional[list]:
@@ -87,22 +157,16 @@ def _scoped_customer_ids(db: Session, current_user) -> Optional[list]:
       DEDICATED=cashline — i.e. their whole team.
     - ``sales_agent`` (individual agent): tickets of the agent whose ``NIP BARU``
       (== username) & DEDICATED=cashline — i.e. their own tickets.
+    - ``qc_support``: hanya tiket complaint yang di-upload QC Support (himpunan
+      terisolasi yang sama dengan filter daftar Results-nya).
     - ``spq_head`` / ``team_leader_qc`` / ``telesales_head`` / system: ``None`` =>
       see everything.
+
+    Implementasinya tinggal di ``api.qc_scope`` supaya router Results, Statistics dan
+    Transcripts memakai definisi cakupan yang sama persis; alias ini dipertahankan
+    karena namanya sudah dipakai di banyak tempat pada modul ini.
     """
-    role = getattr(current_user, "role", None)
-    username = getattr(current_user, "username", "") or ""
-    if role == "qc":
-        return crud.assigned_ticket_ids_for_qc(db, username)
-    if role == "area_manager":
-        agent_ids = cashline_agent_ids_for_am(db, username)
-    elif role == "team_leader":
-        agent_ids = cashline_agent_ids_for_tl(db, username)
-    elif role == "sales_agent":
-        agent_ids = cashline_agent_ids_for_agent(db, username)
-    else:
-        return None
-    return crud.customer_ids_for_agent_ids(db, list(agent_ids))
+    return scoped_customer_ids(db, current_user)
 
 
 def _customer_id_from_files(source_files) -> Optional[str]:
@@ -180,25 +244,19 @@ def _scorecard_score(evaluation: dict):
     return int(score) if score == int(score) else score
 
 
-def _manual_status(qc_req, missing_docs: bool) -> Optional[str]:
-    """The "Manual Status" column value (shown to every role): the QC's per-ticket
-    verdict as confirmed through the QC->TL QC->SPQ Head hierarchy, plus the
-    missing-documents default. One of: 'approve' | 'reject' | 'ditolak' | 'pending'
-    | None.
+def _manual_status(qc_req, ai_status) -> Optional[str]:
+    """The "Manual Status" column: the verdict on the ticket as it stands for a HUMAN
+    — 'PASS' (Qualified) / 'FAIL' (Not Qualified) / 'PENDING'.
 
-    - approved verdict -> 'approve' (requested PASS) / 'reject' (requested FAIL);
-    - the hierarchy rejected the QC's proposal -> 'ditolak' (see review/tl_qc_comment);
-    - awaiting the hierarchy -> 'pending';
-    - no request but the ticket is missing required documents -> 'pending';
-    - otherwise None (no manual status)."""
-    if qc_req is None:
-        return "pending" if missing_docs else None
-    eff = effective_appeal_status(qc_req)
-    if eff == "approved":
-        return "approve" if qc_req.requested_status == "PASS" else "reject"
-    if eff == "rejected":
-        return "ditolak"
-    return "pending"
+    Sejak tiket pertama kali dibuat nilainya MENGIKUTI AI Status; begitu QC / TL QC /
+    SPQ Head menetapkan vonisnya DAN vonis itu disetujui, vonis itulah yang dipakai —
+    dan sejak saat itu AI Status ikut terkunci ke nilai yang sama (aturan 7 Agustus
+    2026, lihat ``_result_ai_status``). Jadi kedua kolom tidak pernah berbeda; yang
+    membedakan "dinilai mesin" dari "dinilai manusia" adalah ``manual_status_by_human``.
+
+    Keadaan alur kerjanya (menunggu review / usulan ditolak / kurang dokumen) adalah
+    sumbu terpisah — lihat ``manual_review_state``."""
+    return effective_manual_status(qc_req, ai_status)
 
 
 def _appeal_summary(appeals: list) -> Optional[dict]:
@@ -230,6 +288,11 @@ def _appeal_summary(appeals: list) -> Optional[dict]:
             "approval_status": a.approval_status,
             "tl_qc_status": getattr(a, "tl_qc_status", "pending"),
             "tl_qc_username": getattr(a, "tl_qc_username", None),
+            # Dibutuhkan agar Results bisa merender timeline banding yang SAMA dengan
+            # tabel Error Code (lihat dashboard/src/utils/appealTimeline.js).
+            "tl_qc_reviewed_at": a.tl_qc_reviewed_at.isoformat() if getattr(a, "tl_qc_reviewed_at", None) else None,
+            "appeal_kind": getattr(a, "appeal_kind", "remove"),
+            "origin": getattr(a, "origin", "qc"),
             "qc_reason": a.qc_reason,
             "tl_qc_comment": getattr(a, "tl_qc_comment", None),
             "review_comment": getattr(a, "review_comment", None),
@@ -253,13 +316,16 @@ def _appeal_summary(appeals: list) -> Optional[dict]:
 
 @router.get("/stats/qc_performance")
 def qc_performance(
+    campaign: Optional[str] = Query(None, description="Batasi ke tiket satu campaign"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_tl_qc_or_spq_head_user),
+    current_user=Depends(require(STATS_QC_PERFORMANCE)),
 ):
     """Per-QC assigned / approved / approve-rate table, shown beneath the
     Hierarki Error Rate tree. Restricted to Team Leader QC, SPQ Head and admin —
-    the roles that manage the QC division."""
-    return crud.qc_performance_rows(db)
+    the roles that manage the QC division. Dibatasi ke campaign yang menjadi cakupan
+    pemanggil."""
+    return crud.qc_performance_rows(db, campaign,
+                                    effective_campaigns_for(db, current_user))
 
 
 @router.get("/results/hierarchy_options")
@@ -273,14 +339,15 @@ def results_hierarchy_options(
 
     Team Leader QC oversees the QC team, not the sales org, so it gets QC / QC
     Support dropdowns (``qc_users`` / ``qc_support_users``) INSTEAD of AM/TL/TLO."""
-    role = getattr(current_user, "role", None)
-    if role == "team_leader_qc":
+    if has_perm(db, current_user, RESULTS_FILTER_QC_SIDE):
         qc = crud.qc_side_filter_options(db)
         return {
             "area_managers": [], "team_leaders": [], "agents": [],
             "qc_users": qc["qc_users"], "qc_support_users": qc["qc_support_users"],
         }
-    opts = hierarchy_filter_options(db, role, getattr(current_user, "username", None))
+    opts = hierarchy_filter_options(db, data_scope_for(db, current_user),
+                                    getattr(current_user, "username", None),
+                                    effective_campaigns_for(db, current_user))
     opts["qc_users"] = []
     opts["qc_support_users"] = []
     return opts
@@ -291,7 +358,8 @@ def list_results(
     status: Optional[str] = Query(None),
     campaign: Optional[str] = Query(None),
     ticket_id: Optional[str] = Query(None),
-    ai_status: Optional[str] = Query(None, description="Filter Approve/Reject: PASS | FAIL"),
+    ai_status: Optional[str] = Query(None, description="Filter AI Status: PASS (Qualified) | FAIL (Not Qualified) | PENDING"),
+    manual_status: Optional[str] = Query(None, description="Filter Manual Status (vonis human; default mengikuti AI Status): PASS | FAIL | PENDING"),
     am_nip: Optional[str] = Query(None, description="Hierarchy filter: Area Manager NIP"),
     tl_nip: Optional[str] = Query(None, description="Hierarchy filter: Team Leader NIP"),
     agent_nip: Optional[str] = Query(None, description="Hierarchy filter: Sales Agent (TLO) NIP"),
@@ -308,12 +376,22 @@ def list_results(
 ):
     d_start = _parse_ymd(date_start)
     d_end = _parse_ymd(date_end)
+    # Pembatasan CAMPAIGN milik role: mempersempit, tidak pernah memperlebar. Role
+    # tanpa daftar campaign (bawaan semua role sistem, termasuk qc) tidak terpengaruh.
+    # Kalau user memfilter campaign di luar cakupannya, hasilnya sengaja kosong
+    # ketimbang diam-diam melebar ke campaign lain.
+    role_campaigns = effective_campaigns_for(db, current_user)
+    if role_campaigns is not None and campaign:
+        allowed = {c.strip().casefold() for c in role_campaigns}
+        if campaign.strip().casefold() not in allowed:
+            return ResultListResponse(items=[], total=0, page=page, limit=limit)
     # Sales Agent (TL) & QC (agent) are scoped to their tickets; other roles: all.
     scoped_cids = _scoped_customer_ids(db, current_user)
     # Hierarchy dropdown (AM / TL / TLO). Narrows WITHIN the role scope above —
     # it never widens it, so an Area Manager passing another AM's NIP still only
     # sees their own tickets (the intersection is empty).
-    filter_uids = agent_ids_for_hierarchy_filter(db, am_nip, tl_nip, agent_nip)
+    filter_uids = agent_ids_for_hierarchy_filter(db, am_nip, tl_nip, agent_nip,
+                                                 effective_campaigns_for(db, current_user))
     if filter_uids is not None:
         filter_cids = crud.customer_ids_for_agent_ids(db, list(filter_uids))
         scoped_cids = (
@@ -322,14 +400,14 @@ def list_results(
         )
     # QC Support is a standalone, isolated result set: it sees ONLY its own uploads
     # (all complaint tickets); every other role EXCLUDES QC Support's uploads.
-    role = getattr(current_user, "role", None)
-    _iso = ({"uploaded_by_role": "qc_support"} if role == "qc_support"
+    _iso = ({"uploaded_by_role": "qc_support"}
+            if data_scope_for(db, current_user) == SCOPE_QC_SUPPORT_OWN
             else {"exclude_uploaded_by_role": "qc_support"})
     # Team Leader QC filters by QC team member instead of the sales hierarchy:
     #  - "Semua QC"        -> narrow to tickets ASSIGNED to that QC;
     #  - "Semua QC Support" -> show that QC Support's uploads (overrides the default
     #    qc_support exclusion so those complaint tickets become visible).
-    if role == "team_leader_qc":
+    if has_perm(db, current_user, RESULTS_FILTER_QC_SIDE):
         if (qc_username or "").strip():
             qc_cids = crud.assigned_ticket_ids_for_qc(db, qc_username)
             scoped_cids = (
@@ -339,6 +417,55 @@ def list_results(
         if (qc_support_username or "").strip():
             _iso = {"uploaded_by_username": qc_support_username.strip()}
     ai_filter = ai_status.strip().upper() if isinstance(ai_status, str) else None
+    manual_filter = manual_status.strip().upper() if isinstance(manual_status, str) else None
+    _has_status_filter = (ai_filter in ("PASS", "FAIL", "PENDING")
+                          or manual_filter in ("PASS", "FAIL", "PENDING"))
+
+    def _apply_status_filters(rows: list) -> list:
+        """Saring ``rows`` dengan filter AI Status / Manual Status.
+
+        Keduanya DITURUNKAN per hasil (tidak disimpan di baris), jadi tidak bisa
+        difilter di SQL — harus dihitung dengan helper kanonik yang sama seperti
+        yang dipakai tabelnya, lalu disaring di Python.
+
+        Dipakai BERSAMA oleh menu Results, Manual Check, dan Pending
+        Check. Sebelumnya logika ini hanya ada di cabang Results, sehingga di kedua
+        menu antrean itu dropdown "Semua AI Status" / "Semua Manual Status" tetap
+        tampil tetapi tidak berpengaruh apa pun — pengguna menyaring, jumlahnya
+        tidak berubah, tanpa satu pun petunjuk kenapa.
+
+        Hasil yang belum ``done`` dibuang saat filter aktif: AI Status baru ada
+        setelah evaluasi selesai, jadi memasukkannya berarti menampilkan baris yang
+        tidak mungkin cocok dengan nilai mana pun.
+        """
+        if not _has_status_filter:
+            return rows
+        rows = [r for r in rows if r.status == "done"]
+        if not rows:
+            return rows
+        ids = [str(r.id) for r in rows]
+        appeals = crud.error_code_appeals_for_results(db, ids)
+        qcs = crud.qc_status_requests_for(db, ids)
+        rjs = crud.result_json_map(db, ids)
+        mdocs = _missing_docs_map(db, rows)
+        submits = crud.tms_submit_time_map(
+            db, [c for c in (_customer_id_from_files(r.source_files) for r in rows) if c]
+        )
+        now = datetime.now()
+        out = []
+        for r in rows:
+            rid = str(r.id)
+            ai = _result_ai_status(
+                rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
+                _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
+            )
+            if ai_filter and ai != ai_filter:
+                continue
+            if manual_filter and effective_manual_status(qcs.get(rid), ai) != manual_filter:
+                continue
+            out.append(r)
+        return out
+
     if banding_pending:
         # "Manual Check" (banding) menu, filtered per role:
         #  - QC: every ticket that HAS a banding (any status) so the QC can track the
@@ -348,12 +475,14 @@ def list_results(
         # Derived from appeals (not stored on the row), so load the scoped set and
         # filter in Python.
         all_results, _ = crud.list_results(
-            db, campaign=campaign, ticket_id=ticket_id, page=1, limit=1_000_000,
+            db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
             customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
         appeal_all = crud.error_code_appeals_for_results(db, [str(r.id) for r in all_results])
-        is_spq = role in ("spq_head", "admin")
-        is_qc = role == "qc"
+        is_spq = has_perm(db, current_user, MANUAL_STATUS_REVIEW_SPQ) or has_perm(db, current_user, ERROR_CODE_REVIEW_SPQ)
+        # Pengaju banding melihat SEMUA banding-nya (apa pun statusnya) agar bisa
+        # memantau hasil review; reviewer hanya melihat yang menunggu gilirannya.
+        is_qc = has_perm(db, current_user, ERROR_CODE_APPEAL)
         def _needs_review(rid):
             s = _appeal_summary(appeal_all.get(rid) or [])
             if not s:
@@ -361,7 +490,7 @@ def list_results(
             if is_qc:
                 return s["total"] > 0
             return s["spq_pending"] > 0 if is_spq else s["tl_pending"] > 0
-        matched = [r for r in all_results if _needs_review(str(r.id))]
+        matched = _apply_status_filters([r for r in all_results if _needs_review(str(r.id))])
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
     elif manual_status_pending:
@@ -371,44 +500,32 @@ def list_results(
         # renders, so the queue matches the column value exactly (not stored on the
         # row, so load the scoped set and filter in Python).
         all_results, _ = crud.list_results(
-            db, campaign=campaign, ticket_id=ticket_id, page=1, limit=1_000_000,
+            db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
             customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
         all_ids = [str(r.id) for r in all_results]
         qc_all = crud.qc_status_requests_for(db, all_ids)
         mdocs_all = _missing_docs_map(db, all_results)
-        matched = [
+        matched = _apply_status_filters([
             r for r in all_results
-            if _manual_status(qc_all.get(str(r.id)), mdocs_all.get(str(r.id), False)) == "pending"
-        ]
+            if manual_review_state(qc_all.get(str(r.id)), mdocs_all.get(str(r.id), False)) == "menunggu"
+        ])
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
-    elif ai_filter in ("PASS", "FAIL"):
-        # AI Status (Approve/Reject) is derived per result, not stored, so it can't be
-        # filtered in SQL. Load the full matching set of done results, compute each
-        # one's AI Status with the same canonical helper the table uses, then paginate
-        # the filtered subset in Python.
+    elif _has_status_filter:
+        # Menu Results dengan filter AI/Manual Status aktif: muat seluruh hasil `done`
+        # yang cocok, lalu saring dengan helper yang SAMA dipakai kedua menu antrean di
+        # atas — supaya "Qualified" berarti hal yang sama persis di ketiga menu.
         all_results, _ = crud.list_results(
-            db, status="done", campaign=campaign, ticket_id=ticket_id, page=1,
+            db, status="done", campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1,
             limit=1_000_000, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
-        all_ids = [str(r.id) for r in all_results]
-        appeal_all = crud.error_code_appeals_for_results(db, all_ids)
-        qc_all = crud.qc_status_requests_for(db, all_ids)
-        rj_all = crud.result_json_map(db, all_ids)
-        mdocs_all = _missing_docs_map(db, all_results)
-        matched = [
-            r for r in all_results
-            if _result_ai_status(
-                rj_all.get(str(r.id)), appeal_all.get(str(r.id)), qc_all.get(str(r.id)),
-                                mdocs_all.get(str(r.id), False)
-            ) == ai_filter
-        ]
+        matched = _apply_status_filters(all_results)
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
     else:
         results, total = crud.list_results(
-            db, status=status, campaign=campaign, ticket_id=ticket_id, page=page,
+            db, status=status, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=page,
             limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
     # Customer Name + Nomor Kartu columns are surfaced to the "simple viewer" roles
@@ -423,6 +540,9 @@ def list_results(
     # upload time per result (single grouped query, no N+1).
     doctimes = crud.document_upload_times(db, rid_list)
     docset = set(doctimes.keys())
+    # Which document TYPES are already uploaded per result — a similarity band asks
+    # for one specific document, so "has some document" is not enough.
+    doctypes_map = crud.document_types_by_result(db, [str(r.id) for r in results])
     # QC-proposed AI-status changes for this page (single grouped query, no N+1).
     qc_map = crud.qc_status_requests_for(db, rid_list)
     # Error Code appeals for this page (single grouped query, no N+1). Approved
@@ -432,14 +552,21 @@ def list_results(
     # filename prefix). Gates the Upload Document button. Single batched query.
     cids = [_customer_id_from_files(r.source_files) for r in results]
     change_map = crud.get_tms_cashline_change_flags(db, [c for c in cids if c])
+    # TMS submit_time per cid — basis for the Pending Check H+2 SLA timer (counts
+    # from the disbursement submission time, not the transcript's generated_at).
+    submit_map = crud.tms_submit_time_map(db, [c for c in cids if c])
     # QC ticket -> (assignee, assigned_at). Team Leader QC / SPQ Head see who a
     # ticket is assigned to and when ("Assign Date").
     assignment_map = crud.assignment_map_for_tickets(db, [c for c in cids if c])
     # Per-ticket manual checks by QC for this page (batched, no N+1).
     manual_check_map = crud.qc_manual_checks_for_results(db, [str(r.id) for r in results])
+    # Riwayat Manual Status per tiket (append-only) — hanya jumlahnya yang dikirim ke
+    # tabel; detailnya diambil per tiket lewat GET /qc_status_events/{result_id}.
+    ms_events_map = crud.qc_status_events_for_results(db, [str(r.id) for r in results])
     # Which results are "missing required documents" (TMS data changed or limit >= 50jt
     # but nothing uploaded) — drives the AI-status default + Manual Status "pending".
     mdocs_page = _missing_docs_map(db, results)
+    _now_status = datetime.now()  # basis tenggat H+2 untuk status PENDING
     items = []
     for r in results:
         ai_score = None
@@ -451,11 +578,11 @@ def list_results(
         critical_compliance_check = None
         non_tolerable_items = None
         evaluation = None  # per-iteration; the RETURN rule below reads it after the QC override
-        data = None  # [NEW] di-declare di luar supaya bisa dibaca lagi setelah blok ini (reference_data)
-
+        raw_result_json = None  # pre-appeal JSON — basis for the similarity-band doc triggers
         if r.status == "done":
             data = crud.get_result_data(db, str(r.id))
             if data is not None:
+                raw_result_json = data.result_json
                 if isinstance(data.result_json, dict):
                     audio_duration = data.result_json.get("audio_duration")
                 evaluation = _evaluation_dict(data.result_json)
@@ -465,6 +592,8 @@ def list_results(
                     _row_appeals = appeal_map.get(str(r.id), [])
                     _approved = approved_appeals_only(_row_appeals)
                     _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
+                    # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
+                    evaluation = normalize_static_verification(evaluation)
                     evaluation = apply_approved_appeals(evaluation, _flip)
                     evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
                     evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -502,11 +631,14 @@ def list_results(
                     ci = evaluation.get("campaign_interest")
                     if isinstance(ci, list):
                         campaign_interest = ci
-
+                    # One sentence per failed critical item, computed server-side so the
+                    # Results column and the detail view read identically (and the static
+                    # verification items say WHY they failed instead of being negated).
+                    evaluation = annotate_critical_compliance_reasons(evaluation)
                     ccc = evaluation.get("critical_compliance_check")
                     if isinstance(ccc, dict):
                         # Keep only what the Results column needs: overall status +
-                        # the checked items (item_code / requirement / status).
+                        # the checked items (item_code / requirement / status / reason).
                         items_raw = ccc.get("checked_items")
                         critical_compliance_check = {
                             "status": ccc.get("status"),
@@ -524,31 +656,6 @@ def list_results(
             ai_status = "FAIL"
 
         cid = _customer_id_from_files(r.source_files)
-        # Upload Document gate: TMS data changes for this result (Alamat Kantor/Rumah,
-        # NPWP, NIK). Enabled when at least one change flag is set.
-        flags = change_map.get(cid or "", {})
-        document_triggers = [lbl for k, lbl in _CHANGE_LABELS.items() if flags.get(k)]
-        document_upload_types = crud.allowed_doc_types_from_flags(flags)
-        # "Kekurangan dokumen": dokumen wajib (perubahan data TMS ATAU limit >= 50jt)
-        # tapi belum ada upload. Basis sama dengan chart/KPI (_missing_docs_map).
-        missing_docs = mdocs_page.get(str(r.id), False)
-
-        # --- Final AI Status precedence (last wins). base ai_status already reflects
-        # the score with approved error-code appeals applied. ---
-        qc_req = qc_map.get(str(r.id))
-        approved_override = qc_req is not None and effective_appeal_status(qc_req) == "approved"
-        # 1) non-tolerable veto
-        if ai_status == "PASS" and evaluation is not None and _has_blocking_intolerable_item(evaluation):
-            ai_status = "FAIL"
-        # 2) missing-documents default -> FAIL, unless an approved Manual Status flips it
-        if missing_docs and not approved_override:
-            ai_status = "FAIL"
-        # 3) approved Manual Status override — final authority (wins over the veto,
-        # the missing-docs default, and the appeal-adjusted score)
-        if approved_override:
-            ai_status = qc_req.requested_status
-        # "Manual Status" column value (all roles).
-        manual_status = _manual_status(qc_req, missing_docs)
         customer_name = None
         account_number = None
         credit_limit = None
@@ -562,14 +669,76 @@ def list_results(
                 credit_limit = info.get("credit_limit")
             else:
                 credit_limit = get_credit_limit(cid, db)
-        # NPWP-upload trigger: a disbursement limit (CUST_CRLIMIT) >= Rp 50 juta
-        # requires an NPWP, so allow it regardless of the TMS change flags.
-        if npwp_required_by_limit(credit_limit):
-            if "npwp" not in document_upload_types:
-                document_upload_types = [*document_upload_types, "npwp"]
-            _npwp_lbl = "NPWP (Limit >= 50 jt)"
-            if _npwp_lbl not in document_triggers:
-                document_triggers = [*document_triggers, _npwp_lbl]
+        # Upload Document gate: dokumen apa yang diminta tiket ini dan KARENA APA —
+        # perubahan data TMS (Alamat Kantor/Rumah, NPWP, NIK), band similarity card
+        # holder (Fase #5), atau limit pencairan >= Rp 50 juta. Band-nya dibaca dari
+        # JSON PRA-banding supaya sepakat dengan _missing_docs_map, yang menentukan
+        # status PENDING.
+        flags = change_map.get(cid or "", {})
+        doc_requirements = _document_requirements(
+            flags,
+            raw_result_json,
+            card_holder_bands_apply(r.uploaded_at),
+            npwp_required_by_limit(credit_limit),
+        )
+        # Dua daftar lama tetap dikirim (modal upload & payload lama memakainya),
+        # sekarang diturunkan dari satu sumber di atas alih-alih dihitung ulang.
+        document_triggers = list(dict.fromkeys(d["reason"] for d in doc_requirements))
+        document_upload_types = list(dict.fromkeys(d["doc_type"] for d in doc_requirements))
+        document_missing_types = [
+            t for t in document_upload_types
+            if t not in doctypes_map.get(str(r.id), set())
+        ]
+        # "Kekurangan dokumen": dokumen wajib (perubahan data TMS ATAU limit >= 50jt)
+        # tapi belum ada upload. Basis sama dengan chart/KPI (_missing_docs_map).
+        missing_docs = mdocs_page.get(str(r.id), False)
+
+        # --- AI Status (aturan 7 Agustus 2026) ---
+        # Skor di atas TETAP dihitung dari evaluasi + banding error code apa adanya —
+        # kolom AI Score, tabel Error Code, dan Ringkasan Kategori memang harus jujur.
+        # Yang dikunci hanyalah STATUS-nya.
+        qc_req = qc_map.get(str(r.id))
+        # 1) non-tolerable veto
+        if ai_status == "PASS" and evaluation is not None and _has_blocking_intolerable_item(evaluation):
+            ai_status = "FAIL"
+        # 2) missing-documents: dalam tenggat H+2 -> PENDING; lewat tenggat -> FAIL.
+        if missing_docs:
+            ai_status = "FAIL" if _doc_sla_expired(submit_map.get(cid), _now_status) else "PENDING"
+        # 2b) INDIKASI FRAUD: gugur di TAHAP 1 verifikasi statik (penyebutan nasabah
+        # tidak konsisten antar pengulangan). Diperiksa SESUDAH aturan dokumen karena
+        # harus menimpa PENDING — tiket ber-indikasi fraud tidak menunggu dokumen.
+        fraud_fields = static_consistency_failures(evaluation) if evaluation is not None else []
+        if fraud_fields:
+            ai_status = "FAIL"
+        # 3) Vonis human yang SUDAH DISETUJUI mengunci AI Status — menimpa ketiga aturan
+        # di atas. Sengaja memanggil helper kanonik yang sama dengan yang dipakai Stats,
+        # filter, dan snapshot: baris ini dulu menghitung sendiri tanpa melihat qc_req,
+        # sehingga kolomnya bisa berbunyi Qualified sementara filter "AI Status =
+        # Not Qualified" justru memasukkannya.
+        _override = manual_status_of(qc_req)
+        if _override:
+            ai_status = _override
+        # "Manual Status" column (all roles): vonis human bila ada, selain itu mengikuti
+        # AI Status. `manual_status_by_human` membedakan keduanya (tombol Set vs Ubah).
+        manual_status = _manual_status(qc_req, ai_status)
+        manual_by_human = manual_status_of(qc_req) is not None
+        manual_review = manual_review_state(qc_req, missing_docs)
+        # Kenapa AI Status-nya PENDING. Satu-satunya penyebab PENDING yang dihasilkan
+        # sistem adalah dokumen wajib yang belum diunggah (tenggat H+2 dari
+        # tms_cashline.submit_time); PENDING yang datang langsung dari LLM tidak punya
+        # keterangan, jadi dibiarkan kosong ketimbang mengarang alasan.
+        # Indikasi fraud ditulis sebagai alasan tiket, sejajar pending_reason, supaya
+        # QC melihat SEBABNYA di kolom AI Status tanpa membuka baris.
+        fail_reason = None
+        if fraud_fields and ai_status == "FAIL":
+            fail_reason = f"{FRAUD_REASON} — penyebutan {', '.join(fraud_fields)} tidak konsisten antar pengulangan"
+        pending_reason = None
+        if ai_status == "PENDING" and missing_docs:
+            _need = [_doc_label(t) for t in document_missing_types] or ["pendukung"]
+            # Tenggatnya hanya disebut bila aturannya memang aktif — menuliskan
+            # "SLA H+2" saat aturan itu dimatikan justru menyesatkan.
+            _sla = " (SLA H+2)" if DOC_SLA_ENABLED else ""
+            pending_reason = f"Menunggu dokumen {', '.join(_need)}{_sla}"
         items.append(
             ResultListItem(
                 result_id=str(r.id),
@@ -593,14 +762,24 @@ def list_results(
                 uploaded_by_username=r.uploaded_by_username,
                 uploaded_by_role=r.uploaded_by_role,
                 generated_at=r.generated_at,
+                submit_time=(submit_map.get(cid) or None),
                 completed_at=r.completed_at,
                 processing_sec=r.processing_sec,
                 document_triggers=document_triggers,
                 document_upload_types=document_upload_types,
+                document_missing_types=document_missing_types,
+                document_missing_labels=[_doc_label(t) for t in document_missing_types],
+                document_requirements=doc_requirements,
                 has_documents=str(r.id) in docset,
                 document_uploaded_at=doctimes.get(str(r.id)),
                 qc_request=qc_req,
                 manual_status=manual_status,
+                manual_review_state=manual_review,
+                manual_status_by_human=manual_by_human,
+                missing_documents=missing_docs,
+                pending_reason=pending_reason,
+                fail_reason=fail_reason,
+                manual_status_history_count=len(ms_events_map.get(str(r.id), [])),
                 appeal_summary=_appeal_summary(appeal_map.get(str(r.id), [])),
                 assigned_qc=(assignment_map.get(cid or "") or (None, None))[0],
                 assigned_at=(assignment_map.get(cid or "") or (None, None))[1],
@@ -637,9 +816,54 @@ def _snapshot_for(db: Session, current_user) -> dict:
     Catatan: versi scoped TIDAK di-cache — dihitung per request. Bebannya
     terbatas karena query-nya sudah difilter di sisi DB ke tiket area tersebut.
     """
-    if getattr(current_user, "role", None) != "area_manager":
-        return crud.get_or_build_stats_snapshot(db)
-    return compute_stats_snapshot(db, _scoped_customer_ids(db, current_user) or [])
+    scope = data_scope_for(db, current_user)
+    if scope in (SCOPE_QC_SUPPORT_OWN, SCOPE_QC_ASSIGNED):
+        # Kedua cakupan QC perorangan berdiri sendiri: seluruh halaman Statistics
+        # dihitung dari himpunan tiketnya saja — QC Support dari tiket complaint yang
+        # ia unggah, QC dari tiket yang di-ASSIGN kepadanya. Tanpa ini keduanya
+        # menerima snapshot global, sehingga Statistics mengaku 102 tiket sementara
+        # menu Results-nya hanya memuat 6 (kasus nyata user ``bella``, 7 Agustus 2026)
+        # — angka yang tidak bisa ditelusuri ke satu barisnya pun.
+        # ``roster_uids`` sengaja himpunan KOSONG supaya tidak ada seorang pun di-seed
+        # dari roster: tabel Performa Sales-nya hanya boleh memuat agent yang benar-benar
+        # muncul di tiketnya (kalau tidak, 262 baris agent seluruh organisasi ikut tampil).
+        return compute_stats_snapshot(
+            db, _scoped_customer_ids(db, current_user) or [], roster_uids=set()
+        )
+    if not is_sales_scope(scope):
+        # Cakupan non-sales yang DIBATASI CAMPAIGN ikut dihitung ulang: snapshot
+        # global yang di-cache memuat seluruh organisasi, jadi memakainya membuat
+        # role ber-``data_scope: all`` + tag campaign melihat KPI, Performa Campaign
+        # dan hierarki milik campaign yang bukan cakupannya (12 Agustus 2026 — role
+        # bertag CECC masih membaca 98 tiket cashline). ``roster_uids`` kosong dengan
+        # alasan yang sama dengan cabang QC di atas.
+        cids = _scoped_customer_ids(db, current_user)
+        if cids is None:
+            return crud.get_or_build_stats_snapshot(db)
+        return compute_stats_snapshot(db, cids, roster_uids=set())
+
+    # KETIGA cakupan sales dihitung ulang dari tiketnya sendiri. Sebelumnya hanya
+    # ``sales_am`` yang di-scope, sehingga Team Leader & Sales Agent menerima snapshot
+    # GLOBAL dari endpoint ini — termasuk daftar ``agents`` berisi seluruh organisasi.
+    # Tidak terlihat di UI (keduanya memakai tampilan my_overview), tetapi tetap
+    # terkirim di respons, dan jumlahnya membengkak setelah Performa Sales di-seed
+    # dari roster.
+    username = getattr(current_user, "username", "") or ""
+    campaigns = effective_campaigns_for(db, current_user)
+    if scope == SCOPE_SALES_AM:
+        roster_uids = agent_ids_for_am(db, username, campaigns)
+    elif scope == SCOPE_SALES_TL:
+        roster_uids = agent_ids_for_tl(db, username, campaigns)
+    else:
+        roster_uids = agent_ids_for_agent(db, username, campaigns)
+
+    # Seeding roster dibatasi ke agent dalam cakupan ini saja — tanpa itu, Performa
+    # Sales & pohon hierarki akan memuat orang di luar cakupannya (dengan angka nol).
+    return compute_stats_snapshot(
+        db,
+        _scoped_customer_ids(db, current_user) or [],
+        roster_uids=roster_uids,
+    )
 
 
 @router.get("/stats/overview")
@@ -667,14 +891,34 @@ def stats_campaigns_monthly(
 
 
 @router.get("/stats/hierarchy")
-def stats_hierarchy(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def stats_hierarchy(
+    campaign: Optional[str] = Query(None, description="Batasi pohon ke satu campaign"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """Error-rate hierarchy: Area Manager -> Team Leader -> Agent, plus All Telesales.
 
     Telesales Head, SPQ Head/Admin dan TL QC melihat pohon penuh. Seorang
     ``area_manager`` hanya melihat node-nya sendiri (TL + agent di bawahnya),
     termasuk ``all_telesales`` yang ikut dihitung dari area itu saja.
+
+    ``campaign`` (opsional) memakai pohon per campaign dari snapshot yang sama,
+    dibangun fungsi yang sama dengan versi global — jadi angkanya konsisten. Nama
+    campaign dicocokkan case-insensitive karena kunci snapshot berasal dari
+    ``Result.campaign`` apa adanya, sedangkan dropdown dari daftar campaign aktif.
     """
-    return _snapshot_for(db, current_user)["hierarchy"]
+    snap = _snapshot_for(db, current_user)
+    if not campaign:
+        return snap["hierarchy"]
+    by_camp = snap.get("hierarchy_by_campaign") or {}
+    want = campaign.strip().casefold()
+    for key, tree in by_camp.items():
+        if (key or "").strip().casefold() == want:
+            return tree
+    # Campaign aktif yang belum punya tiket: pohon kosong, bukan pohon global.
+    from compliance.stats_aggregate import empty_hierarchy
+
+    return empty_hierarchy()
 
 
 @router.get("/stats/role_counts")
@@ -707,17 +951,48 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
         compute_team_agents,
     )
 
-    role = getattr(current_user, "role", None)
     username = getattr(current_user, "username", "") or ""
+    scope = data_scope_for(db, current_user)
+    campaigns = effective_campaigns_for(db, current_user)
     cids = _scoped_customer_ids(db, current_user)
     resp = {"overview": compute_scoped_overview(db, cids or [])}
-    if role == "area_manager":
-        roster = compute_team_agents(db, cashline_agent_ids_for_am(db, username))
+    if scope == SCOPE_SALES_AM:
+        roster = compute_team_agents(db, agent_ids_for_am(db, username, campaigns))
         resp["agents"] = roster
         resp["hierarchy"] = compute_scoped_hierarchy(roster)
-    elif role == "team_leader":
-        resp["agents"] = compute_team_agents(db, cashline_agent_ids_for_tl(db, username))
+    elif scope == SCOPE_SALES_TL:
+        resp["agents"] = compute_team_agents(db, agent_ids_for_tl(db, username, campaigns))
     return resp
+
+
+@router.get("/stats/failure_reasons")
+def stats_failure_reasons(
+    campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Kategori scorecard yang paling sering gagal + alasannya. Hanya untuk
+    SPQ Head & Admin (tab "Failure Reason" di menu Stats)."""
+    if not has_perm(db, current_user, STATS_FAILURE_REASON):
+        raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
+    from compliance.stats_aggregate import compute_failure_reasons
+    return compute_failure_reasons(db, campaign, effective_campaigns_for(db, current_user))
+
+
+@router.get("/stats/failure_reasons_hierarchy")
+def stats_failure_reasons_hierarchy(
+    campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Failure Reason yang dipecah per hierarki sales (AM -> TL -> Agent): kategori
+    scorecard terbesar MILIK tiap simpul. Sub-tab "Hierarki Based" pada tab Failure
+    Reason; hak aksesnya sama dengan agregatnya."""
+    if not has_perm(db, current_user, STATS_FAILURE_REASON):
+        raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
+    from compliance.stats_aggregate import compute_failure_reasons_hierarchy
+    return compute_failure_reasons_hierarchy(db, campaign,
+                                             effective_campaigns_for(db, current_user))
 
 
 @router.get("/stats/ai_status_timeseries")
@@ -732,22 +1007,25 @@ def stats_ai_status_timeseries(
 ):
     """Approve/Reject proportions over time for the 100% stacked column chart.
 
-    Scoped exactly like the KPI/donut it feeds: Sales Agent / Team Leader / Area
-    Manager see only their tickets; QC / TL-QC / Telesales Head / SPQ Head / Admin
-    see everything. ``granularity`` = daily|weekly|monthly|quarterly|semester|yearly;
+    Scoped exactly like the KPI/donut it feeds — memakai aturan yang sama dengan
+    ``_snapshot_for``: Sales Agent / Team Leader / Area Manager melihat tiketnya
+    sendiri, QC melihat tiket yang di-assign kepadanya, QC Support melihat tiket
+    complaint-nya; TL QC / Telesales Head / SPQ Head / Admin melihat semuanya.
+    ``granularity`` = daily|weekly|monthly|quarterly|semester|yearly;
     ``start``/``end`` = optional 'YYYY-MM-DD' WIB bounds; ``campaign`` optional filter;
     ``offset`` pages the default window by whole windows (0 = latest, <0 older)."""
-    role = getattr(current_user, "role", None)
-    scoped_roles = ("sales_agent", "team_leader", "area_manager")
-    customer_ids = _scoped_customer_ids(db, current_user) if role in scoped_roles else None
+    # ``_scoped_customer_ids`` sudah menjawab None untuk cakupan tanpa penyempitan,
+    # jadi tidak perlu daftar role di sini — dan dengan begitu pembatasan CAMPAIGN
+    # (yang juga berlaku pada ``data_scope: all``) ikut terbawa.
+    customer_ids = _scoped_customer_ids(db, current_user)
     return compute_ai_status_timeseries(db, customer_ids, campaign, granularity, start, end, offset)
 
 
 @router.post("/stats/refresh")
 def stats_refresh(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Force-recompute today's Statistics snapshot (SPQ Head only)."""
-    if getattr(current_user, "role", None) not in ("spq_head", "admin"):
-        raise HTTPException(status_code=403, detail="Hanya SPQ Head yang dapat me-refresh statistik")
+    if not has_perm(db, current_user, STATS_FAILURE_REASON):
+        raise HTTPException(status_code=403, detail="Role Anda tidak dapat me-refresh statistik")
     crud.get_or_build_stats_snapshot(db, force=True)
     return {"status": "ok"}
 
@@ -755,7 +1033,12 @@ def stats_refresh(db: Session = Depends(get_db), current_user=Depends(get_curren
 def _append_scorecard_rows(sheet, result_json, cust_id) -> None:
     """Append scorecard rows (one per ``scorecard_result`` item, plus one per
     ``verified_parameter`` for Verifikasi Dinamis) from a single result JSON.
-    The ``id`` column is the result-level ``cust_id`` (not derived from ticket_id)."""
+
+    The ``id`` column is the result-level ``cust_id`` (not derived from ticket_id).
+
+    Kolom ``category`` memakai nama TAMPILAN (``category_label``), sama dengan
+    dashboard: "Verifikasi" ditulis "Verifikasi Statik". Perbandingan di bawah tetap
+    memakai nilai MENTAH ``item["category"]`` — yang berubah hanya yang tercetak."""
     if not result_json:
         return
     evaluation = result_json.get("evaluation") or {}
@@ -768,7 +1051,7 @@ def _append_scorecard_rows(sheet, result_json, cust_id) -> None:
         sheet.append(
             [
                 cust_id,
-                item.get("category", ""),
+                category_label(item.get("category", "")),
                 item.get("item_code", ""),
                 item.get("requirement", ""),
                 item.get("item_score", ""),
@@ -789,7 +1072,7 @@ def _append_scorecard_rows(sheet, result_json, cust_id) -> None:
                 sheet.append(
                     [
                         cust_id,
-                        item.get("category", ""),
+                        category_label(item.get("category", "")),
                         item.get("item_code", ""),
                         param.get("param_name", ""),
                         "",  # score dikosongkan (SKOR)
@@ -837,7 +1120,7 @@ def _non_tolerable_reasons(evaluation: dict) -> list:
         tol = str((item or {}).get("tolerable") or "").strip().upper()
         st = str((item or {}).get("status") or "").strip().upper()
         if tol == "NO" and st == "BELUM_SESUAI":
-            reason = not_fulfilled_reason(item)  # "... (SC_CL_x)"
+            reason = not_fulfilled_reason(item, evaluation)  # "... (SC_CL_x)"
             code = (item or {}).get("item_code")
             if code:
                 # Drop the " (SC_CL_x)" code tag wherever it appears (it sits mid-
@@ -918,7 +1201,7 @@ def _append_ringkasan_rows(sheet, result_json) -> None:
     for it in belum:
         w = _to_num(it.get("weight"))
         change = -w if w is not None else blank
-        desc = f'{it.get("category") or "—"} - {it.get("item_code") or "—"} - {it.get("requirement") or "—"}'
+        desc = f'{category_label(it.get("category")) or "—"} - {it.get("item_code") or "—"} - {it.get("requirement") or "—"}'
         sheet.append([desc, change, blank])
     delta = None
     if phase2 is not None and max_score is not None:
@@ -998,6 +1281,7 @@ def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
         if isinstance(evaluation, dict):
             _approved = approved_appeals_only(appeals)
             _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
+            evaluation = normalize_static_verification(evaluation)
             evaluation = apply_approved_appeals(evaluation, _flip)
             evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
             evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -1023,10 +1307,99 @@ def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get(
+    "/export_verification_xlsx",
+    dependencies=[Depends(require(RESULTS_EXPORT_VERIFICATION))],
+)
+def export_verification_xlsx(
+    category: str = Query(..., description="verifikasi_statik | verifikasi_dinamik | cashline_verification | cardholder_verification"),
+    campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Export agregat SATU kategori verifikasi: semua baris yang tidak cocok pada
+    tiket Not Qualified & Pending, dalam satu XLSX.
+
+    Kolomnya menyesuaikan kategori (mis. Cashline Verification membawa "Ketentuan
+    Produk" yang tidak ada pada card holder) — lihat ``compute_verification_export``.
+
+    Dibatasi ke campaign yang menjadi cakupan pemanggil: export adalah salinan data
+    yang dibawa keluar sistem, jadi ia tidak boleh lebih longgar daripada tabel
+    Results yang sudah dibatasi.
+    """
+    from compliance.stats_aggregate import (
+        VERIFICATION_EXPORT_CATEGORIES,
+        compute_verification_export,
+    )
+    if category not in VERIFICATION_EXPORT_CATEGORIES:
+        raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
+    data = compute_verification_export(db, category, campaign,
+                                       effective_campaigns_for(db, current_user))
+
+    workbook = Workbook()
+    sheet = workbook.active
+    # Judul sheet dibatasi 31 karakter oleh format XLSX; label kategori masih jauh
+    # di bawahnya, jadi dipakai apa adanya.
+    sheet.title = data["label"][:31]
+    sheet.append([title for _key, title in data["columns"]])
+    for row in data["rows"]:
+        cells = [row.get(key) for key, _title in data["columns"]]
+        sheet.append(cells)
+        # Kolom "Transkrip" bisa memuat beberapa penyebutan yang dipisah baris baru;
+        # tanpa wrap_text, Excel menampilkannya sebagai satu baris berantakan.
+        for idx, (key, _title) in enumerate(data["columns"], start=1):
+            if key == "transkrip" and isinstance(cells[idx - 1], str) and "\n" in cells[idx - 1]:
+                sheet.cell(row=sheet.max_row, column=idx).alignment = Alignment(
+                    wrap_text=True, vertical="top"
+                )
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"{category}_{timestamp}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get(
+    "/get_nama_ibu_kandung",
+    response_model=NamaIbuKandungResponse,
+    dependencies=[Depends(require(RESULTS_EXPORT_VERIFICATION))],
+)
+def get_nama_ibu_kandung(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Hasil verifikasi statik **nama ibu kandung** SEMUA tiket, tanpa parameter.
+
+    Satu baris per tiket ``done`` yang punya baris verifikasi ``nama_ibu_kandung`` —
+    MATCH maupun MISMATCH, apa pun AI Status-nya. Bandingkan dengan
+    ``/export_verification_xlsx?category=verifikasi_statik`` yang hanya membawa baris
+    MISMATCH pada tiket Not Qualified & Pending.
+
+    Tiap baris berisi ``ticket_id`` (id + timestamp file PDF), ``submit_time`` (dari
+    ``tms_cashline``), ``ascend`` (acuan bank), ``transkrip`` (penyebutan nasabah),
+    ``match``, ``evidence`` (kutipan pada scorecard SC_CL_23_2), ``similarity``, dan
+    ``reason``. Similarity-nya sudah dihitung ulang di Python dan banding yang
+    disetujui sudah diterapkan — sama dengan yang tampil di dashboard.
+
+    Dibatasi ke campaign yang menjadi cakupan pemanggil, sama seperti
+    ``/export_verification_xlsx``.
+    """
+    from compliance.stats_aggregate import compute_nama_ibu_kandung_rows
+
+    rows = compute_nama_ibu_kandung_rows(db, effective_campaigns_for(db, current_user))
+    return {"total": len(rows), "rows": rows}
+
+
 @router.delete(
     "/delete_ticket",
     response_model=TicketDeleteResponse,
-    dependencies=[Depends(get_spq_head_user)],
+    dependencies=[Depends(require(ADMIN_TICKET_DELETE))],
 )
 def delete_ticket(
     ticket_id: str = Query(..., description="Ticket id (prefix sebelum '_' pada nama file) yang semua entry-nya akan dihapus"),

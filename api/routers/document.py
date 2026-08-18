@@ -13,7 +13,14 @@ from api.dependencies import (
     get_minio,
     get_settings,
 )
-from compliance.documents import DOCUMENT_TYPES
+from api.qc_scope import ensure_can_view_result
+from api.permissions import DOCUMENT_VERIFICATION_TABLE
+from api.rbac import has_perm
+from compliance.documents import (
+    DOCUMENT_TYPES,
+    card_holder_bands_apply,
+    card_holder_doc_types,
+)
 from compliance.reference_data import get_credit_limit, npwp_required_by_limit
 from db import crud
 
@@ -49,12 +56,11 @@ def upload_document(
 ):
     result = _validate_result(db, result_id)
 
-    # Enforce once-only upload per result.
-    if crud.result_has_documents(db, result_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Dokumen untuk result ini sudah pernah diunggah",
-        )
+    # Once-only PER DOCUMENT TYPE. A ticket can need two different documents from two
+    # different triggers (e.g. KTP for a TMS address change + KK because
+    # nama_ibu_kandung landed in the 80-89% band), and they may be uploaded in
+    # separate visits — but the same type is never uploaded twice.
+    already = crud.result_document_types(db, result_id)
 
     uploads = {
         "ktp": ktp,
@@ -69,6 +75,13 @@ def upload_document(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Minimal satu file dokumen diperlukan",
         )
+    dup = [dt for dt in chosen if dt in already]
+    if dup:
+        labels = ", ".join(DOCUMENT_TYPES.get(d, {}).get("label", d) for d in dup)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Dokumen {labels} untuk result ini sudah pernah diunggah",
+        )
 
     # Only allow document types that match the TMS data changes for this result
     # (server-side enforcement; the dashboard already hides disallowed slots). The
@@ -81,6 +94,11 @@ def upload_document(
     # even without a TMS NPWP change flag (mirrors the Results upload trigger).
     if cid and npwp_required_by_limit(get_credit_limit(cid, db)):
         allowed_types.add("npwp")
+    # Card-holder similarity bands (Fase #5) allow their own document type: KK when
+    # nama_ibu_kandung scored 80-89%, KTP when tanggal_lahir scored 87,5-99%.
+    if card_holder_bands_apply(result.uploaded_at):
+        data = crud.get_result_data(db, result_id)
+        allowed_types.update(card_holder_doc_types(getattr(data, "result_json", None)))
     bad = [dt for dt in chosen if dt not in allowed_types]
     if bad:
         raise HTTPException(
@@ -137,9 +155,17 @@ def list_documents(
     db: Session = Depends(get_db),
     current_user=Depends(get_document_viewer_user),
 ):
-    _validate_result(db, result_id)
+    result = _validate_result(db, result_id)
+    # Every role may view documents; the scope is the TICKET, not the role.
+    ensure_can_view_result(db, current_user, result)
+    # Tabel perbandingan (OCR vs acuan TMS/Ascend) adalah penilaian QC, bukan
+    # dokumennya. Role tanpa capability itu tetap menerima dokumennya, tetapi
+    # ``ocr_json``/``error_message`` DIBUANG di sini — menyembunyikannya di frontend
+    # saja tidak cukup, datanya tetap terkirim dan terbaca di respons jaringan.
+    may_see_verification = has_perm(db, current_user, DOCUMENT_VERIFICATION_TABLE)
     docs = crud.list_documents(db, result_id)
     return {
+        "can_view_verification": may_see_verification,
         "documents": [
             {
                 "id": d.id,
@@ -148,13 +174,13 @@ def list_documents(
                 "filename": d.filename,
                 "mime_type": d.mime_type,
                 "status": d.status,
-                "ocr_json": d.ocr_json,
-                "error_message": d.error_message,
+                "ocr_json": d.ocr_json if may_see_verification else None,
+                "error_message": d.error_message if may_see_verification else None,
                 "created_at": d.created_at,
                 "completed_at": d.completed_at,
             }
             for d in docs
-        ]
+        ],
     }
 
 
@@ -169,6 +195,8 @@ def document_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan"
         )
+    # Same ticket scope as /documents — a document id alone must not bypass it.
+    ensure_can_view_result(db, current_user, _validate_result(db, str(doc.result_id)))
 
     settings = get_settings()
     client = get_minio()

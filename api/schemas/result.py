@@ -34,7 +34,7 @@ class WebhookProcessResponse(BaseModel):
     phase_3_enqueued: bool  # process_document (OCR) — only when documents were found
     
 class QcStatusRequestInfo(BaseModel):
-    requested_status: str  # PASS | FAIL proposed by QC
+    requested_status: str  # vonis human: PASS | FAIL | PENDING
     reason: Optional[str] = None
     requested_by_username: Optional[str] = None
     requested_by_role: Optional[str] = None
@@ -47,9 +47,31 @@ class QcStatusRequestInfo(BaseModel):
     reviewed_at: Optional[datetime] = None
     tl_qc_comment: Optional[str] = None  # Team Leader QC's note (approve/reject/escalate)
     review_comment: Optional[str] = None  # SPQ Head's note (approve/reject)
+    origin: str = "qc"  # qc (usulan, lewat hierarki) | qc_confirm (sama dengan AI Status, final) | tl_direct | spq_direct (final saat dibuat)
 
     class Config:
         from_attributes = True
+
+
+class QcStatusEventInfo(BaseModel):
+    """Satu kejadian pada riwayat Manual Status (append-only, hanya untuk ditampilkan)."""
+    id: int
+    event: str  # usul | konfirmasi | set_langsung | tl_approve | tl_reject | tl_escalate | spq_approve | spq_reject
+    actor_username: Optional[str] = None
+    actor_role: Optional[str] = None
+    requested_status: Optional[str] = None  # vonis yang diusulkan/ditetapkan saat itu
+    status_before: Optional[str] = None  # Manual Status efektif SEBELUM kejadian
+    status_after: Optional[str] = None   # Manual Status efektif SESUDAH kejadian
+    comment: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class QcStatusEventListResponse(BaseModel):
+    result_id: str
+    events: list[QcStatusEventInfo] = []
 
 
 class QcManualCheckInfo(BaseModel):
@@ -84,6 +106,7 @@ class ErrorCodeAppealInfo(BaseModel):
     qc_risk_base: Optional[str] = None  # QC-edited Risk Base override (empty => catalog default)
     appeal_kind: str = "remove"
     add_source: Optional[str] = None  # for appeal_kind='add': scorecard|cashline_data|card_holder|others
+    origin: str = "qc"  # qc (tiered review) | tl_direct | spq_direct (reviewer direct edit, no hierarchy)
     requested_by_username: Optional[str] = None
     requested_at: Optional[datetime] = None
     tl_qc_status: str = "pending"  # Team Leader QC intermediate: pending | approved | rejected
@@ -120,14 +143,36 @@ class ResultListItem(BaseModel):
     uploaded_at: Optional[datetime]
     uploaded_by_username: Optional[str] = None  # who uploaded the transcript
     uploaded_by_role: Optional[str] = None  # role of the uploader
-    generated_at: Optional[datetime] = None  # transcript date; basis for the Pending Check H+2 SLA timer
+    generated_at: Optional[datetime] = None  # transcript "Generated" date
+    submit_time: Optional[str] = None  # tms_cashline submit_time (raw string); basis for the Pending Check H+2 SLA timer
     completed_at: Optional[datetime]
     processing_sec: Optional[float]
     document_triggers: list[str] = []  # TMS data changes (Alamat Kantor/Rumah, NPWP, NIK) that enable the Upload Document button
-    document_upload_types: list[str] = []  # document types allowed to upload (ktp/npwp), matching the changed fields
+    document_upload_types: list[str] = []  # document types allowed to upload (ktp/kk/npwp), matching the changed fields + similarity bands
+    document_missing_types: list[str] = []  # subset of document_upload_types not yet uploaded
+    document_missing_labels: list[str] = []  # label dokumen yang belum diunggah, mis. ["NPWP"] — dipakai catatan "Cek Dokumen NPWP"
+    # Dokumen yang diminta BESERTA alasannya: [{"doc_type","doc_label","reason"}].
+    # Kolom Document merangkainya jadi "Perlu Dokumen NPWP karena Perubahan NPWP".
+    document_requirements: list[dict] = []
     has_documents: bool = False  # at least one uploaded document exists for this result
     document_uploaded_at: Optional[datetime] = None  # latest document upload time, if any
-    manual_status: Optional[str] = None  # "Manual Status" column: approve|reject|ditolak|pending|None
+    manual_status: Optional[str] = None  # PASS | FAIL | PENDING — vonis human, default mengikuti AI Status
+    # True bila nilainya benar-benar ditetapkan human; False = masih mengikuti AI Status.
+    manual_status_by_human: bool = False
+    # Keadaan alur kerja vonis human: 'final' | 'menunggu' | 'ditolak' | None.
+    manual_review_state: Optional[str] = None
+    # Dokumen wajib (perubahan TMS / limit >= 50jt / band similarity) belum diunggah —
+    # inilah kondisi SLA H+2 yang memunculkan catatan "Cek Dokumen".
+    missing_documents: bool = False
+    # Keterangan singkat kenapa AI Status = PENDING, mis. "Menunggu dokumen NPWP
+    # (SLA H+2)". None bila statusnya bukan PENDING atau PENDING-nya datang dari LLM.
+    pending_reason: Optional[str] = None
+    # Kenapa AI Status-nya Not Qualified, untuk sebab yang TIDAK terbaca dari skor —
+    # saat ini hanya indikasi fraud (penyebutan verifikasi statik tidak konsisten).
+    # None = tidak ada sebab khusus; kegagalan biasa cukup dibaca dari skor & error code.
+    fail_reason: Optional[str] = None
+    # Jumlah kejadian pada riwayat Manual Status (0 = belum pernah berubah).
+    manual_status_history_count: int = 0
     qc_request: Optional[QcStatusRequestInfo] = None  # QC-proposed AI-status change, if any
     appeal_summary: Optional[dict] = None  # Error Code banding summary (counts + history) for this result
     assigned_qc: Optional[str] = None  # QC username this ticket is assigned to (Team Leader QC / SPQ Head view)
@@ -192,3 +237,27 @@ class DailyStatsResponse(BaseModel):
 class TicketDeleteResponse(BaseModel):
     ticket_id: str
     deleted: int
+
+
+class ScorecardEvidence(BaseModel):
+    """``evidence`` sebuah item scorecard: kutipan transkrip + menit ke berapa + file
+    PDF asalnya."""
+    quote: Optional[str] = None
+    timestamp: Optional[str] = None
+    ticket_id: Optional[str] = None
+
+
+class NamaIbuKandungItem(BaseModel):
+    ticket_id: str
+    submit_time: Optional[str] = None
+    ascend: Optional[str] = None
+    transkrip: Optional[str] = None
+    match: Optional[str] = None
+    evidence: Optional[ScorecardEvidence] = None
+    similarity: Optional[float] = None
+    reason: Optional[str] = None
+
+
+class NamaIbuKandungResponse(BaseModel):
+    total: int
+    rows: list[NamaIbuKandungItem]

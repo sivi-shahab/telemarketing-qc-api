@@ -6,7 +6,9 @@ is then scoped to only their assigned tickets for Results / Statistics / appeals
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy.orm import Session
 
-from api.dependencies import get_current_user, get_db, get_tl_qc_or_spq_head_user
+from api.dependencies import get_current_user, get_db
+from api.permissions import QC_ASSIGNMENT_WRITE
+from api.rbac import require
 from db import crud
 from db.models import User
 
@@ -25,7 +27,7 @@ def _assignment_dict(a) -> dict:
 @router.get("/qc_assignment/qc_users")
 def list_qc_users(
     db: Session = Depends(get_db),
-    current_user=Depends(get_tl_qc_or_spq_head_user),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
     """The QC users a ticket can be assigned to (role == qc, active)."""
     rows = (
@@ -40,7 +42,7 @@ def list_qc_users(
 @router.get("/qc_assignments")
 def list_assignments(
     db: Session = Depends(get_db),
-    current_user=Depends(get_tl_qc_or_spq_head_user),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
     """All ticket -> QC assignments (newest first)."""
     return [_assignment_dict(a) for a in crud.list_qc_assignments(db)]
@@ -51,7 +53,7 @@ def assign_ticket(
     ticket_id: str = Form(...),
     qc_username: str = Form(...),
     db: Session = Depends(get_db),
-    current_user=Depends(get_tl_qc_or_spq_head_user),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
     """Assign (or reassign) a ticket to a QC user."""
     ticket_id = (ticket_id or "").strip()
@@ -69,7 +71,7 @@ def assign_ticket(
 def remove_assignment(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(get_tl_qc_or_spq_head_user),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
     """Unassign a ticket (QC then no longer sees it)."""
     removed = crud.unassign_ticket(db, ticket_id)

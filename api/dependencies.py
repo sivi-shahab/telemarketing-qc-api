@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Generator, Optional
 
+from api import permissions as _P
+
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic_settings import BaseSettings
@@ -87,7 +89,30 @@ class Settings(BaseSettings):
     llm_base_url: str = os.getenv("LLM_BASE_URL", "")
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_model: str = os.getenv("LLM_MODEL", "gpt-5.4-mini")
-    
+    # Dipakai get_llm_client() (llm_timeout) dan jalur RIPLAY (llm_temperature).
+    # Keduanya sudah dirujuk kode sejak lama tapi tidak pernah dideklarasikan di
+    # sisi api — hanya di worker/config.py — sehingga get_llm_client() melempar
+    # AttributeError dan klien LLM sisi api tidak pernah bisa dibuat. Default-nya
+    # disamakan dengan worker supaya kedua proses memakai angka yang sama.
+    llm_timeout: float = float(os.getenv("LLM_TIMEOUT", "1800.0"))
+    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "1.0"))
+    llm_seed: int = int(os.getenv("LLM_SEED", "42"))
+    llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "medium")
+
+    # ============================================
+    # RIPLAY extraction (compliance/riplay.py)
+    # ============================================
+    # Dibaca api/routers/campaign.py saat Upload Campaign menyertakan RIPLAY PDF.
+    # Keempatnya sudah lama ada di .env.example tapi tidak pernah dideklarasikan di
+    # sini, sehingga settings.riplay_model melempar AttributeError DI DALAM try dan
+    # tertangkap `except Exception` — pengguna melihat 502 "Ekstraksi RIPLAY gagal
+    # dihubungi", dan tidak ada satu pun campaign yang pernah punya riplay_extraction
+    # (akibatnya kolom TnC Product selalu "—").
+    riplay_model: str = os.getenv("RIPLAY_MODEL", "")  # kosong = ikut LLM_MODEL
+    riplay_max_pages: int = int(os.getenv("RIPLAY_MAX_PAGES", "20"))
+    riplay_render_scale: float = float(os.getenv("RIPLAY_RENDER_SCALE", "2.0"))
+    riplay_min_similarity: float = float(os.getenv("RIPLAY_MIN_SIMILARITY", "50.0"))
+
     # ============================================
     # Celery Configuration
     # ============================================
@@ -179,6 +204,30 @@ def get_minio():
     if _minio_client is None:
         _minio_client = build_minio_client(get_settings())
     return _minio_client
+
+
+# --- LLM ---
+
+_llm_client = None
+
+
+def get_llm_client():
+    """OpenAI-compatible client for the API's own LLM calls (RIPLAY extraction).
+
+    Transcript evaluation runs in the worker; the API only needs this for the
+    synchronous RIPLAY pass on campaign upload.
+    """
+    global _llm_client
+    if _llm_client is None:
+        from openai import OpenAI
+
+        settings = get_settings()
+        _llm_client = OpenAI(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            timeout=settings.llm_timeout,
+        )
+    return _llm_client
 
 
 def ensure_buckets():
@@ -299,17 +348,31 @@ async def get_current_user(
     )
 
 
-# "admin" has the exact same permissions as "spq_head" (Fase 7), so it is accepted
-# everywhere SPQ Head is.
-async def get_spq_head_user(
-    current_user=Depends(get_current_user),
-):
-    if current_user.role not in ("spq_head", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk SPQ Head",
-        )
-    return current_user
+# --- Gate berbasis capability ---
+#
+# Dulu tiap gate berbentuk ``if current_user.role not in (...)``. Bentuk itu membuat
+# role buatan operator (menu Manage Role) otomatis ditolak semua endpoint, karena
+# namanya tidak pernah ada di daftar literal. Sekarang yang dicek adalah capability
+# milik role tersebut — lihat api/permissions.py dan api/rbac.py.
+#
+# ``api.rbac`` mengimpor get_current_user/get_db dari berkas ini, jadi impornya
+# ditunda ke dalam fungsi untuk menghindari impor melingkar.
+
+
+def _require(*permissions: str):
+    """Bungkus tipis di atas ``rbac.require`` dengan impor tertunda."""
+    def _dep(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+        from api.rbac import permissions_for
+
+        granted = permissions_for(db, current_user)
+        missing = [perm for perm in permissions if perm not in granted]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses ditolak: role Anda tidak memiliki izin untuk tindakan ini",
+            )
+        return current_user
+    return _dep
 
 
 async def get_agent_error_summary_user(
@@ -322,113 +385,42 @@ async def get_agent_error_summary_user(
     return current_user
 
 
-async def get_evaluation_detail_user( 
-    current_user=Depends(get_current_user),
-):
-    # Detail penilaian (Executive Summary + verifikasi Ascend/TMS) hanya untuk
-    # sisi QC. Sisi sales — sales_agent, team_leader, area_manager, telesales_head
-    # — cukup Agent Error Summary; mereka tidak boleh membuka detail penilaian
-    # tiket agent di bawah mereka.
-    #
-    # qc_support ikut boleh, tapi tetap stand alone: scoping-nya di
-    # _scoped_customer_ids/list_results membatasi dia hanya ke upload-annya sendiri.
-    # "demo" (read-only showcase) may open evaluation detail, mirroring the SPQ view.
-    if current_user.role not in (
-        "qc", "team_leader_qc", "qc_support", "spq_head", "admin", "demo",
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Detail penilaian hanya untuk QC, TL QC, QC Support, SPQ Head, atau Admin",
-        )
-    return current_user
+# async def get_evaluation_detail_user( 
+#     current_user=Depends(get_current_user),
+# ):
+#     # Detail penilaian (Executive Summary + verifikasi Ascend/TMS) hanya untuk
+#     # sisi QC. Sisi sales — sales_agent, team_leader, area_manager, telesales_head
+#     # — cukup Agent Error Summary; mereka tidak boleh membuka detail penilaian
+#     # tiket agent di bawah mereka.
+#     #
+#     # qc_support ikut boleh, tapi tetap stand alone: scoping-nya di
+#     # _scoped_customer_ids/list_results membatasi dia hanya ke upload-annya sendiri.
+#     # "demo" (read-only showcase) may open evaluation detail, mirroring the SPQ view.
+#     if current_user.role not in (
+#         "qc", "team_leader_qc", "qc_support", "spq_head", "admin", "demo",
+#     ):
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Detail penilaian hanya untuk QC, TL QC, QC Support, SPQ Head, atau Admin",
+#         )
+#     return current_user
+# Detail penilaian (Executive Summary + verifikasi Ascend/TMS) hanya untuk sisi QC;
+# sisi sales cukup Agent Error Summary. qc_support ikut boleh tapi tetap stand alone
+# karena data_scope-nya yang membatasi dia ke upload-annya sendiri.
+get_evaluation_detail_user = _require(_P.RESULTS_EVALUATION_DETAIL)
 
+# Manual Status (vonis human). Role ber-MANUAL_STATUS_SET saja yang boleh menyentuhnya;
+# yang juga punya MANUAL_STATUS_DIRECT menetapkan tanpa approval, sisanya mengajukan
+# usulan lewat hierarki QC -> TL QC -> SPQ Head. Percabangannya di routers/qc_status.py.
+get_manual_status_setter_user = _require(_P.MANUAL_STATUS_SET)
 
-async def get_qc_user(
-    current_user=Depends(get_current_user),
-):
-    if current_user.role != "qc":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk QC",
-        )
-    return current_user
+# Dokumen pendukung (KTP/KK/NPWP/cover buku tabungan).
+# UPLOAD dibatasi DOCUMENT_UPLOAD — bawaannya hanya Team Leader Sales (+ admin sebagai
+# superuser); sisi QC view-only.
+get_document_uploader_user = _require(_P.DOCUMENT_UPLOAD)
 
-
-async def get_sales_agent_user(
-    current_user=Depends(get_current_user),
-):
-    if current_user.role != "sales_agent":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk Sales Agent",
-        )
-    return current_user
-
-
-async def get_team_leader_qc_user(
-    current_user=Depends(get_current_user),
-):
-    if current_user.role != "team_leader_qc":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk Team Leader QC",
-        )
-    return current_user
-
-
-async def get_tl_qc_or_spq_head_user(
-    current_user=Depends(get_current_user),
-):
-    # Ticket assignment (QC division) is managed by Team Leader QC; SPQ Head (top of
-    # the whole org) may also manage it.
-    if current_user.role not in ("team_leader_qc", "spq_head", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk Team Leader QC atau SPQ Head",
-        )
-    return current_user
-
-
-async def get_qc_or_spq_head_user(
-    current_user=Depends(get_current_user),
-):
-    if current_user.role not in ("qc", "spq_head", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akses hanya untuk QC atau SPQ Head",
-        )
-    return current_user
-
-
-# Supporting-document access (KTP/KK/NPWP/cover buku tabungan):
-# - UPLOAD: HANYA Team Leader Sales yang menyuplai dokumen (+ admin superuser). QC,
-#   TL QC, SPQ Head, QC Support TIDAK boleh upload (view-only), begitu pula sales
-#   agent / AM / telesales.
-# - VIEW: hanya sisi QC — QC, TL QC, SPQ Head, plus QC Support (dokumen komplainnya
-#   sendiri). Team Leader sales boleh upload tapi TIDAK boleh melihat.
-async def get_document_uploader_user(
-    current_user=Depends(get_current_user),
-):
-    # Only Team Leader Sales uploads customer documents (KTP/KK/NPWP/cover buku
-    # tabungan) on the Results menu. The QC side (QC, TL QC, SPQ Head, QC Support)
-    # is view-only — see get_document_viewer_user. ``admin`` retained as superuser.
-    if current_user.role not in ("team_leader", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Upload dokumen hanya untuk Team Leader Sales",
-        )
-    return current_user
-
-
-async def get_document_viewer_user(
-    current_user=Depends(get_current_user),
-):
-    # "demo" (read-only showcase) may view supporting documents, mirroring the SPQ view.
-    if current_user.role not in (
-        "qc", "team_leader_qc", "spq_head", "admin", "qc_support", "demo",
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Lihat dokumen hanya untuk QC, Team Leader QC, SPQ Head, atau QC Support",
-        )
-    return current_user
+# VIEW dipegang setiap role. Yang membatasi bukan role melainkan TIKET: tiap endpoint
+# memanggil ``api.qc_scope.ensure_can_view_result``, yang mencerminkan cakupan daftar
+# Results — jadi user hanya sampai ke dokumen tiket yang memang sudah terlihat olehnya
+# (Team Leader terbatas pada timnya sendiri).
+get_document_viewer_user = _require(_P.DOCUMENT_VIEW)
