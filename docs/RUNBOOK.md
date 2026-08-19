@@ -151,6 +151,10 @@ Tidak ada endpoint "reprocess" khusus. Untuk mengevaluasi ulang sebuah tiket:
    ingestion (lihat [`INTEGRATION.md`](./INTEGRATION.md)) — task Celery baru akan
    mengevaluasi ulang dengan prompt campaign yang aktif saat itu.
 
+> ⚠️ **Sejak 14 Agustus 2026 kedua langkah itu butuh akun `admin`.** Menghapus tiket dan
+> seluruh menu Upload Data sudah tidak dimiliki SPQ Head — lihat
+> [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.1.
+
 > Karena prompt/scorecard diambil **fresh dari DB** tiap task, memproses ulang setelah
 > mengubah campaign akan memakai konfigurasi terbaru — berguna setelah revisi prompt/KB/scorecard.
 
@@ -160,7 +164,8 @@ Tidak ada endpoint "reprocess" khusus. Untuk mengevaluasi ulang sebuah tiket:
 
 Campaign (prompt/knowledge_base/scorecard, + RIPLAY opsional) **wajib** ada sebelum upload
 transkrip. Update campaign = upload ulang via dashboard **Upload Data → Upload Campaign**
-(butuh permission `admin.campaign.write`). Tidak perlu restart service — prompt dibaca fresh
+(butuh `admin.campaign.write` — **hanya akun `admin`** sejak 14 Agustus 2026). Tidak perlu
+restart service — prompt dibaca fresh
 dari DB tiap task. Detail: [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md).
 
 Cek kesiapan seluruh campaign (konfigurasi QC, roster, akun, data TMS, tiket):
@@ -230,8 +235,13 @@ Payload dashboard Statistics disimpan di tabel `stats_snapshots` dan dipakai ula
 **signature data** cocok (`crud._stats_signature`). Signature itu dihitung dari **data**, bukan
 dari versi kode — jadi:
 
-> Mengubah **logika** perhitungan (sakelar SLA, ambang band, mirror scoring) **tidak**
-> meng-invalidate cache. Dashboard akan menyajikan angka lama sampai ada data baru masuk.
+> Mengubah **logika** perhitungan (sakelar SLA, ambang band, mirror scoring, hitung ulang
+> similarity statik, propagasi verifikasi → scorecard) **tidak** meng-invalidate cache.
+> Dashboard akan menyajikan angka lama sampai ada data baru masuk.
+
+Refresh **wajib** setelah perubahan yang menggeser skor atau AI Status tiket lama — snapshot
+menyimpan keduanya, jadi tiket yang berpindah Qualified → Not Qualified tidak akan terlihat
+di Statistics sampai dihitung ulang.
 
 Paksa hitung ulang:
 

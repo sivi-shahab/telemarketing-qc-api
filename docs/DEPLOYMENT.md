@@ -350,10 +350,12 @@ server {
 - **Admin pertama** — otomatis dibuat oleh migrasi `0001` saat tabel `users` masih kosong,
   memakai `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`ADMIN_EMAIL`.
 - **Campaign — TIDAK auto-seed.** Wajib upload manual **sebelum** upload transkrip:
-  lewat dashboard menu **Upload Data → Upload Campaign** (permission `admin.campaign.write`),
+  lewat dashboard menu **Upload Data → Upload Campaign** (permission `admin.campaign.write` —
+  **hanya akun `admin`** sejak 14 Agustus 2026; login sebagai SPQ Head tidak akan menemukan
+  menunya),
   isi nama campaign + unggah 3 file `.txt` (`prompt`, `knowledge_base`, `scorecard`) plus
   RIPLAY PDF opsional. Versi aktif per 12 Agustus 2026 ada di `docs/` dan
-  `campaign_cashline/`: `prompt_cashline_mus_v52.txt`, `cashline_kb_v21.txt`,
+  `campaign_cashline/`: `prompt_cashline_mus_v54.txt`, `cashline_kb_v21.txt`,
   `cashline_scorecard_v3.txt`.
 - **Script utilitas** di `scripts/` (jalankan di dalam container `api`/`worker` untuk Docker,
   atau di dalam venv untuk bare-metal — semuanya butuh `.env` ter-export & `PYTHONPATH` root):

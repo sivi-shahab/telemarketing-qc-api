@@ -97,6 +97,35 @@ Untuk tiap `Document` berstatus `pending`: status→processing → ambil PDF dar
   `scorecard_text` (+ reference data), `model`, `temperature`, `seed`, `reasoning_effort`.
 - **Prompt diambil fresh dari DB** (`campaigns.prompt_text`) setiap task — perubahan campaign langsung berlaku.
 
+### Format transkrip: tag panggilan `[Pn]` (13 Agustus 2026, prompt v54)
+
+`compliance/evaluator.py::format_transcript_for_llm` mencap **setiap baris** dengan tag
+panggilan dan membuka transkrip dengan legenda (hanya bila `source_files` tersedia):
+
+```
+=== DAFTAR PANGGILAN (pakai tag [Pn] di tiap baris untuk mengisi evidence.ticket_id) ===
+P1 = 030808fLO1_20260710111836   (waktu: 2026-07-10 11:18:36)
+P2 = 030808fLO1_20260710160335   (waktu: 2026-07-10 16:03:35)
+=== AKHIR DAFTAR PANGGILAN ===
+=== Panggilan ke-2 (ticket_id: …) ===
+[P2] [Agent] [31:39.32 - 32:31.01] Iya. Ya itu nggak ada susahnya kok…
+```
+
+Sebelumnya `ticket_id` hanya ada di penanda `=== Panggilan ke-N ===`, jadi mengisi
+`evidence.ticket_id` menuntut model mengingat header yang bisa puluhan ribu karakter di
+atas. Gagalnya persis seperti yang bisa ditebak: pada tiket `030808fLO1` kutipan **32.515
+karakter** di bawah header-nya (tapi hanya ~51 baris di atas header BERIKUTNYA) diklaim
+milik panggilan sesudahnya, sementara kutipan 7.290 karakter di bawah header yang sama
+tercatat benar. Audit 12 tiket multi-panggilan menemukan 2 evidence lain yang timestamp-nya
+mustahil ada di panggilan yang disebutnya — jadi bug ini mengenai evidence scorecard dan
+error code, bukan hanya badword.
+
+Dengan tag menempel pada barisnya, model tidak lagi butuh memori jarak jauh: jawabannya ada
+di baris yang sedang dikutip. Biaya ~5 karakter per baris (<3% transkrip besar). Prompt v54
+(§`INPUT SCHEMA` → "TAG PANGGILAN PER BARIS") mewajibkan `ticket_id` diambil dari tag `[Pn]`
+baris yang dikutip, dengan larangan eksplisit menyalin penanda `=== Panggilan ke-N ===`
+terdekat. Diuji di `tests/test_evaluator.py`.
+
 Env vars (worker):
 
 | Var | Default kode | Production saat ini |

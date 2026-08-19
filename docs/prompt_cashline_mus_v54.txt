@@ -62,8 +62,29 @@ INPUT SCHEMA
     TIDAK BOLEH dipakai untuk membandingkan kebaruan antar panggilan.
     Contoh: "00:05" di Panggilan ke-2 LEBIH BARU daripada "12:30" di Panggilan ke-1.
   - Seluruh panggilan adalah SATU ticket dan dinilai sebagai SATU kesatuan.
-  - Field "ticket_id" pada evidence WAJIB diisi ticket_id dari penanda panggilan
-    tempat kutipan itu diambil.
+
+  - TAG PANGGILAN PER BARIS — CARA MENGISI "ticket_id" (WAJIB, ATURAN BARU):
+    SETIAP baris ucapan diawali tag panggilan "[Pn]", contoh:
+
+        [P2] [Agent] [31:39.32 - 32:31.01] Iya, ya itu nggak ada susahnya kok...
+
+    Di ATAS transkrip ada legenda yang memetakan tiap tag ke ticket_id-nya:
+
+        === DAFTAR PANGGILAN (pakai tag [Pn] di tiap baris untuk mengisi evidence.ticket_id) ===
+        P1 = 030808fLO1_20260710111836   (waktu: 2026-07-10 11:18:36)
+        P2 = 030808fLO1_20260710160335   (waktu: 2026-07-10 16:03:35)
+        === AKHIR DAFTAR PANGGILAN ===
+
+    ATURAN: "ticket_id" pada evidence WAJIB diambil dari tag "[Pn]" YANG MENEMPEL
+    PADA BARIS YANG DIKUTIP, lalu diterjemahkan lewat DAFTAR PANGGILAN. Contoh di
+    atas -> tag [P2] -> ticket_id "030808fLO1_20260710160335".
+
+    JANGAN menebak dari penanda "=== Panggilan ke-N ===" yang kebetulan terlihat
+    dekat. Pada panggilan panjang, kutipan di menit-menit akhir bisa berada RIBUAN
+    baris di bawah penanda pembukanya dan justru berdekatan dengan penanda
+    panggilan BERIKUTNYA — menyalin penanda terdekat menghasilkan ticket_id
+    panggilan yang SALAH. Tag "[Pn]" pada barisnya sendiri adalah satu-satunya
+    sumber yang benar, dan selalu tersedia.
 
 ====================
 OBJECTIVE
@@ -418,6 +439,127 @@ CRITICAL COMPLIANCE CHECK RULE
  This check is informational only:                                                                                                                                                                
  - It MUST NOT change any item_score, category_score, or category_result.                                                                                                                         
  - It MUST NOT change scorecard or error code evaluation.          
+
+====================
+BADWORD DETECTION RULE (SENTIMEN NEGATIF AGENT)
+====================
+
+TUJUAN. Menemukan ucapan AGENT yang membawa SENTIMEN NEGATIF kepada nasabah —
+perilaku yang TIDAK DAPAT DITOLERANSI dan menjadi sumber komplain nasabah (CCBM
+maupun temuan QC). "Badword" DI SINI BUKAN sekadar daftar kata kasar: sebagian besar
+komplain nyata justru dipicu kalimat biasa yang nadanya MERENDAHKAN, MENYINDIR,
+MENYALAHKAN, atau MENGGERUTU tentang nasabah. Nilai KALIMATNYA, bukan kata per kata.
+
+SIAPA YANG DINILAI. HANYA ucapan AGENT. Ucapan nasabah TIDAK PERNAH menjadi temuan,
+sekasar apa pun.
+
+  WAJIB — UJI PERAN SEBELUM MENANDAI (jangan percaya label "[Agent]"):
+  Label diarization SERING TERTUKAR. Sebelum menandai sebuah kalimat, buktikan dulu
+  siapa yang bicara dari ISI percakapan di sekitarnya:
+
+   a. Siapa yang MEMANGGIL lawan bicaranya "Bapak"/"Ibu"/"Pak"/"Bu"? Yang memanggil
+      begitu adalah AGENT; yang DIPANGGIL begitu adalah NASABAH.
+   b. Siapa yang MENJELASKAN proses, produk, syarat, dan MENANYAKAN data? -> AGENT.
+   c. Siapa yang mengeluh "saya baru dengar", "kok gini", menuntut kejelasan, atau
+      menyatakan mau/tidak mau? -> NASABAH.
+   d. Siapa yang berkata "tadi saya sudah jelaskan"? -> AGENT.
+
+  Bila hasil uji ini BERTENTANGAN dengan label, ISI YANG MENANG — dan bila kalimat
+  bermasalah itu ternyata milik NASABAH, JANGAN ditandai.
+
+  CONTOH NYATA — SALAH TANDAI (kasus 030808fLO1, jangan diulang):
+      [Agent]    [05:36] "Nggak, kalau saya maunya dari depan aja. Oke atau enggak."
+      [Customer] [05:47] "Kalau tadi Bapak kalau untuk di pemrosesan lewat telemarketing-"
+      [Agent]    [05:50] "Saya kan nggak mau abu-abu tikus nih ceritanya."
+      [Customer] [05:57] "Tadi saya sudah jelaskan, Bapak."
+  BACA SEBAGAI: baris berlabel [Customer] memanggil "Bapak" dan berkata "tadi saya
+  sudah jelaskan" -> DIA-lah AGENT. Yang berlabel [Agent] adalah NASABAH yang sedang
+  menuntut kejelasan. Maka "abu-abu tikus" adalah ucapan NASABAH -> BUKAN temuan.
+  Menandainya sebagai badword agent adalah SALAH.
+
+HARUS DITUJUKAN KEPADA NASABAH. Temuan hanya sah bila sasaran kalimatnya adalah
+NASABAH yang sedang bicara — sebagai lawan bicara ("ibu/bapak ..."), atau sebagai
+bahan omongan ("si ibunya ..."). Keluhan atau gerutuan agent tentang PIHAK LAIN
+tidak dihitung: rekan kerja, sistem/aplikasi, bank, nasabah lain, "orang-orang pada
+umumnya", atau bangsa/kelompok secara umum. Contoh yang BUKAN temuan:
+"orang kita itu memang suka ngeles" — generalisasi tentang orang banyak, bukan
+tuduhan kepada nasabah yang sedang ditelepon. Uji singkatnya: kalau nasabah
+mendengar kalimat itu, apakah DIA yang direndahkan? Kalau tidak, jangan ditandai.
+
+Bila sebuah kalimat kasar tidak bisa dipastikan diucapkan agent DAN ditujukan kepada
+nasabah, JANGAN ditandai.
+
+YANG TERMASUK BADWORD (masing-masing dengan contoh nyata dari data komplain):
+ 1. Makian / label merendahkan kepada atau tentang nasabah — termasuk yang diucapkan
+    saat agent mengira nasabah tidak mendengar (telepon di-hold, gumaman).
+      "gembel"
+      "ikh bapaknya blo'on deh ini"
+ 2. Sindiran / sarkasme atas keputusan nasabah, terutama SESUDAH nasabah menolak.
+      "yah ibunya padahal bunganya kecil loh"
+      "tidak niat lo namanya"
+ 3. Menggerutu, menirukan, atau membalas ucapan nasabah dengan nada jengkel.
+      Nasabah: "udah berapa kali diulang-ulang terus?" -> Agent: "ulang-ulang terus"
+ 4. Menyalahkan / menghakimi nasabah, termasuk menyudutkan setelah nasabah mengeluh.
+      "ibu keberatan kita sudah berikan solusi tapi kalo masih ngeluh juga ya bingung juga tuh"
+      "iya enggak ribet lah daripada ibu harus bayar"
+ 5. Menyinggung kondisi keuangan / utang / tagihan nasabah dengan nada menghakimi
+    atau menekan (bukan sekadar menyebut nominal sebagai bagian penawaran).
+      "kenapa pak? tagihan bapak 45 juta pak, lumayan bunga menggulung"
+ 6. Membicarakan nasabah kepada pihak ketiga dengan nada negatif, di dalam panggilan
+    yang sama.
+      "si ibunya gamau ditawarkan cashline"
+ 7. Memaksa, menekan, membantah, atau memotong pembicaraan dengan nada tidak sabar
+    sesudah nasabah jelas menolak atau minta diakhiri.
+
+YANG BUKAN BADWORD (JANGAN ditandai — ini yang paling sering salah tangkap):
+ - Ucapan NASABAH, termasuk saat nasabah marah, membentak, atau mengumpat.
+ - Gerutuan agent tentang PIHAK LAIN (rekan kerja, sistem, bank, nasabah lain,
+   "orang-orang pada umumnya") — nasabah yang sedang ditelepon bukan sasarannya.
+ - Penjelasan produk, biaya, prosedur, atau penolakan pengajuan yang disampaikan
+   netral — meskipun isinya tidak menyenangkan bagi nasabah.
+ - Menyebut nominal tagihan/limit/cicilan sebagai bagian penawaran TANPA nada
+   menghakimi atau menekan.
+ - Ajakan mempertimbangkan sekali dengan nada sopan ("boleh dipertimbangkan dulu ya bu").
+ - Permintaan maaf, ucapan terima kasih, salam penutup, dan penjelasan bahwa sistem
+   menghubungi otomatis — selama disampaikan sopan dan tidak menyalahkan nasabah.
+ - Basa-basi wajar dan pertanyaan klarifikasi yang netral.
+ - Kutipan yang tidak terbaca utuh / hasil ASR ambigu. JANGAN menebak isi kalimat.
+
+AMBANG KEPUTUSAN. Tandai HANYA bila pendengar wajar di posisi nasabah akan merasa
+TERSINGGUNG, DIREMEHKAN, DISALAHKAN, atau DIPERMALUKAN oleh kalimat itu. BILA RAGU,
+JANGAN DITANDAI. Temuan palsu di sini langsung menggugurkan tiket seorang agent,
+jadi lebih baik melewatkan kasus abu-abu daripada menuduh tanpa dasar.
+
+BUKTI WAJIB. Setiap temuan HARUS membawa:
+ - "quote"     : kutipan PERSIS dari transkrip (verbatim, tanpa parafrase).
+ - "timestamp" : rentang waktu utterance itu, format sama dengan evidence lain.
+ - "ticket_id" : dari tag "[Pn]" pada BARIS yang dikutip, diterjemahkan lewat
+                 DAFTAR PANGGILAN (lihat TAG PANGGILAN PER BARIS di INPUT SCHEMA).
+                 BUKAN dari penanda "=== Panggilan ke-N ===" terdekat.
+ - "reason"    : SATU kalimat Bahasa Indonesia yang menjelaskan MENGAPA kalimat itu
+                 menyinggung nasabah (bukan mengulang kutipannya).
+Temuan tanpa kutipan persis akan DIBUANG oleh sistem, jadi jangan melaporkannya.
+
+Satu utterance = satu temuan. Jangan melaporkan kalimat yang sama dua kali. Bila satu
+panggilan berisi beberapa ucapan bermasalah, laporkan SEMUANYA, urut kronologis
+(call_index dulu, lalu timestamp — lihat GLOBAL EVIDENCE ORDERING).
+
+PASS ATAS TRANSKRIP. Kumpulkan temuan badword dalam PASS YANG SAMA saat transkrip
+dibaca untuk scorecard (lihat PERFORMANCE SAFETY RULE) — jangan membuka pass baru.
+Berbeda dengan CRITICAL COMPLIANCE CHECK dan error code yang dilarang memindai ulang
+transkrip, blok ini BOLEH memakai ucapan agent yang TIDAK menjadi evidence item
+scorecard mana pun: komplain nasabah justru hampir selalu lahir dari kalimat di luar
+scorecard, sering di akhir panggilan atau saat agent mengira nasabah tidak mendengar.
+
+STATUS:
+ - Tidak ada temuan  -> badword_check.status = "PASS", findings = [].
+ - Ada >= 1 temuan   -> badword_check.status = "FAIL".
+
+PENGARUH KE SKOR — TIDAK ADA. Blok ini TIDAK BOLEH mengubah item_score,
+category_score, category_result, scorecard_result, error_codes, ai_score_phase_2,
+ai_score_verification, ai_score_critical_compliance_check, ai_score_phase_3, maupun
+ai_status. Semua angka tetap dihitung apa adanya. Sistem QC di luar LLM yang
+mengunci AI Status tiket ber-badword menjadi Not Qualified.
 
 ====================
 GLOBAL EVIDENCE ORDERING
@@ -2286,6 +2428,19 @@ OUTPUT FORMAT (STRICT JSON ONLY)
             { "item_code": "SC_CL_23_1", "requirement": "Agent memverifikasi tanggal lahir nasabah", "status": "PASS | FAIL" },
             { "item_code": "SC_CL_23_2", "requirement": "Agent memverifikasi nama ibu kandung nasabah", "status": "PASS | FAIL" },
             { "item_code": "SC_CL_37",   "requirement": "Agent menyampaikan konfirmasi final kepada customer terkait persetujuan Mega Cashline", "status": "PASS | FAIL" }
+      ]
+   },
+   "badword_check": {
+      "status": "PASS | FAIL",
+      "findings": [
+         {
+            "reason": "string",
+            "evidence": {
+               "timestamp": "string",
+               "quote": "string",
+               "ticket_id": "string"
+            }
+         }
       ]
    },
 	"error_codes": [

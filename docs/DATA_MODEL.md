@@ -2,7 +2,7 @@
 
 Referensi model database (PostgreSQL, SQLAlchemy) dan alur migrasi Alembic.
 Sumber: `db/models.py` (**18 tabel**), `alembic.ini`, `db/migrations/`.
-Revisi HEAD saat ini: **`0040_user_campaigns_admin_only_administration`**.
+Revisi HEAD saat ini: **`0041_admin_only_data_menus`**.
 
 > Catatan desain: **tidak ada `relationship()` SQLAlchemy** — semua keterkaitan berupa kolom
 > **foreign key** atau **join by string key**. Tidak ada tipe `Enum` DB — kolom berkode
@@ -32,7 +32,7 @@ Revisi HEAD saat ini: **`0040_user_campaigns_admin_only_administration`**.
 | `campaigns` | Campaign | Bundel konfigurasi evaluasi | PK `id`; `name` unik; `prompt_text`, `scorecard_text`, `kb_text` (+ `*_filename`), `is_active`; **RIPLAY**: `kb_text_raw`, `riplay_filename`, `riplay_product_name`, `riplay_similarity`, `riplay_extraction` JSONB, `riplay_applied` JSONB, `riplay_uploaded_at` |
 | `results` | Result | Satu tiket QC / run upload | PK `id` **UUID**; `campaign` (str), `source_files` JSONB, `status`, `uploaded_*`, `generated_at`, `completed_at`, `processing_sec` |
 | `result_data` | ResultData | Payload JSON evaluasi | PK `id`; `result_id`→`results.id` (CASCADE); `result_json` JSONB (scorecard + tabel error code) |
-| `documents` | Document | Dokumen pendukung + OCR | PK `id`; `result_id`→`results.id` (CASCADE); `doc_type`, `object_path`, `status`, `ocr_json` |
+| `documents` | Document | Dokumen pendukung + OCR | PK `id`; `result_id`→`results.id` (CASCADE); `doc_type`, `object_path`, `status`, `ocr_json` (sejak 14 Agu 2026 memuat `jenis_dokumen`) |
 | `stats_snapshots` | StatsSnapshot | Cache payload dashboard Statistics | PK `id`; `snapshot_date` (unik, WIB `YYYY-MM-DD`); `payload` JSONB (memuat `_signature`) |
 
 > `kb_text_raw` menyimpan KB persis seperti diunggah; `kb_text` adalah teks itu dengan
@@ -115,11 +115,29 @@ Poin penting:
 | `error_code_appeals.appeal_kind` | `remove`, `change`, `add` |
 | `error_code_appeals.add_source` | `scorecard`, `cashline_data`, `card_holder`, `others` (NULL untuk remove/change) |
 | `error_code_appeals.origin` | `qc`, `tl_direct`, `spq_direct` |
+| `documents.ocr_json → jenis_dokumen` | `KTP`, `KK`, `NPWP`, `COVER_BUKU_TABUNGAN`, `LAINNYA`, `TIDAK_JELAS` (sejak 14 Agu 2026; hasil OCR lama tidak punya field ini) |
 | `tl_qc_status` (2 tabel) | `pending`, `approved`, `rejected`, `escalated` |
 | `approval_status` (2 tabel, tier SPQ Head) | `pending`, `approved`, `rejected` |
 
 > Rename historis: `admin → spq_head` (migrasi 0008), `user → sales_agent` (migrasi 0009).
 > Sejak `0031` nama role tidak lagi menentukan akses — yang menentukan `roles.permissions`.
+
+> ⚠️ **`results.status` bukan AI Status.** Kolom itu status *pipeline* (`pending` →
+> `processing` → `done`/`failed`). **AI Status tidak punya kolom di tabel mana pun** — ia
+> dihitung ulang tiap request dari `result_data` + `error_code_appeals` +
+> `qc_status_requests` + `documents`. Field `ai_status` **di dalam**
+> `result_data.result_json → evaluation` adalah tebakan LLM yang tidak pernah ditulis ulang
+> dan meleset 30% (29 dari 98 tiket per 14 Agustus 2026, semuanya terlalu longgar). Pakai
+> `ai_status_for_result(db, result)` atau `/list_results` — lihat
+> [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §7.1.
+
+> ⚠️ **Error Code juga tidak seluruhnya tersimpan.** Tabel Error Code dibangun ulang tiap
+> request oleh `build_error_code_table()`, dan sejak 14 Agustus 2026 dua barisnya bahkan tidak
+> berasal dari evaluasi sama sekali: **B09** (tenggat H+2 lewat tanpa dokumen) dan **C03**
+> (dokumen salah jenis) diturunkan dari tabel `documents` + `tms_cashline.submit_time`.
+> Konsekuensinya **bergantung waktu berjalan** — tiket yang hari ini bersih bisa memunculkan
+> B09 besok ketika tenggatnya lewat. Lihat
+> [`ERROR_CODE_CATALOG.md`](./ERROR_CODE_CATALOG.md) §5.1.
 
 ---
 
@@ -129,7 +147,7 @@ Poin penting:
 - **URL DB**: `db/migrations/env.py::get_url()` menyusun URL **langsung dari env** (`POSTGRES_USER`,
   `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` default 5432, `POSTGRES_DB`) dan
   meng-override `sqlalchemy.url` di ini. `target_metadata = Base.metadata` dari `db.models`.
-- **Chain**: linear `0001 → … → 0040` (**40 revisi**, HEAD `0040_user_campaigns_admin_only_administration`).
+- **Chain**: linear `0001 → … → 0041` (**41 revisi**, HEAD `0041_admin_only_data_menus`).
   `down_revision = None` di `0001`.
 - **Seed admin**: `0001_initial.py` menambah user admin bila belum ada, dari
   `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`ADMIN_EMAIL`.
@@ -145,6 +163,7 @@ Poin penting:
 | `0034_sales_campaign_from_roster` | Campaign sales diturunkan dari tag Dedicated roster |
 | `0039_perm_export_verification` | Permission `results.export.verification` (export + `/get_nama_ibu_kandung`) |
 | `0040_user_campaigns_admin_only_administration` | Tabel `user_campaigns`; menu Administration jadi milik `admin` saja |
+| `0041_admin_only_data_menus` | Seluruh pengurusan data (Campaigns, Database Sales/QC, Upload Data, Delete Campaign) dicabut dari **semua role kecuali `admin`**; SPQ Head kehilangan `admin.ticket.delete` & `results.export.verification` dan mendapat `results.export.tickets`; Sales Agent kehilangan `results.document.view` |
 
 ### Menjalankan migrasi
 
@@ -168,7 +187,7 @@ Migrasi di repo ini **ditulis tangan** (bukan autogenerate), dengan ID zero-padd
 ```bash
 alembic revision -m "deskripsi singkat"
 # lalu edit file baru di db/migrations/versions/:
-#   - set revision = "0041", down_revision = "0040"
+#   - set revision = "0042", down_revision = "0041"
 #   - isi upgrade()/downgrade() (op.add_column, dsb.)
 alembic upgrade head
 ```

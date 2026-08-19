@@ -107,7 +107,7 @@ def _detail(db: Session, role: Role, index_cache: dict = None) -> RoleDetail:
     )
 
 
-def _validate_permissions(perms: list) -> list:
+def _validate_permissions(perms: list, role_key: str = "") -> list:
     known = set(P.ALL_PERMISSIONS)
     unknown = [p for p in perms if p not in known]
     if unknown:
@@ -115,6 +115,21 @@ def _validate_permissions(perms: list) -> list:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Permission tidak dikenal: {', '.join(sorted(unknown))}",
         )
+    # Capability pengurusan data hanya untuk role ``admin`` (14 Agustus 2026).
+    # Dicek di sini, bukan hanya disembunyikan dari daftar checkbox: menyembunyikan
+    # saja masih menyisakan jalan lewat request langsung ke API. ``admin`` sendiri
+    # tetap boleh disimpan ulang lewat Manage Role — kalau tidak, role itu tidak
+    # akan pernah bisa diedit lagi karena daftarnya memang memuat capability ini.
+    if role_key != "admin":
+        forbidden = [p for p in perms if p in P.ADMIN_ONLY_PERMISSIONS]
+        if forbidden:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Permission berikut hanya untuk role Admin: "
+                    + ", ".join(sorted(forbidden))
+                ),
+            )
     # dict.fromkeys: buang duplikat tanpa mengacak urutan
     return list(dict.fromkeys(perms))
 
@@ -155,11 +170,22 @@ def _set_campaigns(db: Session, role: Role, campaigns: list) -> None:
 def permission_catalog(_=Depends(require(P.ADMIN_ROLE_WRITE)), db: Session = Depends(get_db)):
     """Kosakata untuk form Manage Role: daftar permission berkelompok, pilihan
     cakupan data, dan campaign yang tersedia untuk di-assign."""
+    # Capability admin-only sengaja TIDAK ditawarkan: ia milik role ``admin`` dan
+    # tidak dapat diberikan ke role lain (lihat `_validate_permissions`). Kelompok
+    # yang jadi kosong karenanya ikut dibuang agar tidak muncul judul tanpa isi.
+    groups = [
+        {
+            "title": title,
+            "items": [
+                {"key": k, "label": lbl}
+                for k, lbl in items
+                if k not in P.ADMIN_ONLY_PERMISSIONS
+            ],
+        }
+        for title, items in P.PERMISSION_GROUPS
+    ]
     return PermissionCatalog(
-        groups=[
-            {"title": title, "items": [{"key": k, "label": lbl} for k, lbl in items]}
-            for title, items in P.PERMISSION_GROUPS
-        ],
+        groups=[g for g in groups if g["items"]],
         data_scopes=[{"key": k, "label": lbl} for k, lbl in P.DATA_SCOPES],
         campaigns=sorted(c.name for c in db.query(Campaign).all()),
         campaigns_with_roster=sorted({
@@ -199,7 +225,7 @@ def create_role(
             status_code=status.HTTP_409_CONFLICT, detail=f"Role '{key}' sudah ada"
         )
 
-    permissions = _validate_permissions(body.permissions)
+    permissions = _validate_permissions(body.permissions, key)
     scope = _validate_scope(body.data_scope)
     campaigns = _validate_campaigns(db, body.campaigns)
 
@@ -232,7 +258,17 @@ def update_role(
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role tidak ditemukan")
 
-    permissions = _validate_permissions(body.permissions)
+    # Capability admin-only tidak muncul di form (lihat `permission_catalog`), jadi
+    # ia juga tidak ikut terkirim balik. Bawa serta apa adanya dari DB — tanpa ini
+    # menyimpan role Admin lewat Manage Role akan diam-diam mencabut seluruh menu
+    # pengurusan data dari satu-satunya role yang memilikinya.
+    carried = (
+        [p for p in (role.permissions or []) if p in P.ADMIN_ONLY_PERMISSIONS]
+        if role.key == "admin" else []
+    )
+    permissions = list(dict.fromkeys(
+        carried + _validate_permissions(body.permissions, role.key)
+    ))
     scope = _validate_scope(body.data_scope)
     campaigns = _validate_campaigns(db, body.campaigns)
 

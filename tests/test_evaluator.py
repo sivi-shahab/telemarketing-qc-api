@@ -80,6 +80,39 @@ def test_format_enriched_markers_with_source_files():
     )
 
 
+def test_every_line_carries_its_call_tag():
+    """Tiap baris transkrip dicap [Pn] — dasar pengisian evidence.ticket_id.
+
+    Tanpa cap ini model harus mengingat header panggilan yang bisa puluhan ribu
+    karakter di atas, dan terbukti salah menyebut panggilan berikutnya (lihat
+    docstring format_transcript_for_llm)."""
+    txt = E.format_transcript_for_llm(MESSAGES)
+    assert "[P1] [SPEAKER_1] [00:00.00 -> 00:01.00] halo selamat siang" in txt
+    assert "[P1] [SPEAKER_0] [00:01.00 -> 00:02.00] iya pak" in txt
+    assert "[P2] [SPEAKER_1] [00:00.00 -> 00:03.00] panggilan kedua" in txt
+    # Tiap baris ucapan (bukan penanda) wajib berawalan tag panggilan.
+    for line in txt.split("\n"):
+        if line and not line.startswith("==="):
+            assert line.startswith("[P"), line
+
+
+def test_call_legend_maps_tag_to_ticket_id():
+    src = ["201134FTJu_20260520110338.pdf", "201134FTJu_20260520111326.pdf"]
+    txt = E.format_transcript_for_llm(MESSAGES, src)
+    assert "=== DAFTAR PANGGILAN" in txt
+    assert "P1 = 201134FTJu_20260520110338" in txt
+    assert "P2 = 201134FTJu_20260520111326" in txt
+    # Legenda muncul SEBELUM penanda panggilan pertama.
+    assert txt.index("P1 = 201134FTJu_20260520110338") < txt.index("=== Panggilan ke-1")
+
+
+def test_no_legend_without_source_files():
+    """Tanpa nama file tidak ada ticket_id yang bisa dipetakan — legenda angka
+    telanjang tidak mengajarkan apa pun, jadi blok itu tidak ditulis."""
+    txt = E.format_transcript_for_llm(MESSAGES)
+    assert "DAFTAR PANGGILAN" not in txt
+
+
 # --------------------------------------------------------------------------
 # evaluate — JSON parse paths
 # --------------------------------------------------------------------------

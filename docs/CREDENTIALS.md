@@ -36,7 +36,8 @@ sama sekali. Lihat [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md).
 ## 2. Divisi Sales — dari file **Sales Database**
 
 **Sumber (CSV/XLSX):** file **Sales Database** aktif (mis. "Update Sales Telemarketing …"),
-di-upload lewat dashboard **Upload Data → Sales Database** (`POST /upload_sales_database`,
+di-upload lewat dashboard **Upload Data → Sales Database** — **hanya akun `admin`** sejak
+14 Agustus 2026 (`POST /upload_sales_database`,
 tersimpan di tabel `sales_databases`, dibaca `api/sales_lookup.py::active_sales_map`).
 
 **Kolom NIP → role** (dicocokkan by header, fallback posisi kolom):

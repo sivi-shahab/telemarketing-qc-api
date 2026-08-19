@@ -19,6 +19,10 @@ Surfaced inside the Results row dropdown untuk SEMUA role, dengan isi yang ident
   Campaign    <- evaluation ``campaign_interest`` (bullet list)
   Tanggal     <- cashline ``submit_time`` (snapshot, fallback DWH live)
   Ticket ID / Detail Error / Reason  <- per-row from build_error_code_table().
+
+Selain itu, response ini membawa ``badwords``: temuan ucapan agent yang bersentimen
+negatif kepada nasabah (Ticket ID / Evidence / Reason), sumber tabel "Badword Summary"
+tepat di bawah tabel Agent Error Summary. Lihat ``compliance/badwords.py``.
 """
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_db, get_agent_error_summary_user
 from sales_lookup import active_sales_map, new_joiner_info
+from compliance.badwords import badword_rows
 from compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
@@ -181,6 +186,12 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
             }
         )
 
+    # Badword Summary: ucapan agent bersentimen negatif kepada nasabah. Tidak
+    # tersentuh banding Error Code (bandingnya menyasar baris error code, bukan
+    # temuan ini), jadi cukup dibaca dari evaluasi yang sudah disesuaikan di atas.
+    # Kosong untuk hasil lama yang dievaluasi sebelum prompt v53.
+    badwords = badword_rows(evaluation) if evaluation else []
+
     return {
         "result_id": result_id,
         "agent_id": agent_id,
@@ -192,4 +203,6 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
         "campaign": _campaign_interest(evaluation),
         "tanggal": submit_time,
         "errors": errors,
+        # [{ticket_id, timestamp, quote, evidence, reason}] — tabel Badword Summary.
+        "badwords": badwords,
     }

@@ -1,5 +1,6 @@
 import io
 import json
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -34,6 +35,7 @@ from compliance.error_codes import (
     approved_appeals_only,
     normalize_static_verification,
     build_error_code_table,
+    document_error_code_rows,
     effective_appeal_status,
     inject_added_rows,
     is_cashline_code,
@@ -45,6 +47,12 @@ from compliance.scoring import (
     base_ai_status,
     has_blocking_intolerable_item,
     scorecard_score,
+)
+from compliance.stats_aggregate import (
+    _doc_sla_expired,
+    _missing_docs_map,
+    doc_requirement_labels,
+    wrong_document_types,
 )
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -281,7 +289,8 @@ def _appeal_history_entry(a):
     }
 
 
-def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=None):
+def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=None,
+                           doc_overdue: bool = False, documents=()):
     """Return a shallow copy of result_json with evaluation.error_code_table
     computed by the shared single-source-of-truth builder (so the dashboard
     renders the same grouped table the XLSX export uses).
@@ -293,7 +302,14 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     approved appeals are applied to the evaluation first (flipping the linked
     scorecard item to SESUAI, so the appealed error row disappears and the score
     lifts), and each remaining row is annotated with its latest appeal status +
-    full history for the QC "Manual Check" / SPQ Head "Review Banding" columns."""
+    full history for the QC "Manual Check" / SPQ Head "Review Banding" columns.
+
+    ``doc_overdue`` — dokumen pendukung yang diminta belum diunggah DAN tenggat H+2
+    sudah lewat: menambahkan baris B09 ke tabel. ``documents``
+    (``[(doc_type, ocr_json), ...]``) menambahkan C03 untuk slot yang isinya jenis
+    dokumen keliru. Keduanya meniru agregasi statistik
+    (``compliance.stats_aggregate._error_code_rows``) dan harus sepakat dengannya,
+    karena QC membaca tabel ini untuk menjelaskan angka di Stats."""
     if not isinstance(result_json, dict):
         return result_json
     evaluation = result_json.get("evaluation")
@@ -334,6 +350,13 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
             "ai_status": status_val,
         }
     table = build_error_code_table(evaluation)
+    doc_rows = document_error_code_rows(
+        missing=bool(doc_overdue),
+        missing_labels=doc_requirement_labels(result_json) if doc_overdue else (),
+        wrong_type=wrong_document_types(documents),
+    )
+    if doc_rows:
+        table = table + doc_rows
     # Inject display rows for 'add' bandings (pending awaiting review + approved),
     # keyed by their master code so the annotation below attaches their review state.
     table = inject_added_rows(table, added_appeals_visible(appeals))
@@ -405,8 +428,19 @@ def get_result(
         cashline_row = crud.get_tms_cashline_by_result_id(db, cid) if cid else None
         is_new_joiner = new_joiner_info(cashline_row, db)["is_new_joiner"]
         appeals = crud.error_code_appeals_for_result(db, result_id)
+        # B09 terbit hanya kalau dokumen yang diminta belum ada DAN tenggat H+2 sudah
+        # lewat — dihitung dengan bahan yang sama dengan daftar Results & Stats.
+        raw_json = data.result_json if data else None
+        # ``get_tms_cashline_by_result_id`` mengembalikan dict ber-key nama kolom CSV,
+        # BUKAN objek ORM — jadi submit_time diambil dengan .get(), bukan atribut.
+        submit_time = cashline_row.get("submit_time") if cashline_row else None
+        doc_overdue = bool(
+            _missing_docs_map(db, [result], {str(result.id): raw_json}).get(str(result.id))
+            and _doc_sla_expired(submit_time, datetime.now())
+        )
         result_json = _with_error_code_table(
-            data.result_json if data else None, is_new_joiner, appeals
+            raw_json, is_new_joiner, appeals, doc_overdue,
+            crud.document_ocr_by_result(db, [str(result.id)]).get(str(result.id), ()),
         )
 
         return ResultResponse(

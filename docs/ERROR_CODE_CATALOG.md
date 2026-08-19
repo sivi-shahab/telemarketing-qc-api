@@ -8,10 +8,13 @@ Referensi lengkap **46 error code**, arti **Risk Base**, kode mana yang **berded
 - Logika penurunan & banding: `compliance/error_codes.py`.
 - Endpoint katalog untuk dropdown: `GET /error_reasons`.
 
-> Jangan tertukar dengan `ERROR_CODES` di `compliance/error_codes.py` (**15 entri**) — itu
-> hanya kode yang benar-benar bisa diterbitkan mesin evaluasi (distribusi risk_base
-> H=5 / M=7 / L=3). **46 kode** di bawah adalah katalog master lengkap untuk dropdown banding.
-> Diverifikasi 12 Agustus 2026.
+> Jangan tertukar dengan `ERROR_CODES` di `compliance/error_codes.py` (**18 entri** per
+> 14 Agustus 2026; distribusi risk_base H=5 / M=8 / L=4 / O=1) — itu kode yang dikenali
+> mesin evaluasi. **46 kode** di bawah adalah katalog master lengkap untuk dropdown banding.
+>
+> Dari 18 entri itu, yang benar-benar **ditampilkan** hanya 10 (`ALLOWED_ERROR_CODES`, §4);
+> `B08` dan `B11/B13/B15/B19/B20/B24/B26` dikatalogkan tetapi tidak diterbitkan. Tiap entri
+> juga membawa `error_type` & `error_category` dari sheet — lihat §4.1.
 
 ---
 
@@ -45,6 +48,9 @@ Setiap entri katalog punya field: `code`, `error_type`, `category`, `risk_base`,
 > **Aturan New Joiner** (`override_risk_base_for_new_joiner`, `error_codes.py`): bila agent
 > bergabung **< 18 hari** sebelum `submit_time`, kode ber-risk_base **L atau M diturunkan
 > jadi N**; **H tetap H**. `NEW_JOINER_RISK_BASE = "N"`.
+>
+> Sejak 14 Agustus 2026 kode dokumen dikecualikan: `NEW_JOINER_EXEMPT_CODES = {"B09","C03"}`
+> tetap pada Risk Base aslinya — masa kerja agent tidak mengubah tenggat H+2. Lihat §5.1.
 
 Distribusi risk_base di katalog (46 kode): **O=20, M=10, L=7, H=5, H+T=3, Approved=1**.
 
@@ -128,30 +134,119 @@ DEDUCTION_BEARING_CODES = {"B02", "B03", "B05", "B10", "B16", "B17"}
 ```
 
 Deduksi ini **bukan** dari kode error itu sendiri, melainkan dari **bobot item scorecard**
-(B10, B12→B18 dst.) atau **penalti field verifikasi** (B02/B03/B05 = cashline, B17 = card
-holder). Kode error hanyalah label turunan; Risk Base hanya untuk pelaporan/statistik.
+(B10, B12→B18 dst.) atau **penalti field verifikasi** (B02/B03/B05 = cashline). Kode error
+hanyalah label turunan; Risk Base hanya untuk pelaporan/statistik.
 
-**Filter tampilan:** hanya kode dalam `ALLOWED_ERROR_CODES = {B02, B03, B05, B10, B12, B16,
-B17, B18}` yang muncul di tabel Error Code. Kode lain (mis. B11, B13, B15, B19…) tidak
-ditampilkan — dan karena tidak berdeduksi, penyembunyian ini tidak mengubah skor.
+> **B17 tidak punya penalti field sendiri** (sejak v33 `CARD_HOLDER_STATIC_PENALTY = 0`,
+> agar satu kegagalan tidak dihitung dua kali). Deduksinya datang dari item scorecard
+> pasangannya lewat propagasi: field statik MISMATCH → `SC_CL_23_1`/`SC_CL_23_2`
+> BELUM_SESUAI (−bobot item) → entri critical compliance `FAIL` (−`maximum_score/4`).
+> Rantai itu baru berjalan pada tiket **tanpa** banding sejak **13 Agustus 2026**; sebelum
+> itu B17 bisa tampil di tabel tanpa memotong skor sama sekali. Lihat
+> [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §5.1.
+
+**Filter tampilan:** hanya kode dalam `ALLOWED_ERROR_CODES = {B02, B03, B05, B09, B10, B12,
+B16, B17, B18, C03}` yang muncul di tabel Error Code. Kode lain (mis. B08, B11, B13, B15,
+B19…) tidak ditampilkan — dan karena tidak berdeduksi, penyembunyian ini tidak mengubah skor.
+
+---
+
+## 4.1 Error Type & Error Category di Tabel Error Code (14 Agustus 2026)
+
+Tiap baris tabel Error Code kini membawa dua kolom tambahan, **disalin apa adanya dari sheet
+QC** (`csv_bank/Error Reason - Telemarketing QC_05082025.xlsx`, kolom *Error Type* dan
+*Error Categories*):
+
+| Kolom baris | Isi | Contoh |
+|---|---|---|
+| `error_type` | Deret kode = pihak yang gagal | `Error - Human`, `Error - Customer` |
+| `error_category` | Pengelompokan kesalahan menurut sheet | `Data Input`, `Verification`, `Dokumen Pendukung` |
+
+`details_error` juga **disamakan dengan kolom *Details Error* sheet**, menggantikan
+parafrase yang sebelumnya ditulis sendiri di `ERROR_CODES`. Alasannya: sheet itulah kosakata
+yang dipakai QC sehari-hari, dan wording tandingan membuat dua pihak menyebut kesalahan yang
+sama dengan nama berbeda.
+
+Keduanya muncul sebagai kolom **tambahan** — di tabel Error Code maupun di **Ringkasan
+Kategori** — bukan pengganti judul kategori scorecard. Beberapa kategori scorecard memetakan
+ke error category yang sama (mis. `SC_CL_23_*` dan `SC_CL_24` sama-sama `Verification`), jadi
+mengganti judulnya justru menghapus pembeda.
+
+Helper: `error_type_of(code)` / `error_category_of(code)` di `compliance/error_codes.py`.
 
 ---
 
 ## 5. Dari Mana Error Code Muncul
 
 `build_error_code_table(evaluation)` (`compliance/error_codes.py`) menurunkan baris error dari
-3 sumber:
+3 sumber evaluasi, ditambah 1 sumber di luar evaluasi (dokumen pendukung, §5.1):
 
 | Sumber | Kondisi | Kode |
 |---|---|---|
 | **Scorecard** | Item `scorecard_result` berstatus `BELUM_SESUAI` | B10 (Penjelasan/Final Konfirmasi), B12 (Greeting), B18 (Legal Statement); + kode dari `evaluation["error_codes"]` LLM |
 | **Card Holder Verification** | Field `card_holder_verification` = `MISMATCH` | **B17** |
 | **Cashline Data Verification** | Field `cashline_data_verification` = `MISMATCH` | **B02 / B03 / B05** (risk-graded per field) |
+| **Dokumen Pendukung** | Lihat §5.1 | **B09 / C03** |
 
 - Field `SKIPPED_NULL` tidak memunculkan error.
 - Verifikasi dinamik card holder yang sudah memenuhi aturan **"cukup 2 match"** ditekan
   (tidak jadi error). Lihat [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md).
-- **Critical compliance** terpisah (item `SC_CL_4 / SC_CL_23_1 / SC_CL_23_2 / SC_CL_37`).
+- **Critical compliance** terpisah (item `SC_CL_4 / SC_CL_23_1 / SC_CL_23_2 / SC_CL_37`),
+  tetapi **tidak lepas**: `SC_CL_23_1`/`SC_CL_23_2` yang turun karena B17 ikut menjatuhkan
+  entri kritisnya (§4).
+- Kolom **Reason** baris B17 statik berasal dari baris verifikasinya. Untuk baris yang
+  similarity-nya dihitung ulang Python, kalimat itu **ditulis ulang** agar cocok dengan
+  vonis akhir — sebelum 13 Agustus 2026 baris MISMATCH bisa membawa kalimat LLM yang
+  justru menyatakan nilainya masih di atas ambang match.
+
+---
+
+## 5.1 Sumber Dokumen Pendukung — B09 & C03 (14 Agustus 2026)
+
+Sumber keempat, dan satu-satunya yang **tidak** berasal dari isi evaluasi: pemicunya berkas
+yang diunggah — atau tidak diunggah. Dibangun oleh `document_error_code_rows()` dan
+ditempelkan ke tabel oleh pemanggilnya, bukan oleh `build_error_code_table` sendiri.
+
+| Kejadian | Kode | Error Type | Risk Base | Masuk Total Risk |
+|---|---|---|---|---|
+| Dokumen yang diminta **tidak pernah diunggah** sampai tenggat H+2 lewat | **B09** | `Error - Human` | **M** | ✅ |
+| Dokumen **diunggah tetapi jenisnya keliru** (mis. KTP di slot NPWP) | **C03** | `Error - Customer` | **O** | ❌ |
+
+**Garis pemisahnya adalah siapa yang gagal.** C03 memakai deret C karena berkasnya *datang*,
+hanya keliru — memilih berkas memang pekerjaan nasabah. B09 tetap deret B karena berkasnya
+*tidak pernah datang*: menagih kelengkapan sebelum tenggat habis adalah pekerjaan agent.
+
+Sebelum 14 Agustus 2026 keadaan "lewat tenggat tanpa dokumen" hanya membuat tiket Not
+Qualified **tanpa error code apa pun**, sehingga di tally Risk Base jatuh ke `O` (System) —
+terbaca seolah kesalahan sistem, padahal kelalaian melengkapi berkas.
+
+**Satu tiket bisa kena keduanya.** Slot NPWP diisi KTP → C03, dan karena kewajiban NPWP-nya
+tetap kosong lalu tenggat lewat → B09. Dua baris terpisah dengan `reason` masing-masing.
+Tally Risk Base tidak berlipat: tiap tiket tetap dihitung **satu** risk base tertinggi.
+
+**Dokumen salah jenis tidak memenuhi kewajiban.** `_missing_docs_map` membuang slot ber-C03
+dari daftar dokumen terunggah, jadi tiketnya tetap PENDING dan tetap bisa jatuh ke B09.
+Dokumen yang OCR-nya belum/gagal selesai tetap dianggap memenuhi — menghukum tiket karena
+antrean OCR belum jalan bukan penilaian atas pekerjaan agent.
+
+**Deteksi jenis dokumen.** Skema OCR punya field wajib `jenis_dokumen`
+(`prompt/_common.py`: `KTP | KK | NPWP | COVER_BUKU_TABUNGAN | LAINNYA | TIDAK_JELAS`),
+dibandingkan dengan slot tujuan oleh `compliance.documents.wrong_document_type()`. Tiga hal
+sengaja **tidak** dianggap salah jenis, karena semuanya berarti "tidak tahu":
+`TIDAK_JELAS` (berkas tidak terbaca — itu keluhan mutu, bukan salah jenis), hasil OCR lama
+yang belum punya field ini (dokumen lama tidak boleh tiba-tiba melahirkan error code baru),
+dan slot yang tidak dikenal katalog.
+
+> **B08 tidak diterbitkan sistem.** Kode sheet untuk "Type File Doc. terlampir kurang/tidak
+> sesuai" (`Error - Human`, Risk L) tetap dikatalogkan tetapi dicabut dari
+> `ALLOWED_ERROR_CODES`. Kalau suatu saat salah jenis dokumen harus membebani agent, yang
+> diubah adalah **kodenya** (C03 → B08) — bukan `risk_base` C03, karena angka di katalog
+> disalin dari sheet dan tidak boleh menyimpang.
+
+**Pengecualian new joiner.** `NEW_JOINER_EXEMPT_CODES = {"B09", "C03"}`: kode dokumen tidak
+ikut dilunakkan jadi `N`. Pelunakan itu memaafkan kesalahan yang wajar bagi agent baru **di
+telepon**; masa kerja tidak mengubah tenggat H+2. (Untuk C03 aturannya tidak pernah menggigit
+karena Risk Base-nya `O` — didaftarkan sebagai pernyataan niat.)
 
 ---
 

@@ -29,6 +29,11 @@ seperti kejanggalan:
   `menu.manage_user` / `menu.manage_role` / `admin.user.write` / `admin.role.write`.
   Konsekuensinya HANYA `admin` yang bisa mengelola user & role — pastikan selalu ada
   akun Admin aktif.
+* Kelanjutan kebijakan yang sama (14 Agustus 2026): SELURUH pengurusan data —
+  Campaigns, Database Sales, Database QC, semua menu Upload Data, dan Delete
+  Campaign — juga pindah ke `admin`. Lihat `ADMIN_ONLY_PERMISSIONS` di bawah;
+  daftar itu bukan sekadar catatan, ia yang menutup menu-menu tersebut dari role
+  mana pun selain `admin`, termasuk role buatan operator.
 """
 
 # --- Menu (menggerakkan sidebar & guard router) ---
@@ -86,6 +91,11 @@ RESULTS_FILTER_QC_SIDE = "results.filter.qc_side"
 # Cardholder) untuk semua tiket Not Qualified & Pending — bukan export satu tiket
 # (yang mengikuti RESULTS_EVALUATION_DETAIL), melainkan tarikan lintas tiket.
 RESULTS_EXPORT_VERIFICATION = "results.export.verification"
+# Export XLSX SEMUA tiket pada rentang tanggal & filter yang sedang dipilih di
+# Results — satu baris per tiket, bukan per baris verifikasi. Pengganti tombol
+# Export Agregat bagi SPQ Head (14 Agustus 2026): yang dibutuhkan pengawas adalah
+# tarikan lengkap sebuah periode, bukan daftar temuan satu kategori.
+RESULTS_EXPORT_TICKETS = "results.export.tickets"
 
 # --- Fitur di dalam halaman Stats ---
 STATS_FAILURE_REASON = "stats.failure_reason"
@@ -118,12 +128,36 @@ ALL_PERMISSIONS = [
     ERROR_CODE_REVIEW_TL, ERROR_CODE_REVIEW_SPQ, DOCUMENT_UPLOAD, DOCUMENT_VIEW,
     DOCUMENT_VERIFICATION_TABLE,
     QC_MANUAL_CHECK_APPROVE, RESULTS_FILTER_QC_SIDE, RESULTS_EXPORT_VERIFICATION,
+    RESULTS_EXPORT_TICKETS,
     STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
     STATS_RISK_SYSTEM_NEW,
     ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
     ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_DELETE,
     QC_ASSIGNMENT_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
 ]
+
+# Capability yang HANYA boleh dimiliki role ``admin`` (permintaan 14 Agustus 2026).
+# Pengurusan data — campaign, database sales/QC, seluruh Upload Data, Delete
+# Campaign — bukan lagi pekerjaan SPQ Head maupun sisi QC.
+#
+# Ini bukan daftar dokumentasi: `api/routers/role.py` menolak menyimpan capability
+# ini pada role selain ``admin`` dan menyembunyikannya dari daftar checkbox Manage
+# Role, sehingga tidak bisa dihidupkan kembali lewat role buatan operator. Menu
+# menghilang DAN endpoint-nya ikut tertutup, karena keduanya membaca daftar yang
+# sama.
+#
+# Konsekuensi yang disadari & dikonfirmasi: `qc_support` kehilangan Upload Audio /
+# Upload Transcript. Karena cakupan datanya "hanya tiket yang di-upload sendiri",
+# role itu praktis tidak lagi punya tiket baru untuk dilihat.
+ADMIN_ONLY_PERMISSIONS = {
+    MENU_CAMPAIGNS, MENU_SALES_DATABASE, MENU_QC_DATABASE,
+    MENU_UPLOAD_CAMPAIGN, MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT,
+    MENU_GET_RESULT, MENU_UPLOAD_SALES_DATABASE, MENU_UPLOAD_QC_DATABASE,
+    MENU_DELETE_CAMPAIGN, MENU_MANAGE_USER, MENU_MANAGE_ROLE,
+    ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
+    ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE,
+    TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+}
 
 # Label Indonesia untuk UI Manage Role, dikelompokkan agar daftar checkbox terbaca.
 PERMISSION_GROUPS = [
@@ -167,6 +201,7 @@ PERMISSION_GROUPS = [
         (QC_MANUAL_CHECK_APPROVE, "Tandai tiket sudah dicek (QC)"),
         (RESULTS_FILTER_QC_SIDE, "Filter hierarki memakai dropdown QC / QC Support"),
         (RESULTS_EXPORT_VERIFICATION, "Export XLSX agregat per kategori verifikasi"),
+        (RESULTS_EXPORT_TICKETS, "Export XLSX semua tiket pada rentang yang dipilih"),
     ]),
     ("Stats", [
         (STATS_FAILURE_REASON, "Tab Failure Reason"),
@@ -226,26 +261,28 @@ DEFAULT_ROLES = {
         "data_scope": SCOPE_ALL,
         "permissions": [
             MENU_STATS, MENU_RESULTS, MENU_TRANSCRIPTS, MENU_ASSIGN_TICKET,
-            MENU_MANUAL_CHECK, MENU_PENDING_CHECK, MENU_CAMPAIGNS,
-            MENU_SALES_DATABASE, MENU_QC_DATABASE, MENU_UPLOAD_CAMPAIGN,
-            MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, MENU_GET_RESULT,
-            MENU_UPLOAD_SALES_DATABASE, MENU_UPLOAD_QC_DATABASE,
-            MENU_DELETE_CAMPAIGN,
+            MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
             MENU_ROLE_HIERARCHY,
             RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
             RESULTS_CATEGORY_SCORE,
             MANUAL_STATUS_COLUMN,
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_SPQ,
             ERROR_CODE_DIRECT_EDIT, ERROR_CODE_REVIEW_SPQ,
-            DOCUMENT_VIEW, DOCUMENT_VERIFICATION_TABLE, RESULTS_EXPORT_VERIFICATION,
+            DOCUMENT_VIEW, DOCUMENT_VERIFICATION_TABLE,
+            RESULTS_EXPORT_TICKETS,
             STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
             STATS_RISK_SYSTEM_NEW,
             # Tanpa MENU_MANAGE_USER / MENU_MANAGE_ROLE / ADMIN_USER_WRITE /
             # ADMIN_ROLE_WRITE: menu Administration khusus Admin (10 Agustus 2026).
-            ADMIN_CAMPAIGN_WRITE,
-            ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE,
-            ADMIN_TICKET_DELETE,
-            QC_ASSIGNMENT_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+            # Tanpa seluruh ADMIN_ONLY_PERMISSIONS (Campaigns, Database Sales &
+            # QC, Upload Data, Delete Campaign): pengurusan data pindah ke Admin
+            # (14 Agustus 2026).
+            # Tanpa ADMIN_TICKET_DELETE: tombol Delete di Results dicabut dari SPQ
+            # Head pada tanggal yang sama; menghapus tiket tinggal milik Admin.
+            # Tanpa RESULTS_EXPORT_VERIFICATION: export agregat per kategori
+            # verifikasi juga pindah ke Admin. Gantinya RESULTS_EXPORT_TICKETS —
+            # export SEMUA tiket pada rentang tanggal yang sedang dipilih.
+            QC_ASSIGNMENT_WRITE,
         ],
     },
     # Menu identik dengan SPQ Head, TANPA capability aksi QC — lihat docstring.
@@ -262,7 +299,8 @@ DEFAULT_ROLES = {
             MENU_ROLE_HIERARCHY,
             RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
             RESULTS_CATEGORY_SCORE, MANUAL_STATUS_COLUMN,
-            DOCUMENT_UPLOAD, DOCUMENT_VIEW, RESULTS_EXPORT_VERIFICATION,
+            DOCUMENT_UPLOAD, DOCUMENT_VIEW,
+            RESULTS_EXPORT_VERIFICATION, RESULTS_EXPORT_TICKETS,
             STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
             STATS_RISK_SYSTEM_NEW,
             ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
@@ -293,24 +331,28 @@ DEFAULT_ROLES = {
             DOCUMENT_UPLOAD, DOCUMENT_VIEW,
         ],
     },
+    # Tanpa DOCUMENT_VIEW (14 Agustus 2026): sales agent tidak boleh membuka
+    # dokumen pendukung tiketnya sendiri. Atasannya (TL Sales sebagai pengunggah,
+    # Area Manager, Telesales Head) tetap bisa.
     "sales_agent": {
         "label": "Sales Agent",
         "data_scope": SCOPE_SALES_AGENT,
         "permissions": [
-            MENU_STATS, MENU_RESULTS, RESULTS_CATEGORY_SCORE, DOCUMENT_VIEW,
+            MENU_STATS, MENU_RESULTS, RESULTS_CATEGORY_SCORE,
         ],
     },
     "team_leader_qc": {
         "label": "Team Leader QC",
         "data_scope": SCOPE_ALL,
+        # Tanpa MENU_UPLOAD_AUDIO / MENU_UPLOAD_TRANSCRIPT / TRANSCRIPT_UPLOAD /
+        # AUDIO_UPLOAD: seluruh Upload Data pindah ke Admin (14 Agustus 2026).
         "permissions": _QC_SIDE_VIEW + [
             MENU_ASSIGN_TICKET, MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
-            MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT,
             RESULTS_CATEGORY_SCORE,
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_TL,
             ERROR_CODE_DIRECT_EDIT, ERROR_CODE_REVIEW_TL, RESULTS_FILTER_QC_SIDE,
             STATS_QC_PERFORMANCE, STATS_RISK_BASE, STATS_RISK_SYSTEM_NEW,
-            QC_ASSIGNMENT_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+            QC_ASSIGNMENT_WRITE,
         ],
     },
     # RESULTS_CATEGORY_SCORE sengaja TIDAK diberikan: QC menilai lolos/tidaknya
@@ -325,28 +367,33 @@ DEFAULT_ROLES = {
         ],
     },
     # Tanpa MENU_STATS — QC Support memang tidak punya Statistics.
+    #
+    # Sejak 14 Agustus 2026 juga tanpa Upload Audio / Upload Transcript. Ini
+    # melumpuhkan role tersebut dan itu disengaja: cakupan datanya
+    # ``qc_support_own`` (hanya tiket yang ia upload sendiri), jadi tanpa hak
+    # upload ia tidak akan pernah punya tiket baru. Dikonfirmasi sebagai
+    # kebijakan; kalau role ini mau dihidupkan lagi, yang dikembalikan adalah
+    # keempat capability upload-nya, bukan cakupan datanya.
     "qc_support": {
         "label": "QC Support",
         "data_scope": SCOPE_QC_SUPPORT_OWN,
         "permissions": [
-            MENU_RESULTS, MENU_TRANSCRIPTS, MENU_UPLOAD_AUDIO,
-            MENU_UPLOAD_TRANSCRIPT,
+            MENU_RESULTS, MENU_TRANSCRIPTS,
             RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
             RESULTS_CATEGORY_SCORE, DOCUMENT_VIEW, MANUAL_STATUS_COLUMN,
-            TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
         ],
     },
-    # Showcase read-only: tidak punya satu pun capability tulis kecuali upload
-    # transcript (supaya demo end-to-end bisa diperagakan).
+    # Showcase read-only. Sejak 14 Agustus 2026 benar-benar read-only: Campaigns
+    # dan Upload Transcript ikut pindah ke Admin, jadi demo end-to-end harus
+    # disiapkan lebih dulu dengan akun Admin.
     "demo": {
         "label": "Demo",
         "data_scope": SCOPE_ALL,
         "permissions": [
-            MENU_STATS, MENU_RESULTS, MENU_CAMPAIGNS, MENU_UPLOAD_TRANSCRIPT,
+            MENU_STATS, MENU_RESULTS,
             RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
             RESULTS_CATEGORY_SCORE, DOCUMENT_VIEW, MANUAL_STATUS_COLUMN,
             STATS_RISK_BASE, STATS_RISK_SYSTEM_NEW,
-            TRANSCRIPT_UPLOAD,
         ],
     },
 }

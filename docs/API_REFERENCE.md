@@ -85,18 +85,24 @@ Endpoint yang ikut dibatasi campaign: `/list_results`, `/list_transcripts`, `/st
 
 ---
 
-## 3. Daftar Permission (50)
+## 3. Daftar Permission (51)
 
 Dikelompokkan sesuai form **Manage Role** (`GET /roles/catalog`).
 
+> 🔒 Sejak 14 Agustus 2026 **19 dari 51 permission bersifat admin-only** dan
+> **tidak dikembalikan** oleh `GET /roles/catalog` — form Manage Role hanya menawarkan 32.
+> `POST /roles` & `PUT /roles/{id}` menolak `422` bila permission itu dikirim untuk role
+> selain `admin`. Daftar & alasannya: `ADMIN_ONLY_PERMISSIONS` di `api/permissions.py`,
+> [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.1.
+
 | Kelompok | Permission |
 |---|---|
-| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.campaigns`, `menu.sales_database`, `menu.qc_database`, `menu.upload_campaign`, `menu.upload_audio`, `menu.upload_transcript`, `menu.get_result`, `menu.upload_sales_database`, `menu.upload_qc_database`, `menu.delete_campaign`, `menu.manage_user`, `menu.manage_role`, `menu.role_hierarchy` |
-| **Results** | `results.evaluation_detail`, `results.critical_failure`, `results.category_score`, `results.manual_status.column`, `results.manual_status.set`, `results.manual_status.direct`, `results.manual_status.review_tl`, `results.manual_status.review_spq`, `results.error_code.appeal`, `results.error_code.direct_edit`, `results.error_code.review_tl`, `results.error_code.review_spq`, `results.document.upload`, `results.document.view`, `results.document.verification`, `results.manual_check.approve`, `results.filter.qc_side`, `results.export.verification` |
+| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.role_hierarchy`, 🔒 `menu.campaigns`, 🔒 `menu.sales_database`, 🔒 `menu.qc_database`, 🔒 `menu.upload_campaign`, 🔒 `menu.upload_audio`, 🔒 `menu.upload_transcript`, 🔒 `menu.get_result`, 🔒 `menu.upload_sales_database`, 🔒 `menu.upload_qc_database`, 🔒 `menu.delete_campaign`, 🔒 `menu.manage_user`, 🔒 `menu.manage_role` |
+| **Results** | `results.evaluation_detail`, `results.critical_failure`, `results.category_score`, `results.manual_status.column`, `results.manual_status.set`, `results.manual_status.direct`, `results.manual_status.review_tl`, `results.manual_status.review_spq`, `results.error_code.appeal`, `results.error_code.direct_edit`, `results.error_code.review_tl`, `results.error_code.review_spq`, `results.document.upload`, `results.document.view`, `results.document.verification`, `results.manual_check.approve`, `results.filter.qc_side`, `results.export.verification`, `results.export.tickets` |
 | **Stats** | `stats.qc_performance`, `stats.failure_reason`, `stats.risk_base`, `stats.risk_system_new` |
-| **Upload** | `transcript.upload`, `audio.upload` |
+| **Upload** | 🔒 `transcript.upload`, 🔒 `audio.upload` |
 | **QC** | `qc.assignment.write` |
-| **Admin** | `admin.campaign.write`, `admin.user.write`, `admin.role.write`, `admin.sales_database.write`, `admin.qc_database.write`, `admin.ticket.delete` |
+| **Admin** | `admin.ticket.delete`, 🔒 `admin.campaign.write`, 🔒 `admin.user.write`, 🔒 `admin.role.write`, 🔒 `admin.sales_database.write`, 🔒 `admin.qc_database.write` |
 
 Pemetaan permission → role bawaan: [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.
 
@@ -124,9 +130,14 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `POST /roles` | Buat role baru | `admin.role.write` |
 | `PUT /roles/{role_id}` | Ubah role (permission, data_scope, campaign) | `admin.role.write` |
 | `DELETE /roles/{role_id}` | Hapus role | `admin.role.write` |
-| `GET /roles/catalog` | Kosakata form Manage Role (permission, scope, campaign) | `admin.role.write` |
+| `GET /roles/catalog` | Kosakata form Manage Role (permission, scope, campaign) — **tanpa** permission admin-only | `admin.role.write` |
 | `GET /roles/user_campaigns` | Daftar user + campaign khusus per user | `admin.role.write` |
 | `PUT /roles/user_campaigns/{username}` | Set campaign seorang user (kosong = tanpa batas) | `admin.role.write` |
+
+> **`422` pada `POST`/`PUT /roles`** bila body memuat permission admin-only untuk role selain
+> `admin` — pesan: *"Permission berikut hanya untuk role Admin: …"*. Sebaliknya, menyimpan
+> role `admin` lewat form **tidak** mencabut capability admin-only-nya: karena tidak ada di
+> katalog, ia tidak ikut terkirim, dan `PUT` membawanya serta apa adanya dari DB.
 
 ### Transcript & Result
 | Method & Path | Fungsi | Guard |
@@ -148,7 +159,8 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /campaign_readiness` | Kesiapan tiap campaign: konfigurasi QC, roster, akun, data TMS, tiket | `admin.campaign.write` |
 
 > Perubahan penting: upload campaign **tidak lagi** terbuka untuk semua user login — kini
-> butuh `admin.campaign.write` (SPQ Head / Admin).
+> butuh `admin.campaign.write`, dan sejak 14 Agustus 2026 capability itu **hanya milik
+> `admin`** (SPQ Head sudah tidak punya).
 
 ### Document
 | Method & Path | Fungsi | Guard |
@@ -158,7 +170,14 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /document_file/{document_id}` | Ambil file dokumen | `results.document.view` |
 
 > Tabel perbandingan OCR-vs-acuan di modal "View Document" dijaga permission terpisah
-> `results.document.verification` (dievaluasi di frontend + payload result).
+> `results.document.verification`. Penyembunyiannya **bukan di frontend**: `/documents/{id}`
+> mengosongkan `ocr_json` & `error_message` untuk role tanpa capability itu, jadi datanya
+> tidak pernah sampai ke browser. Yang memilikinya hanya **QC, Team Leader QC, SPQ Head** —
+> **Admin dan Team Leader Sales bisa membuka dokumennya tetapi tidak melihat vonisnya.**
+>
+> Sejak 14 Agustus 2026 **Sales Agent tidak punya `results.document.view`** → kedua endpoint
+> di atas membalas `403`, dan kolom **Document** di halaman Results hilang untuk role yang
+> tidak punya `view` maupun `upload`.
 
 ### Webhook
 | Method & Path | Fungsi | Guard |
@@ -185,11 +204,18 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 ### Export
 | Method & Path | Fungsi | Guard |
 |---|---|---|
-| `GET /export_result_xlsx/{result_id}` | Export satu hasil evaluasi ke XLSX | login |
+| `GET /export_result_xlsx/{result_id}` | Export satu hasil evaluasi ke XLSX (3 sheet: `ringkasan_penilaian_ai`, `scorecard`, `errorcard`) | login |
 | `GET /export_verification_xlsx` | Export agregat satu kategori verifikasi ke XLSX | `results.export.verification` |
+| `GET /export_tickets_xlsx` | Export **semua tiket** pada rentang & filter terpilih ke XLSX | `results.export.tickets` |
 | `GET /get_nama_ibu_kandung` | Hasil verifikasi statik nama ibu kandung SEMUA tiket (JSON) | `results.export.verification` |
 
-Detail kedua endpoint terakhir: §5.
+Detail ketiga endpoint terakhir: §5.
+
+> Baris **"Hasil"** di sheet `ringkasan_penilaian_ai` memakai `ai_status_for_result()` —
+> sumber yang **sama** dengan kolom AI Status di `/list_results`, termasuk aturan dokumen H+2
+> dan Manual Status yang sudah disetujui. Sebelum 14 Agustus 2026 sheet ini menyimpulkan
+> sendiri dari dict evaluasi dan buta terhadap keduanya, sehingga 21 dari 98 tiket ter-export
+> "LULUS" padahal Not Qualified. Lihat [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §7.2.
 
 ### Agent Error
 | Method & Path | Fungsi | Guard |
@@ -243,12 +269,14 @@ Detail kedua endpoint terakhir: §5.
 
 ---
 
-## 5. Endpoint Export Verifikasi
+## 5. Endpoint Export
 
 ### 5.1 `GET /export_verification_xlsx`
 
 Export agregat **satu kategori** verifikasi sebagai file XLSX: semua baris yang **tidak
 cocok** pada tiket **Not Qualified & Pending**.
+
+> Sejak 14 Agustus 2026 guard-nya **hanya Admin** — SPQ Head memakai §5.3.
 
 | Param | Wajib | Nilai |
 |---|---|---|
@@ -274,7 +302,10 @@ Bedanya dengan `export_verification_xlsx?category=verifikasi_statik`:
 
 Similarity sudah **dihitung ulang di Python** (`normalize_static_verification`, memakai
 penyebutan TERBAIK) dan **banding yang disetujui sudah diterapkan**, jadi angkanya sama
-persis dengan yang tampil di dashboard — bukan angka mentah LLM.
+persis dengan yang tampil di dashboard — bukan angka mentah LLM. Pada baris yang angkanya
+dikoreksi, `reason` **ikut ditulis ulang** supaya tidak menjelaskan vonis lama; baris yang
+angkanya sudah benar tetap memakai kalimat LLM. Lihat
+[`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §5.1.
 
 Tiket non-Cashline tersaring dengan sendirinya karena tidak punya blok
 `card_holder_verification`. `ticket_id` diambil dari `source_files`, bukan langsung dari
@@ -324,6 +355,44 @@ curl -H "X-API-Key: $API_KEY" http://<host>:4010/get_nama_ibu_kandung
   ]
 }
 ```
+
+### 5.3 `GET /export_tickets_xlsx` (14 Agustus 2026)
+
+Export **semua tiket** pada rentang & filter yang sedang dipilih di halaman Results, sebagai
+XLSX — **satu baris per tiket**, apa pun statusnya. Pengganti tombol Export Agregat bagi
+SPQ Head.
+
+Bedanya dengan §5.1: yang itu menjawab *"tunjukkan semua temuan pada SATU kategori
+verifikasi"*, yang ini *"berikan SELURUH tiket periode ini"* — tiket **Qualified pun ikut**,
+karena pertanyaannya bukan "apa yang harus ditindaklanjuti".
+
+| Param | Wajib | Arti |
+|---|---|---|
+| `date_start` / `date_end` | tidak | `YYYY-MM-DD`; dasarnya `tms_cashline.submit_time`, sama dengan filter tanggal di Results |
+| `campaign` | tidak | batasi ke satu campaign |
+| `ai_status` / `manual_status` | tidak | `PASS` · `FAIL` · `PENDING` |
+| `ticket_id` | tidak | pencarian sebagian id |
+| `am_nip` / `tl_nip` / `agent_nip` | tidak | filter hierarki AM / TL / TLO |
+
+Semua parameter memakai helper yang **sama** dengan `/results` (cakupan role, batas campaign,
+filter hierarki), jadi isi file cocok dengan yang terlihat di layar. Yang tidak ditiru:
+paginasi — export selalu mengambil seluruh rentang.
+
+**Kolom** (`TICKET_EXPORT_COLUMNS` di `compliance/stats_aggregate.py`):
+
+| Kolom | Catatan |
+|---|---|
+| Ticket ID, Tanggal, Campaign | `Tanggal` = `submit_time`; tiket tanpa baris cashline memakai `generated_at` |
+| Agent, Team Leader, Area Manager | dari roster Sales Database |
+| AI Status, Manual Status | kata yang dibaca manusia (Qualified / Not Qualified / Pending) |
+| Passing Grade | dari evaluasi |
+| Error Code | semua kode tiket itu, dipisah koma |
+| Risk Base | risk base yang **benar-benar dihitung** (satu tertinggi, sudah termasuk pelunakan new joiner & pengecualian L-tolerable). Kosong = tiket tidak menyumbang Total Risk |
+| Details Error | deskripsi tiap kode, dipisah baris baru |
+
+Tiga kolom terakhir memampatkan tabel Error Code sebuah tiket ke satu baris, dan `Risk Base`
+sengaja memakai definisi yang sama dengan Error Rate di Statistics supaya angkanya sepakat —
+lihat [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §8.1.
 
 Ambang kecocokannya (band `>= 90` MATCH, `80..<90` minta dokumen KK, `< 80` MISMATCH)
 dijelaskan di [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §5.1.

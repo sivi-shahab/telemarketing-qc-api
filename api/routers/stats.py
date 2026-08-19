@@ -32,6 +32,7 @@ from api.permissions import (
     ERROR_CODE_APPEAL,
     ERROR_CODE_REVIEW_SPQ,
     MANUAL_STATUS_REVIEW_SPQ,
+    RESULTS_EXPORT_TICKETS,
     RESULTS_EXPORT_VERIFICATION,
     RESULTS_FILTER_QC_SIDE,
     SCOPE_QC_ASSIGNED,
@@ -46,6 +47,7 @@ from api.permissions import (
 from api.rbac import data_scope_for, effective_campaigns_for, has_perm, require
 from api.qc_scope import scoped_customer_ids
 from db import crud
+from compliance.badwords import badword_fail_reason, badword_rows, has_badword
 from compliance.error_codes import (
     FRAUD_REASON,
     _appeal_kind,
@@ -64,6 +66,7 @@ from compliance.error_codes import (
     card_holder_two_match_satisfied,
     code_for_cashline_field,
     effective_appeal_status,
+    fraud_fail_reason,
     not_fulfilled_reason,
     normalize_static_verification,
     static_consistency_failures,
@@ -85,6 +88,7 @@ from compliance.stats_aggregate import (
     _missing_docs_map,
     _parse_ymd,
     _result_ai_status,
+    ai_status_for_result,
     compute_ai_status_timeseries,
     compute_stats_snapshot,
 )
@@ -644,17 +648,6 @@ def list_results(
                             "status": ccc.get("status"),
                             "checked_items": items_raw if isinstance(items_raw, list) else [],
                         }
-
-        # An approved QC request overrides the displayed AI Status (table column only).
-        qc_req = qc_map.get(str(r.id))
-        if qc_req is not None and qc_req.approval_status == "approved":
-            ai_status = qc_req.requested_status
-
-        # Final rule (checked last): a non-tolerable, still-unmet scorecard item forces
-        # RETURN, overriding score-pass and even an approved QC status change.
-        if ai_status == "PASS" and evaluation is not None and _has_blocking_intolerable_item(evaluation):
-            ai_status = "FAIL"
-
         cid = _customer_id_from_files(r.source_files)
         customer_name = None
         account_number = None
@@ -710,6 +703,13 @@ def list_results(
         fraud_fields = static_consistency_failures(evaluation) if evaluation is not None else []
         if fraud_fields:
             ai_status = "FAIL"
+        # 2c) BADWORD (13 Agustus 2026): agent mengucapkan kalimat bersentimen negatif
+        # kepada nasabah — perilaku yang tidak dapat ditoleransi dan sumber komplain
+        # CCBM. Sama seperti indikasi fraud: menimpa PENDING (tiket seperti ini tidak
+        # menunggu dokumen) dan tidak peduli berapa skornya.
+        badwords = badword_rows(evaluation) if evaluation is not None else []
+        if badwords:
+            ai_status = "FAIL"
         # 3) Vonis human yang SUDAH DISETUJUI mengunci AI Status — menimpa ketiga aturan
         # di atas. Sengaja memanggil helper kanonik yang sama dengan yang dipakai Stats,
         # filter, dan snapshot: baris ini dulu menghitung sendiri tanpa melihat qc_req,
@@ -729,9 +729,14 @@ def list_results(
         # keterangan, jadi dibiarkan kosong ketimbang mengarang alasan.
         # Indikasi fraud ditulis sebagai alasan tiket, sejajar pending_reason, supaya
         # QC melihat SEBABNYA di kolom AI Status tanpa membuka baris.
-        fail_reason = None
+        # Badword ditulis dengan cara yang sama; bila keduanya kena, dua-duanya
+        # disebut — QC perlu tahu tiket ini gugur karena dua sebab, bukan satu.
+        fail_notes = []
         if fraud_fields and ai_status == "FAIL":
-            fail_reason = f"{FRAUD_REASON} — penyebutan {', '.join(fraud_fields)} tidak konsisten antar pengulangan"
+            fail_notes.append(fraud_fail_reason(evaluation))
+        if badwords and ai_status == "FAIL":
+            fail_notes.append(badword_fail_reason(evaluation))
+        fail_reason = " · ".join(n for n in fail_notes if n) or None
         pending_reason = None
         if ai_status == "PENDING" and missing_docs:
             _need = [_doc_label(t) for t in document_missing_types] or ["pendukung"]
@@ -1138,24 +1143,34 @@ def _has_blocking_intolerable_item(evaluation: dict) -> bool:
     return bool(_non_tolerable_reasons(evaluation))
 
 
-def _ai_status_pass(evaluation: dict) -> bool:
-    """PASS/FAIL: prefer the LLM's ai_status; fall back to final score vs passing grade.
-    A non-tolerable, still-unmet scorecard item vetoes a pass (RETURN) regardless."""
-    if _has_blocking_intolerable_item(evaluation):
-        return False
-    status = evaluation.get("ai_status")
-    if isinstance(status, str):
-        return status.strip().upper() == "PASS"
-    final = _to_num(evaluation.get("ai_score_phase_3"))
-    passing = _to_num(evaluation.get("passing_grade"))
-    if final is None or passing is None:
-        return False
-    return final >= passing
+# Label baris "Hasil" di sheet ringkasan, per AI Status. Sejajar dengan
+# ``aiStatusLabel`` di dashboard (QUALIFIED / NOT QUALIFIED / PENDING), tetapi memakai
+# istilah Indonesia yang sudah dipakai sheet ini sejak awal.
+_HASIL_LABELS = {"PASS": "LULUS", "FAIL": "TIDAK LULUS", "PENDING": "PENDING"}
 
 
-def _append_ringkasan_rows(sheet, result_json) -> None:
+def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None) -> None:
     """Append the AI score-summary as a running-balance table (mirrors the
-    dashboard "Ringkasan Penilaian AI"): Keterangan | Perubahan | Hasil."""
+    dashboard "Ringkasan Penilaian AI"): Keterangan | Perubahan | Hasil.
+
+    ``ai_status`` adalah vonis KANONIK tiket ini — hasil
+    ``compliance.stats_aggregate.ai_status_for_result``, sumber yang sama dengan
+    kolom AI Status di daftar Results. Sengaja dioper dari pemanggil alih-alih
+    dihitung ulang di sini: sampai 14 Agustus 2026 sheet ini menghitung sendiri dari
+    dict evaluasi saja, sehingga dua aturan yang butuh query DB tidak pernah
+    terlihat olehnya — tenggat unggah dokumen H+2 (``documents`` +
+    ``tms_cashline.submit_time``) dan Manual Status yang sudah di-approve
+    (``qc_status_requests``). Akibatnya 21 dari 98 tiket ter-ekspor "LULUS" padahal
+    daftar Results memvonisnya Not Qualified, seluruhnya karena dokumen wajib yang
+    lewat tenggat; skornya sendiri memang di atas batas lulus, jadi angka di sheet
+    ini tidak salah — yang salah hanya baris kesimpulannya. Sheet ini juga tidak
+    pernah bisa berbunyi PENDING, karena status itu mustahil disimpulkan tanpa tahu
+    ada berapa dokumen yang kurang.
+
+    ``status_note`` ditulis sebagai baris tersendiri sebelum "Hasil", satu pola
+    dengan catatan fraud dan badword di bawah: setiap sebab gugur yang TIDAK terbaca
+    dari angka harus punya barisnya sendiri, supaya "TIDAK LULUS" dengan skor di atas
+    batas lulus tidak terbaca seperti salah hitung."""
     if not result_json:
         return
     evaluation = result_json.get("evaluation") or {}
@@ -1250,7 +1265,35 @@ def _append_ringkasan_rows(sheet, result_json) -> None:
     sheet.append(["Skor Akhir", blank, phase3 if phase3 is not None else blank])
     bl_label = f"Batas Lulus (90% × {max_score})" if max_score is not None else "Batas Lulus (90% × Skor Maksimal)"
     sheet.append([bl_label, blank, passing if passing is not None else blank])
-    sheet.append(["Hasil", blank, "LULUS" if _ai_status_pass(evaluation) else "TIDAK LULUS"])
+    # Item non-tolerable yang masih BELUM_SESUAI menggugurkan tiket berapa pun
+    # skornya. Bobotnya memang sudah muncul sebagai pengurangan di bagian scorecard
+    # di atas, tetapi pengurangan itu saja tidak menjelaskan apa-apa: yang membuat
+    # gugur bukan angkanya (skornya bisa tetap di atas batas lulus) melainkan sifat
+    # TIDAK DAPAT DITOLERANSI-nya. Tanpa baris ini, ekspor tiket seperti itu terbaca
+    # persis seperti salah hitung — 148 dari batas 135, tetapi "TIDAK LULUS".
+    for _reason in _non_tolerable_reasons(evaluation):
+        sheet.append([f"Tidak dapat ditoleransi — {_reason}", blank, blank])
+    # Indikasi fraud dan badword TIDAK mengurangi skor — keduanya hanya menggugurkan
+    # hasilnya. Karena itu skornya bisa berada di ATAS batas lulus sementara "Hasil"
+    # berbunyi TIDAK LULUS; tanpa baris-baris ini pembacanya wajar mengira ekspor
+    # salah hitung. Urutannya sama dengan kolom AI Status di daftar Results: fraud
+    # dulu, lalu badword.
+    fraud_note = fraud_fail_reason(evaluation)
+    if fraud_note:
+        sheet.append([fraud_note, blank, blank])
+    # Tiap ucapan badword disebut lengkap dengan timestamp + kutipannya, sama dengan
+    # tabel Badword Summary di dashboard.
+    badwords = badword_rows(evaluation)
+    if badwords:
+        sheet.append([badword_fail_reason(evaluation), blank, blank])
+        for b in badwords:
+            desc = f'{b["evidence"]}' + (f' — {b["reason"]}' if b["reason"] else "")
+            sheet.append([desc, blank, blank])
+    # Sebab gugur yang datang dari luar evaluasi (dokumen, vonis human). Sama seperti
+    # fraud & badword di atas: tidak mengurangi skor, hanya menggugurkan hasilnya.
+    if status_note:
+        sheet.append([status_note, blank, blank])
+    sheet.append(["Hasil", blank, _HASIL_LABELS.get(ai_status, "TIDAK LULUS")])
 
 
 @router.get("/export_result_xlsx/{result_id}")
@@ -1289,7 +1332,19 @@ def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
             # 'add' bandings lower the score (attach a new error).
             evaluation = apply_added_score_appeals(evaluation, added_appeals_only(appeals))
             result_json = {**result_json, "evaluation": evaluation}
-        _append_ringkasan_rows(ringkasan_sheet, result_json)
+        # Vonis kanonik — helper yang SAMA dengan kolom AI Status di daftar Results,
+        # termasuk aturan dokumen H+2 dan Manual Status yang sudah di-approve. Baris
+        # "Hasil" dulu disimpulkan dari dict evaluasi saja dan karenanya buta terhadap
+        # keduanya; lihat ``_append_ringkasan_rows``.
+        _status = ai_status_for_result(db, result)
+        _note = None
+        if _missing_docs_map(db, [result], {result_id: data.result_json}).get(result_id):
+            if _status == "PENDING":
+                _sla = " (SLA H+2)" if DOC_SLA_ENABLED else ""
+                _note = f"Menunggu dokumen pendukung{_sla}"
+            elif _status == "FAIL":
+                _note = "Dokumen pendukung tidak diunggah sampai tenggat (SLA H+2)"
+        _append_ringkasan_rows(ringkasan_sheet, result_json, _status, _note)
         _append_scorecard_rows(scorecard_sheet, result_json, cust_id)
         _append_errorcard_rows(errorcard_sheet, result_json, cust_id, appeals)
 
@@ -1358,6 +1413,123 @@ def export_verification_xlsx(
     buffer.seek(0)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{category}_{timestamp}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get(
+    "/export_tickets_xlsx",
+    dependencies=[Depends(require(RESULTS_EXPORT_TICKETS))],
+)
+def export_tickets_xlsx(
+    campaign: Optional[str] = Query(None),
+    ai_status: Optional[str] = Query(None, description="PASS | FAIL | PENDING"),
+    manual_status: Optional[str] = Query(None, description="PASS | FAIL | PENDING"),
+    ticket_id: Optional[str] = Query(None),
+    am_nip: Optional[str] = Query(None),
+    tl_nip: Optional[str] = Query(None),
+    agent_nip: Optional[str] = Query(None),
+    date_start: Optional[str] = Query(None, description="Batas bawah tanggal (YYYY-MM-DD)"),
+    date_end: Optional[str] = Query(None, description="Batas atas tanggal (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Export SEMUA tiket pada rentang tanggal & filter yang sedang dipilih di
+    halaman Results — satu baris per tiket, apa pun statusnya.
+
+    Berbeda dari ``/export_verification_xlsx`` yang hanya membawa baris MISMATCH
+    pada satu kategori verifikasi untuk tiket Not Qualified & Pending. Yang ini
+    tarikan periode: yang Qualified pun ikut, karena pertanyaannya "apa saja yang
+    masuk bulan ini", bukan "apa yang harus ditindaklanjuti".
+
+    Parameter penyaringnya sengaja sama dengan ``/results`` dan diproses dengan
+    helper yang sama (cakupan role, batas campaign, filter hierarki AM/TL/TLO),
+    supaya isi file cocok dengan yang terlihat di layar. Yang TIDAK ditiru:
+    paginasi — export selalu mengambil seluruh rentang.
+    """
+    from compliance.stats_aggregate import compute_ticket_export
+
+    d_start = _parse_ymd(date_start)
+    d_end = _parse_ymd(date_end)
+    role_campaigns = effective_campaigns_for(db, current_user)
+    if role_campaigns is not None and campaign:
+        allowed = {c.strip().casefold() for c in role_campaigns}
+        if campaign.strip().casefold() not in allowed:
+            campaign = None
+            role_campaigns = []  # di luar cakupan -> hasil kosong, bukan melebar
+    scoped_cids = _scoped_customer_ids(db, current_user)
+    filter_uids = agent_ids_for_hierarchy_filter(db, am_nip, tl_nip, agent_nip,
+                                                 role_campaigns)
+    if filter_uids is not None:
+        filter_cids = crud.customer_ids_for_agent_ids(db, list(filter_uids))
+        scoped_cids = (
+            list(set(scoped_cids) & set(filter_cids)) if scoped_cids is not None
+            else list(filter_cids)
+        )
+    _iso = ({"uploaded_by_role": "qc_support"}
+            if data_scope_for(db, current_user) == SCOPE_QC_SUPPORT_OWN
+            else {"exclude_uploaded_by_role": "qc_support"})
+
+    results, _total = crud.list_results(
+        db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id,
+        page=1, limit=1_000_000, customer_ids=scoped_cids,
+        date_start=d_start, date_end=d_end, **_iso,
+    )
+
+    # Filter AI / Manual Status diterapkan di Python: keduanya DITURUNKAN per hasil
+    # (tidak tersimpan di baris), persis seperti di /results.
+    ai_filter = ai_status.strip().upper() if isinstance(ai_status, str) else None
+    manual_filter = manual_status.strip().upper() if isinstance(manual_status, str) else None
+    if ai_filter in ("PASS", "FAIL", "PENDING") or manual_filter in ("PASS", "FAIL", "PENDING"):
+        rows_done = [r for r in results if r.status == "done"]
+        ids = [str(r.id) for r in rows_done]
+        appeals = crud.error_code_appeals_for_results(db, ids)
+        qcs = crud.qc_status_requests_for(db, ids)
+        rjs = crud.result_json_map(db, ids)
+        mdocs = _missing_docs_map(db, rows_done)
+        submits = crud.tms_submit_time_map(
+            db, [c for c in (_customer_id_from_files(r.source_files) for r in rows_done) if c]
+        )
+        now = datetime.now()
+        kept = []
+        for r in rows_done:
+            rid = str(r.id)
+            ai = _result_ai_status(
+                rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
+                _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
+            )
+            if ai_filter and ai != ai_filter:
+                continue
+            if manual_filter and effective_manual_status(qcs.get(rid), ai) != manual_filter:
+                continue
+            kept.append(r)
+        results = kept
+
+    data = compute_ticket_export(db, results)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Tiket"
+    sheet.append([title for _key, title in data["columns"]])
+    for row in data["rows"]:
+        cells = [row.get(key) for key, _title in data["columns"]]
+        sheet.append(cells)
+        # Details Error memuat satu baris per error code; tanpa wrap_text Excel
+        # menampilkannya berdempet jadi satu baris panjang.
+        for idx, (key, _title) in enumerate(data["columns"], start=1):
+            if key == "details_error" and isinstance(cells[idx - 1], str) and "\n" in cells[idx - 1]:
+                sheet.cell(row=sheet.max_row, column=idx).alignment = Alignment(
+                    wrap_text=True, vertical="top"
+                )
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    span = f"{date_start or 'awal'}_{date_end or 'akhir'}"
+    filename = f"tickets_{span}_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
