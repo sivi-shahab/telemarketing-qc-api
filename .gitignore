@@ -27,3 +27,5 @@ example_final
 *.env
 __pycache__/
 .env.bak.20260812
+# Backup sebelum cutover repo split (2026-09-02) — jangan ikut ter-commit
+*.bak.*

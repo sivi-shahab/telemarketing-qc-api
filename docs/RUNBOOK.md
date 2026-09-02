@@ -1,5 +1,13 @@
 # Runbook Operasional — Telemarketing QC System
 
+> **⚠ Dokumen ini menggambarkan era monorepo (`telemarketing-qc-system`).**
+> Sejak repo dipecah menjadi `telemarketing-qc-{api,core,worker,dashboard}`,
+> beberapa hal di sini sudah tidak berlaku — antara lain jumlah service, port
+> API, dan keberadaan Postgres/MinIO sebagai container lokal.
+> Untuk arsitektur dan prosedur yang berlaku sekarang, lihat
+> [`ARSITEKTUR.md`](./ARSITEKTUR.md) — khususnya bagian 12 (menjalankan
+> aplikasi) dan bagian 2 (submodule `core`).
+
 Panduan operasional harian (day-2 ops): monitoring, restart, scaling, backup/restore,
 memproses ulang tiket, dan penanganan insiden. Ditujukan untuk tim yang menjaga sistem
 setelah deploy. Untuk instalasi awal lihat [`DEPLOYMENT.md`](./DEPLOYMENT.md).

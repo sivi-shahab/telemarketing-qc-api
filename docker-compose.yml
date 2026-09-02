@@ -10,7 +10,13 @@ networks:
     name: qc-net
 
 services:
+  # DINONAKTIFKAN dari `up` biasa (2026-09-02, cutover repo split).
+  # POSTGRES_HOST di .env menunjuk DWH 10.155.32.28 schema `dashboard`, jadi
+  # container ini tidak dipakai aplikasi. Dibiarkan di file (bukan dihapus)
+  # supaya mode infra-lokal masih bisa dipakai untuk uji coba:
+  #     docker compose --profile local-infra up -d
   postgres:
+    profiles: ["local-infra"]
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -41,15 +47,21 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # DINONAKTIFKAN dari `up` biasa (2026-09-02, cutover repo split).
+  # MINIO_ENDPOINT di .env = cdn.bankmega.local dengan kredensial per-bucket
+  # (MINIO_ACCESS_KEY_*/MINIO_SECRET_KEY_*), jadi MinIO lokal tidak dipakai.
   minio:
+    profiles: ["local-infra"]
     image: minio/minio:latest
     command: server /data --console-address ":4004" --address ":4003"
     ports:
       - "4003:4003"
       - "4004:4004"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      # Default diberikan karena .env mode CDN tidak punya key global ini;
+      # hanya relevan saat profile local-infra dipakai.
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme123}
     volumes:
       - ./data/minio:/data
     healthcheck:
@@ -74,13 +86,11 @@ services:
     # Supaya container bisa menjangkau service yang listen di host (App A / DWH).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Hanya redis: postgres & minio ada di luar (DWH / CDN). Menyebut service
+    # ber-profile di depends_on akan membuat Compose ikut menyalakannya.
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
       interval: 30s

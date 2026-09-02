@@ -1,5 +1,13 @@
 # Panduan Deploy — Telemarketing QC System
 
+> **⚠ Dokumen ini menggambarkan era monorepo (`telemarketing-qc-system`).**
+> Sejak repo dipecah menjadi `telemarketing-qc-{api,core,worker,dashboard}`,
+> beberapa hal di sini sudah tidak berlaku — antara lain jumlah service, port
+> API, dan keberadaan Postgres/MinIO sebagai container lokal.
+> Untuk arsitektur dan prosedur yang berlaku sekarang, lihat
+> [`ARSITEKTUR.md`](./ARSITEKTUR.md) — khususnya bagian 12 (menjalankan
+> aplikasi) dan bagian 2 (submodule `core`).
+
 Panduan lengkap men-deploy sistem dari **GitHub hingga jalan di server**, mencakup **dua jalur**:
 
 - **Jalur A — Docker** (disarankan; paling cepat & konsisten).
