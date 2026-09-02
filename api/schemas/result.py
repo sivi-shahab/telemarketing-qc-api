@@ -137,8 +137,18 @@ class ResultListItem(BaseModel):
     # Demo. None pada tiket lama yang diproses sebelum rincian ini disimpan —
     # tampilannya jatuh balik ke nama berkas tanpa durasi.
     audio_durations: Optional[list] = None
+    # Panggilan tiket ini yang TIDAK ikut dinilai karena milik agent lain:
+    # [{"filename", "detected_agent": [...], "similarity_percent", "duration"}].
+    # Ikut dirender kolom Call Duration, ditandai terpisah dari yang dinilai — lihat
+    # compliance/call_ownership.py. Kosong/None pada tiket satu-agent.
+    excluded_calls: Optional[list] = None
     campaign_interest: Optional[list] = None  # LLM evaluation.campaign_interest (product names)
     critical_compliance_check: Optional[dict] = None  # LLM evaluation.critical_compliance_check (status + checked_items)
+    # Kolom SCOREBOMB: seluruh item yang memotong skor lewat iris — kritis (ratio 0.25)
+    # dan non-tolerable lain (ratio 0.10). Tiap entri:
+    # {item_code, requirement, reason, status, ratio, amount}. Lihat
+    # compliance.scoring.score_bomb_items.
+    score_bomb_items: Optional[list] = None
     non_tolerable_items: Optional[list] = None  # negated reasons for non-tolerable (tolerable=NO) unmet scorecard items
     # Item scorecard yang belum beres: [{"item_code": "SC_CL_12", "status": "BELUM_SESUAI"
     # | "PENDING"}]. Kolom SCORECARD tata letak Demo — lihat _scorecard_issues.

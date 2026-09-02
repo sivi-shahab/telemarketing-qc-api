@@ -384,8 +384,8 @@ DEFAULT_ROLES = {
         "label": "SPQ Head",
         "data_scope": SCOPE_ALL,
         "permissions": [
-            MENU_STATS, MENU_RESULTS, MENU_TRANSCRIPTS, MENU_ASSIGN_TICKET,
-            MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
+            MENU_STATS, MENU_RESULTS, MENU_TRANSCRIPTS,
+            MENU_ASSIGN_TICKET, MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
             MENU_ROLE_HIERARCHY,
             RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
             RESULTS_STATUS_REASON_FULL,
@@ -407,6 +407,13 @@ DEFAULT_ROLES = {
             # Tanpa RESULTS_EXPORT_VERIFICATION: export agregat per kategori
             # verifikasi juga pindah ke Admin. Gantinya RESULTS_EXPORT_TICKETS —
             # export SEMUA tiket pada rentang tanggal yang sedang dipilih.
+            # MENU_ASSIGN_TICKET / MENU_MANUAL_CHECK / MENU_PENDING_CHECK sempat
+            # dicabut (1 September 2026, migrasi 0050) dengan alasan mengurus
+            # antrean adalah pekerjaan Team Leader QC & QC — lalu DIKEMBALIKAN
+            # sehari kemudian (2 September 2026, migrasi 0051). Ketiga antrean
+            # kerja QC itu tetap milik SPQ Head. QC_ASSIGNMENT_WRITE di bawah
+            # tidak pernah ikut dicabut, jadi menu Assign Ticket langsung
+            # fungsional.
             QC_ASSIGNMENT_WRITE,
         ],
     },

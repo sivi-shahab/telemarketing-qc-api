@@ -22,6 +22,7 @@ from compliance.documents import (
     card_holder_doc_types,
 )
 from compliance.reference_data import get_credit_limit, npwp_required_by_limit
+from compliance.stats_aggregate import _normalized_json
 from db import crud
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -96,9 +97,18 @@ def upload_document(
         allowed_types.add("npwp")
     # Card-holder similarity bands (Fase #5) allow their own document type: KK when
     # nama_ibu_kandung scored 80-89%, KTP when tanggal_lahir scored 87,5-99%.
+    #
+    # Dibaca dari evaluasi yang SUDAH dinormalkan (1 September 2026), sama dengan
+    # ``_missing_docs_map`` dan kolom Document di Results. Dengan angka mentah LLM
+    # gerbang ini bisa menolak (422) dokumen yang justru diminta sistem: pada
+    # 020532VF8Y band ternormalisasi meminta KK dan tiketnya PENDING, tetapi angka
+    # mentahnya tidak meminta apa-apa sehingga slotnya tertutup dan tiket itu tidak
+    # punya cara untuk dibereskan.
     if card_holder_bands_apply(result.uploaded_at):
         data = crud.get_result_data(db, result_id)
-        allowed_types.update(card_holder_doc_types(getattr(data, "result_json", None)))
+        allowed_types.update(
+            card_holder_doc_types(_normalized_json(getattr(data, "result_json", None)))
+        )
     bad = [dt for dt in chosen if dt not in allowed_types]
     if bad:
         raise HTTPException(

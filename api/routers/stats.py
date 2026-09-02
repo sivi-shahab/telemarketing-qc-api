@@ -57,6 +57,7 @@ from compliance.error_codes import (
     added_appeals_only,
     apply_added_score_appeals,
     inject_added_rows,
+    merge_dynamic_verification_rows,
     apply_approved_appeals,
     apply_approved_card_holder_appeals,
     apply_approved_cashline_appeals,
@@ -71,7 +72,9 @@ from compliance.error_codes import (
     code_for_cashline_field,
     effective_appeal_status,
     not_fulfilled_reason,
+    apply_cashline_document_status,
     apply_static_document_status,
+    normalize_dynamic_verification,
     normalize_static_verification,
     static_consistency_failures,
 )
@@ -85,6 +88,8 @@ from compliance.reference_data import get_credit_limit, get_customer_info, npwp_
 from compliance.scoring import (
     max_score,
     no_product_interest,
+    phase3_score,
+    score_bomb_items,
     scorecard_score,
 )
 from compliance.stats_aggregate import (
@@ -97,10 +102,11 @@ from compliance.stats_aggregate import (
     manual_review_state,
     manual_status_of,
     _missing_docs_map,
+    _normalized_json,
     document_status_map,
     _parse_ymd,
-    _result_ai_status,
     ai_status_for_result,
+    ai_status_map,
     compute_ai_status_timeseries,
     compute_stats_snapshot,
 )
@@ -241,6 +247,8 @@ def _to_num(value) -> Optional[float]:
 # dinyatakan FAIL. Alias dipertahankan supaya pemanggil di bawah tidak perlu diubah.
 _max_score = max_score
 _scorecard_score = scorecard_score
+_phase3_score = phase3_score
+_score_bomb_items = score_bomb_items
 _no_product_interest = no_product_interest
 
 
@@ -458,23 +466,16 @@ def _resolve_filtered_results(
         if not rows:
             return rows
         ids = [str(r.id) for r in rows]
-        appeals = crud.error_code_appeals_for_results(db, ids)
         qcs = crud.qc_status_requests_for(db, ids)
-        rjs = crud.result_json_map(db, ids)
-        mdocs = _missing_docs_map(db, rows)
-        gaps = data_gap_map(db, rows)
-        submits = crud.tms_submit_time_map(
-            db, [c for c in (_customer_id_from_files(r.source_files) for r in rows) if c]
-        )
-        now = datetime.now()
+        # Vonis dihitung helper KANONIK berkelompok — bahan yang sama persis dengan
+        # kolom AI Status di tabelnya, ``doc_status`` termasuk. Menyusun bahannya
+        # sendiri di sini pernah membuat filter melewatkan status dokumen, sehingga
+        # tiket PENDING ikut muncul saat menyaring "Not Qualified".
+        ai_map = ai_status_map(db, rows)
         out = []
         for r in rows:
             rid = str(r.id)
-            ai = _result_ai_status(
-                rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
-                _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
-                data_gap=gaps.get(rid),
-            )
+            ai = ai_map.get(rid)
             if ai_filter and ai != ai_filter:
                 continue
             if manual_filter and effective_manual_status(qcs.get(rid), ai) != manual_filter:
@@ -636,8 +637,10 @@ def list_results(
         maximum_score = None
         audio_duration = None
         audio_durations = None
+        excluded_calls = None
         campaign_interest = None
         critical_compliance_check = None
+        score_bomb = None
         non_tolerable_items = None
         scorecard_issues = []
         evaluation = None  # per-iteration; the RETURN rule below reads it after the QC override
@@ -649,6 +652,7 @@ def list_results(
                 if isinstance(data.result_json, dict):
                     audio_duration = data.result_json.get("audio_duration")
                     audio_durations = data.result_json.get("audio_durations")
+                    excluded_calls = data.result_json.get("excluded_calls")
                 evaluation = _evaluation_dict(data.result_json)
                 if evaluation is not None:
                     # Terapkan banding yang di-approve (baris error code dihapus &
@@ -658,11 +662,17 @@ def list_results(
                     _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
                     # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
                     evaluation = normalize_static_verification(evaluation)
+                    # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip kosong)
+                    # turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
+                    evaluation = normalize_dynamic_verification(evaluation)
                     # Lalu status dokumennya: baris zona abu-abu jadi PENDING selama
                     # tenggat H+2 berjalan, dan MISMATCH bila terlewat tanpa unggah.
                     _ds = doc_status_page.get(str(r.id))
                     if _ds is not None:
                         evaluation = apply_static_document_status(evaluation, _ds[0], _ds[1])
+                        # Sisi cashline menyusul: baris yang menunggu cover buku tabungan menjadi
+                        # PENDING selama tenggat H+2, agar jalur dokumennya tidak terpotong.
+                        evaluation = apply_cashline_document_status(evaluation, _ds[0], _ds[1])
                     evaluation = apply_approved_appeals(evaluation, _flip)
                     evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
                     evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -677,11 +687,10 @@ def list_results(
                     # AI Score dihitung deterministik dari scorecard (sumber tunggal,
                     # konsisten dengan XLSX export): phase2 = skor maksimal dikurangi
                     # bobot item BELUM_SESUAI; phase3 = phase2 + verifikasi + kritis.
-                    phase2 = _scorecard_score(evaluation)
-                    verif = _to_num(evaluation.get("ai_score_verification"))
-                    critical = _to_num(evaluation.get("ai_score_critical_compliance_check"))
-                    if phase2 is not None or verif is not None or critical is not None:
-                        score_total = (phase2 or 0) + (verif or 0) + (critical or 0)
+                    # Satu sumber rumus (termasuk iris 10% non-tolerable) —
+                    # lihat compliance.scoring.phase3_score.
+                    score_total = _phase3_score(evaluation)
+                    if score_total is not None:
                         ai_score = int(score_total) if score_total == int(score_total) else score_total
 
                     eval_pg = _numeric_or_none(evaluation.get("passing_grade"))
@@ -705,6 +714,11 @@ def list_results(
                     # Results column and the detail view read identically (and the static
                     # verification items say WHY they failed instead of being negated).
                     evaluation = annotate_critical_compliance_reasons(evaluation)
+                    # Kolom SCOREBOMB: SELURUH item yang mengebom skor — kritis (25%)
+                    # DAN non-tolerable lain (10%). Sampai 31 Agustus 2026 kolom itu
+                    # hanya memuat yang kritis, sehingga iris 10% memotong skor tanpa
+                    # pernah terlihat.
+                    score_bomb = _score_bomb_items(evaluation)
                     ccc = evaluation.get("critical_compliance_check")
                     if isinstance(ccc, dict):
                         # Keep only what the Results column needs: overall status +
@@ -733,10 +747,21 @@ def list_results(
         # holder (Fase #5), atau limit pencairan >= Rp 50 juta. Band-nya dibaca dari
         # JSON PRA-banding supaya sepakat dengan _missing_docs_map, yang menentukan
         # status PENDING.
+        #
+        # PRA-BANDING, TAPI SUDAH DINORMALKAN (1 September 2026). Sebelumnya
+        # ``raw_result_json`` dioper apa adanya, padahal ``_missing_docs_map`` sudah
+        # memakai ``_normalized_json`` sejak 21 Agustus 2026 — jadi justru TIDAK
+        # sepakat, dan kolom Document memakai angka mentah LLM sementara status/skor
+        # memakai hasil hitung ulang Python. Dua arah salahnya sama-sama nyata:
+        # 020338gGlU meminta KK atas nama ibu kandung "67%" yang sebenarnya 90%
+        # (MATCH bersih, tiket tetap Qualified), sedangkan 020532VF8Y berstatus
+        # PENDING karena dokumennya kurang tetapi kolomnya kosong sehingga slot
+        # unggahnya tidak pernah terbuka. Normalisasi TIDAK sama dengan banding:
+        # ia hanya menegakkan band di Python, jadi sifat "pra-banding" tetap utuh.
         flags = change_map.get(cid or "", {})
         doc_requirements = _document_requirements(
             flags,
-            raw_result_json,
+            _normalized_json(raw_result_json),
             card_holder_bands_apply(r.uploaded_at),
             npwp_required_by_limit(credit_limit),
         )
@@ -852,8 +877,10 @@ def list_results(
                 num_calls=r.num_calls,
                 audio_duration=audio_duration,
                 audio_durations=audio_durations,
+                excluded_calls=excluded_calls,
                 campaign_interest=campaign_interest,
                 critical_compliance_check=critical_compliance_check,
+                score_bomb_items=score_bomb,
                 non_tolerable_items=non_tolerable_items,
                 scorecard_issues=scorecard_issues,
                 status=r.status,
@@ -1270,7 +1297,11 @@ def _append_errorcard_rows(sheet, result_json, cust_id, appeals=None) -> None:
     evaluation = result_json.get("evaluation") or {}
     # Approved adds only — an export must not carry a banding that Team Leader QC /
     # SPQ Head has not accepted yet.
-    table = inject_added_rows(build_error_code_table(evaluation), added_appeals_only(appeals or []))
+    # Sama dengan tampilan dashboard: B16 & B17-dinamis yang berulang jadi satu baris.
+    table = inject_added_rows(
+        merge_dynamic_verification_rows(build_error_code_table(evaluation)),
+        added_appeals_only(appeals or []),
+    )
     for row in table:
         sheet.append([
             cust_id,
@@ -1389,7 +1420,7 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
     critical = _to_num(evaluation.get("ai_score_critical_compliance_check"))
     # phase3 = phase2 + verifikasi data + pelanggaran kritis.
     if phase2 is not None or verif is not None or critical is not None:
-        phase3 = (phase2 or 0) + (verif or 0) + (critical or 0)
+        phase3 = _phase3_score(evaluation)
         phase3 = int(phase3) if phase3 == int(phase3) else phase3
     else:
         phase3 = None
@@ -1558,9 +1589,15 @@ def export_result_xlsx(
             _approved = approved_appeals_only(appeals)
             _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
             evaluation = normalize_static_verification(evaluation)
+            # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip
+            # kosong) turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
+            evaluation = normalize_dynamic_verification(evaluation)
             _ds = document_status_map(db, [result]).get(result_id)
             if _ds is not None:
                 evaluation = apply_static_document_status(evaluation, _ds[0], _ds[1])
+                # Sisi cashline menyusul: baris yang menunggu cover buku tabungan
+                # menjadi PENDING selama tenggat H+2.
+                evaluation = apply_cashline_document_status(evaluation, _ds[0], _ds[1])
             evaluation = apply_approved_appeals(evaluation, _flip)
             evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
             evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -1725,24 +1762,13 @@ def export_tickets_xlsx(
     manual_filter = manual_status.strip().upper() if isinstance(manual_status, str) else None
     if ai_filter in ("PASS", "FAIL", "PENDING") or manual_filter in ("PASS", "FAIL", "PENDING"):
         rows_done = [r for r in results if r.status == "done"]
-        ids = [str(r.id) for r in rows_done]
-        appeals = crud.error_code_appeals_for_results(db, ids)
-        qcs = crud.qc_status_requests_for(db, ids)
-        rjs = crud.result_json_map(db, ids)
-        mdocs = _missing_docs_map(db, rows_done)
-        gaps = data_gap_map(db, rows_done)
-        submits = crud.tms_submit_time_map(
-            db, [c for c in (_customer_id_from_files(r.source_files) for r in rows_done) if c]
-        )
-        now = datetime.now()
+        qcs = crud.qc_status_requests_for(db, [str(r.id) for r in rows_done])
+        # Helper kanonik yang sama dipakai filter /list_results — lihat catatan di sana.
+        ai_map = ai_status_map(db, rows_done)
         kept = []
         for r in rows_done:
             rid = str(r.id)
-            ai = _result_ai_status(
-                rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
-                _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
-                data_gap=gaps.get(rid),
-            )
+            ai = ai_map.get(rid)
             if ai_filter and ai != ai_filter:
                 continue
             if manual_filter and effective_manual_status(qcs.get(rid), ai) != manual_filter:

@@ -14,6 +14,8 @@ Surfaced inside the Results row dropdown untuk SEMUA role, dengan isi yang ident
                  result_id == customer ID)
   Agent Name  <- NAME from the active sales database, matched by USER ID == agent_id;
                  falls back to the alphabetic chars of agent_id when unmatched.
+  Name Online <- NAME ONLINE (kolom E) dari sales database yang sama — nama panggilan
+                 yang dipakai agent saat menelepon nasabah. "-" bila tidak ada.
   New Joiner  <- "NEW JOINER" when the agent joined < 18 days before submit_time,
                  else "-" (Sales Agent column).
   Campaign    <- evaluation ``campaign_interest`` (bullet list)
@@ -42,9 +44,11 @@ from compliance.error_codes import (
     apply_approved_critical_compliance_appeals,
     appeals_that_flip,
     approved_appeals_only,
+    normalize_dynamic_verification,
     normalize_static_verification,
     build_error_code_table,
     inject_added_rows,
+    merge_dynamic_verification_rows,
     relabel_error_table,
 )
 from db import crud
@@ -128,16 +132,24 @@ def agent_error_summary(
     # sesuai docstring modul: NAME dari active sales database (dicocokkan
     # USER ID == agent_id), fallback ke karakter alfabet agent_id kalau tidak
     # ketemu; new_joiner_info() untuk tenure & selisih hari.
+    # Name Online: kolom NAME ONLINE dari baris roster yang sama. Tidak ada fallback
+    # ke agent_id — nama panggilan tidak bisa diterka dari ID, jadi biarkan kosong
+    # supaya tampil sebagai "—" ketimbang menyesatkan.
     agent_name = None
+    name_online = None
     if agent_id:
         entry = active_sales_map(db).get(agent_id.casefold())
         if entry:
             agent_name = (entry.get("name") or "").strip() or None
+            name_online = (entry.get("name_online") or "").strip() or None
         if not agent_name:
             agent_name = _agent_name(agent_id)
+    # New Joiner: submit_time vs JOIN POSISI agent di active sales database.
     # Pasangan agent_id/submit_time yang sama dipakai untuk tenure & selisih hari,
     # supaya "Agent ID", "Tanggal", "durasi_bergabung" dan "selisih_hari" tidak
     # pernah bercerita beda sumber (new_joiner_info hanya membaca dua key ini).
+    # BUKAN ``cashline_row`` seperti di main: baris DWH live itu sudah tidak dibaca
+    # lagi di sini — snapshot yang menang, lihat blok di atas.
     nj = new_joiner_info({"agent_id": agent_id, "submit_time": submit_time}, db)
 
     evaluation = {}
@@ -160,6 +172,9 @@ def agent_error_summary(
         flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
         # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
         evaluation = normalize_static_verification(evaluation)
+        # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip kosong)
+        # turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
+        evaluation = normalize_dynamic_verification(evaluation)
         evaluation = apply_approved_appeals(evaluation, flip)
         evaluation = apply_approved_card_holder_appeals(evaluation, flip)
         evaluation = apply_approved_cashline_appeals(evaluation, flip)
@@ -169,7 +184,11 @@ def agent_error_summary(
         # errors, so a banding still awaiting Team Leader QC / SPQ Head must not
         # surface its QC reason yet (the detail Error Code table shows pending ones
         # so the reviewers can act on them).
-        table = inject_added_rows(build_error_code_table(evaluation), added_appeals_only(appeals))
+        # Baris B16 & B17-dinamis yang berulang dilebur jadi satu (tampilan saja).
+        table = inject_added_rows(
+            merge_dynamic_verification_rows(build_error_code_table(evaluation)),
+            added_appeals_only(appeals),
+        )
         table = relabel_error_table(table, [a for a in approved if _appeal_kind(a) != "add"])
 
     # Collapse rows that repeat the SAME FINDING into a single entry (first wins,
@@ -221,6 +240,8 @@ def agent_error_summary(
         "result_id": result_id,
         "agent_id": agent_id,
         "agent_name": agent_name,
+        # Nama panggilan on-air agent (kolom NAME ONLINE di database sales).
+        "name_online": name_online,
         # Lama bergabung sebagai TLO, dihitung sampai tanggal submit tiket ini
         # (bukan sampai hari ini) — ex: "3 tahun 1 hari".
         "durasi_bergabung": nj["tenure"] or "-",

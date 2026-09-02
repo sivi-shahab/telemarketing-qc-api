@@ -257,10 +257,69 @@ KETENTUAN UMUM:
 - Override ini MENANG atas evaluasi berbasis transkrip untuk SC_CL_23_1 / SC_CL_23_2 / SC_CL_24.
 - match = "MATCH" atau "SKIPPED_NULL" (dan match_count >= 2 untuk dinamis) TIDAK memaksa "SESUAI":
   biarkan hasil transkrip untuk item itu.
-- Baris card_holder_verification tetap menampilkan match = "MISMATCH" (agar tabel verifikasi & B17
+- Baris card_holder_verification tetap menampilkan match = "MISMATCH" (agar tabel verifikasinya
   akurat); HANYA item_score-nya 0 (lihat VERIFICATION ITEM SCORING) untuk mencegah double-count.
-- CASHLINE DATA VERIFICATION TIDAK dipropagasikan ke scorecard: MISMATCH cashline tetap hanya
-  memicu B02/B03/B05 + penalti per-field seperti biasa.
+- CASHLINE DATA VERIFICATION KINI IKUT DIPROPAGASIKAN ke scorecard (31 Agustus 2026) —
+  lihat CASHLINE VERIFICATION -> SCORECARD PROPAGATION di bawah. Sampai tanggal itu
+  MISMATCH cashline hanya memicu B02/B03/B05 + penalti per-field, sementara item
+  scorecard-nya tetap SESUAI; dua jalur potongan paralel untuk satu kegagalan.
+
+====================
+CASHLINE VERIFICATION -> SCORECARD PROPAGATION (31 Agustus 2026)
+====================
+
+Scorecard menilai BUKAN HANYA apakah agent menanyakan / menjelaskan sesuatu, melainkan
+juga KEBENARAN data yang akhirnya masuk ke TMS. Alurnya:
+
+    scorecard dibuat -> error code -> error code menjatuhkan item scorecard
+
+TIDAK ADA pengurangan poin karena error code itu sendiri. Satu-satunya sumber
+pengurangan adalah item scorecard yang BELUM_SESUAI.
+
+ATURAN: untuk setiap field di "cashline_data_verification" yang match = "MISMATCH",
+PAKSA item scorecard pasangannya menjadi status = "BELUM_SESUAI", item_score = 0.
+Salin "reason" baris verifikasinya ke reason item scorecard itu, supaya kedua tabel
+tidak berbunyi berbeda untuk kegagalan yang sama.
+
+    nominal_pencairan             -> SC_CL_10   (bobot 1)
+    tenor_dalam_bulan             -> SC_CL_6    (bobot 1)
+    nominal_cicilan_per_bulan     -> SC_CL_9    (bobot 1)
+    bunga                         -> SC_CL_7    (bobot 1)
+    nama_bank                     -> SC_CL_12   (bobot 2)
+    penalti_pelunasan_dipercepat  -> SC_CL_15   (bobot 2)
+    nomor_rekening                -> SC_CL_14   (bobot 2)
+    nama_pemilik_rekening         -> SC_CL_13   (bobot 2)
+    provisi                       -> SC_CL_8    (bobot 4)
+    biaya_admin                   -> SC_CL_11   (bobot 5)
+
+Pemetaan ini BUKAN tebakan: penalti per-field yang selama ini kamu tuliskan sendiri
+sama persis dengan bobot item di kolom kanan — terukur pada 37 kejadian MISMATCH di
+98 tiket, tanpa satu pun perkecualian. Yang dipilih keluarga "menjelaskan/menanyakan"
+(SC_CL_6..15), tempat datanya PERTAMA KALI ditegakkan di panggilan; item "konfirmasi"
+(SC_CL_25..32) menilai kewajiban berbeda, yaitu ada-tidaknya recap penutup.
+
+CONTOH (tiket 010714jUKH): "nomor_rekening" di TMS 4820008469 sedangkan transkrip
+4823008469 — digit ke-4 salah input. SC_CL_14 menjadi BELUM_SESUAI, dan pengurangan
+2 poin datang dari bobot SC_CL_14; B02-nya sendiri tidak memotong apa pun.
+
+KETENTUAN:
+- HANYA "MISMATCH" yang menjatuhkan. "SKIPPED_NULL" tidak berpenalti dan tidak
+  menjatuhkan apa pun.
+- Item yang SUDAH BELUM_SESUAI dibiarkan apa adanya — jangan menghitung dua kali.
+- ZONA PENANGGUHAN (PENDING) untuk field yang MEMINTA DOKUMEN. Satu-satunya field
+  cashline yang meminta dokumen adalah "nama_pemilik_rekening" (cover buku tabungan).
+  Untuk field itu berlaku tiga keadaan, sama seperti verifikasi STATIK card holder:
+    * dokumen SUDAH diunggah                       -> baris kembali "MATCH";
+    * belum diunggah, tenggat H+2 BELUM lewat      -> baris "PENDING", item scorecard
+      pasangannya (SC_CL_13) ikut PENDING; TIDAK memotong skor dan TIDAK memveto
+      AI Status;
+    * belum diunggah, tenggat H+2 SUDAH lewat      -> tetap "MISMATCH", SC_CL_13
+      menjadi BELUM_SESUAI dan potongannya berlaku.
+  Tanpa penangguhan ini aturan propagasi akan MEMOTONG JALUR DOKUMEN: bank meminta
+  cover buku tabungan justru untuk membuktikan nama pemiliknya, tetapi tiketnya sudah
+  Not Qualified sebelum dokumen itu datang.
+- Field cashline LAIN tidak punya zona PENDING — tidak ada dokumen yang bisa
+  membuktikannya, jadi MISMATCH langsung menjatuhkan item scorecard-nya.
 
 ====================
 ERROR CODE CLASSIFICATION RULE
@@ -312,8 +371,13 @@ B28 (Inappropriate Language):
                                                                                          
 B16:
   Static verification succeeded, but Dynamic verification is insufficient / not appropriate.
-  Trigger if BOTH SC_CL_23_1 and SC_CL_23_2 are SESUAI AND SC_CL_24 (dynamic
-  verification) is BELUM_SESUAI.
+  Trigger if NO static item is BELUM_SESUAI (SESUAI atau PENDING sama-sama dihitung
+  BELUM gagal) AND SC_CL_24 (dynamic verification) is BELUM_SESUAI.
+  CATATAN 31 Agustus 2026: sistem kini MENURUNKAN SENDIRI B16 dari kondisi itu, jadi
+  baris ini tidak akan hilang bila kamu lupa menuliskannya. Bila kamu menuliskannya,
+  sistem tidak menggandakannya. Syarat statiknya dilonggarkan dari "BOTH SESUAI"
+  menjadi "tidak ada yang BELUM_SESUAI" supaya tiket yang satu item statiknya PENDING
+  (menunggu dokumen, belum divonis) tetap mendapat B16 — bukan tanpa kode sama sekali.
 
 B02 / B03 / B05 (DATA INPUT ERROR — RISK-GRADED):
   Salah input data dengan risiko yang berakibat pada kesalahan proses transaksi.
@@ -456,19 +520,43 @@ CRITICAL COMPLIANCE CHECK RULE
  This check is derived ONLY from the FINALIZED scorecard_result (SC_CL_23_1 / SC_CL_23_2 already carry
  the VERIFICATION -> SCORECARD PROPAGATION result). Do NOT re-scan or re-evaluate the transcript.
                                                                                                                                                                                                   
+ CATATAN KODE ERROR (31 Agustus 2026) — B16 vs B17:
+ - **B17** ("Tidak ada Verifikasi / verifikasi statik kurang / tidak berhasil", Risk H)
+   HANYA untuk kegagalan verifikasi STATIK: tanggal_lahir / nama_ibu_kandung MISMATCH.
+ - **B16** ("Verifikasi Statik Berhasil, Verifikasi Dinamik kurang/tidak sesuai", Risk M)
+   untuk kegagalan verifikasi DINAMIS, yaitu SC_CL_24 BELUM_SESUAI sementara tidak ada
+   item statik yang BELUM_SESUAI. PENDING dihitung belum gagal.
+ Field DINAMIS yang MISMATCH TIDAK menerbitkan B17 — sebelum aturan ini ia menerbitkan
+ satu B17 per field (tiket 180107uT48 sampai tiga sekaligus) sehingga tiket yang
+ verifikasi statiknya justru berhasil diberi label "verifikasi statik tidak berhasil",
+ dan dihukum Risk H alih-alih M. Keduanya diterbitkan SISTEM dari
+ card_holder_verification + scorecard_result; JANGAN menuliskannya sendiri di
+ "error_codes".
+
  Critical items:                                                                                                                                                                                  
  - SC_CL_4
  - SC_CL_23_1
  - SC_CL_23_2
  - SC_CL_37
+ - SC_CL_24   <-- DITAMBAHKAN 31 Agustus 2026 (permintaan bisnis)
+
+ SC_CL_24 (verifikasi dinamis minimal 2 data) kini ikut kritis, sehingga kegagalannya
+ memicu SCORE BOMB seperti verifikasi statik. Sebelumnya kegagalan verifikasi DINAMIS
+ hanya memotong bobot itemnya sendiri — 15 dari 150 — sehingga tiket yang verifikasi
+ dinamisnya gagal total masih berskor 135/150 dan terbaca "nyaris sempurna". Vonisnya
+ memang sudah Not Qualified lewat veto non-tolerable; yang diperbaiki aturan ini
+ adalah ANGKANYA, bukan statusnya.
 
  Per-item status:
  - Scorecard items (SC_CL_*): PASS if the scorecard_result item is SESUAI; FAIL if BELUM_SESUAI or missing.
    (SC_CL_23_1 / SC_CL_23_2 sudah mencerminkan VERIFICATION -> SCORECARD PROPAGATION untuk static
-   card holder; jadi static MISMATCH otomatis membuat item ini FAIL di sini.)
+   card holder; jadi static MISMATCH otomatis membuat item ini FAIL di sini. SC_CL_24 mengikuti
+   hasil aturan 2-match verifikasi dinamis — lihat DYNAMIC VERIFICATION SCORECARD RULE.)
+ - PENDING (zona abu-abu, dokumen pendukung masih ditunggu) BUKAN FAIL: item PENDING
+   dihitung PASS di sini sampai tenggat H+2 lewat.
 
  Rule:
- 1. If ALL four critical items have status = "PASS", set critical_compliance_check.status = "PASS".
+ 1. If ALL five critical items have status = "PASS", set critical_compliance_check.status = "PASS".
  2. If ANY critical item has status = "FAIL" (a scorecard item BELUM_SESUAI/missing),
     set critical_compliance_check.status = "FAIL".
                                                                                                                                                                                                   
@@ -907,6 +995,37 @@ EVERY item regardless of status — always a short explanation in Bahasa Indones
   fulfils the requirement).
 - If status = "BELUM_SESUAI": "reason" explains WHY that item is BELUM_SESUAI
   (what was missing, partial, vague, or contradicted).
+
+  FORMAT WAJIB (31 Agustus 2026) — kalimatnya HARUS berbentuk:
+
+      Agent tidak <perbuatan yang kurang> pada <konteks>
+
+  Contoh yang BENAR:
+      "Agent tidak menggunakan frasa efektif rate pada penjelasan bunga Mega Cashline."
+      "Agent tidak menyebut mulai tahun ke-2 pada penjelasan biaya provisi Mega Cashline."
+      "Agent tidak menginput nomor rekening sesuai transkrip pada pengisian data pencairan."
+
+  Contoh yang SALAH (jangan ditiru):
+      "Bunga disebut 2,20% per bulan, tetapi frasa wajib effective rate tidak disebutkan."
+          -> pasif, tidak menyebut AGENT sebagai pelaku, dan tidak menyebut konteksnya.
+      "Agent tidak menjelaskan bunga Mega Cashline."
+          -> terlalu generik: agent JELAS menjelaskan bunganya, yang kurang frasanya.
+
+  Kalimat ini muncul apa adanya di kolom SCOREBOMB / Critical Failure(s) pada daftar
+  Results dan di panel Critical Compliance Check, jadi ia harus bisa dibaca berdiri
+  sendiri tanpa melihat requirement item-nya.
+
+  <perbuatan yang kurang> = HAL SPESIFIK yang tidak dilakukan/tidak sesuai — bukan
+  pengulangan requirement. <konteks> diturunkan dari requirement itu sendiri:
+
+      "Agent menjelaskan X"           -> "pada penjelasan X"
+      "Agent melakukan konfirmasi X"  -> "pada konfirmasi X"
+      "Agent menanyakan X"            -> "pada pertanyaan X"
+      "Agent menyampaikan X"          -> "pada penyampaian X"
+      "Agent memverifikasi X"         -> "pada verifikasi X"
+
+  Keterangan "- Evidence diambil dari <Category>" tetap ditambahkan di AKHIR seperti
+  aturan di bawah.
 - If status = "TIDAK_DINILAI" (MUS item skipped per MUS SCORECARD CONDITIONAL RULE):
   set "reason" = "Dilewati: nasabah tidak tertarik MUS untuk kartu Cashline."
 - "reason" MUST NOT mention or include any scorecard item_code
@@ -1967,6 +2086,8 @@ Contoh yang BENAR:
 - MATCH  : "Alamat rumah yang disebut nasabah sesuai Ascend."
 - MISMATCH: "Tanggal lahir yang disebut 6 Juni 1974 tidak sesuai Ascend 16 Juni 1974."
 - SKIPPED_NULL: "Tidak ada acuan pada Ascend maupun transkrip."
+- SKIPPED_NULL (dinamis, extracted kosong): "Nomor telepon kantor tidak menghasilkan
+  nilai dari transkrip, tidak ada yang bisa dibandingkan dengan isian Ascend."
 Contoh yang SALAH (jangan ditiru): "Alamat rumah pada TMS sesuai dengan transkrip."
 
 KELAS FIELD:
@@ -1982,9 +2103,24 @@ EMPTINESS DECISION (evaluasi DULU, sebelum fuzzy matching):
    -> Set event_verified = true BILA ada event tanya-jawab valid untuk param VD ini
       (agent bertanya + customer memberi nilai konkret; lihat DYNAMIC PARAM -> FIELD MAP
       + EVENT VERIFICATION). Selain itu event_verified = false.
-2. Field STATIC, ATAU field DINAMIS dengan REFERENCE value TIDAK kosong:
+2. Field DINAMIS dengan REFERENCE value TIDAK kosong:
+   - Jika extracted KOSONG -> match = "SKIPPED_NULL", similarity_percent = null.
+     JANGAN set "MISMATCH". ATURAN BARU 31 Agustus 2026 (permintaan Bank Mega):
+     verifikasi dinamis hanya bisa dinilai bila KEDUA sisi ada nilainya. Satu sisi
+     kosong berarti tidak ada yang dibandingkan, jadi bukan kesalahan agent dan
+     TIDAK menerbitkan B17. Paling sering terjadi pada no_telpon_kantor dan
+     nama_keluarga_relasi: terisi di Ascend, tidak pernah disebut di panggilan.
+   - Jika REFERENCE DAN extracted SAMA-SAMA KOSONG -> match = "SKIPPED_NULL".
+   - Jika KEDUA sisi TIDAK kosong -> bandingkan memakai FUZZY MATCHING & TOLERANCE RULES.
+   - event_verified = false (verifikasi dilakukan lewat kecocokan nilai, bukan event).
+   - Ini TIDAK menaikkan verified_count SC_CL_24: SKIPPED_NULL tidak pernah dihitung
+     terverifikasi (hanya MATCH atau event_verified = true yang dihitung). Aturan ini
+     hanya menghapus baris error tanpa dasar pembanding, bukan meloloskan verifikasi.
+3. Field STATIC (tanggal_lahir, nama_ibu_kandung) — TIDAK ikut aturan di atas:
    - Jika REFERENCE DAN extracted SAMA-SAMA KOSONG -> match = "SKIPPED_NULL".
    - Jika TEPAT SATU sisi KOSONG (reference xor extracted) -> match = "MISMATCH", similarity_percent = 0.
+     Kedua field ini WAJIB ditanyakan agent, jadi transkrip yang kosong di sini justru
+     kegagalan verifikasi yang sesungguhnya — bukan "tidak ada yang dibandingkan".
    - Jika KEDUA sisi TIDAK kosong -> bandingkan memakai FUZZY MATCHING & TOLERANCE RULES.
    - event_verified = false (verifikasi dilakukan lewat kecocokan nilai, bukan event).
 
@@ -2625,7 +2761,9 @@ TEXT SIMILARITY SCORE (LEVENSHTEIN):
   "SKIPPED_NULL" per the EMPTINESS DECISION; set similarity_percent = null.
   (JANGAN set 100 — kosong-vs-kosong TIDAK BOLEH menjadi MATCH.)
 - If the field is SKIPPED_NULL, set similarity_percent = null.
-- If EXACTLY ONE side is empty, the field is "MISMATCH" with similarity_percent = 0.
+- If EXACTLY ONE side is empty: field STATIC atau field CASHLINE -> "MISMATCH" dengan
+  similarity_percent = 0; field DINAMIS card holder -> "SKIPPED_NULL" dengan
+  similarity_percent = null (lihat EMPTINESS DECISION).
 - Report this value in the "similarity_percent" field of each verification object.
 - CALIBRATION EXAMPLE (use this as the reference for how the score is computed):
       reference_value = "KATRINA.VANDA@GMAIL.COM"
@@ -2643,8 +2781,11 @@ MATCH DECISION BY SIMILARITY THRESHOLD (applies to ALL compared fields):
       JANGAN jadikan MISMATCH walau extracted terisi (reference-less: tak ada acuan).
     - Jika KEDUA sisi (reference & extracted) EMPTY -> match = "SKIPPED_NULL",
       similarity_percent = null (tidak ada ambang yang diterapkan).
-    - Jika TEPAT SATU sisi EMPTY (field STATIC, atau field DINAMIS ber-reference terisi tapi
-      extracted kosong, atau field CASHLINE) -> match = "MISMATCH", similarity_percent = 0.
+    - CARVE-OUT (field DINAMIS card holder ber-REFERENCE terisi tapi EXTRACTED kosong)
+      -> match = "SKIPPED_NULL", similarity_percent = null. JANGAN jadikan MISMATCH:
+      tidak ada nilai dari transkrip untuk dibandingkan (aturan 31 Agustus 2026).
+    - Jika TEPAT SATU sisi EMPTY pada field STATIC atau field CASHLINE
+      -> match = "MISMATCH", similarity_percent = 0.
 - Jika KEDUA sisi tidak EMPTY, after computing similarity_percent, decide match as follows:
     - If similarity_percent >= 80  -> match = "MATCH".
     - If similarity_percent <  80  -> match = "MISMATCH".
@@ -2714,10 +2855,12 @@ MATCH DECISION BY SIMILARITY THRESHOLD (applies to ALL compared fields):
 For every compared field, set match to exactly one of:
   "MATCH"        -> reference and extracted value are equivalent per the rules
   "MISMATCH"     -> they refer to different information, ATAU tepat SATU sisi
-                    (reference atau extracted) EMPTY. CARVE-OUT: untuk field DINAMIS
-                    card holder dengan REFERENCE kosong, JANGAN MISMATCH (lihat di bawah).
+                    (reference atau extracted) EMPTY pada field STATIC / CASHLINE.
+                    CARVE-OUT: untuk field DINAMIS card holder, SATU sisi kosong —
+                    arah mana pun — JANGAN MISMATCH (lihat di bawah).
   "SKIPPED_NULL" -> reference DAN extracted SAMA-SAMA EMPTY; ATAU field DINAMIS card holder
-                    dengan REFERENCE kosong (reference-less), sehingga tidak ada acuan.
+                    yang SALAH SATU sisinya EMPTY (reference kosong / extracted kosong),
+                    sehingga tidak ada dua sisi untuk dibandingkan.
 Provide a short reason (in Bahasa Indonesia, max 30 words) explaining the decision.
 
 ====================
@@ -2778,7 +2921,7 @@ event_verified (boolean, HANYA untuk field DINAMIS):
   Untuk pekerjaannya Bapak masih di PT Dragon Product Indonesia ..."), nasabah
   membenarkan. Keduanya tercatat "extracted_value": null dan match MISMATCH, sehingga
   verified_count hanya 1 dan SC_CL_24 gagal — padahal dua parameter itu terverifikasi.
-- Field dengan event_verified = true berstatus match = "SKIPPED_NULL" (tidak MISMATCH, tidak memicu B17),
+- Field dengan event_verified = true berstatus match = "SKIPPED_NULL" (tidak MISMATCH),
   tetapi TETAP dihitung TERVERIFIKASI pada verified_count SC_CL_24 (lihat DYNAMIC VERIFICATION
   SCORECARD RULE langkah 6 dan VERIFICATION -> SCORECARD PROPAGATION).
 
@@ -2802,7 +2945,7 @@ CARD HOLDER VERIFICATION penalties:
   maupun SKIPPED_NULL). Kegagalan verifikasi card holder TIDAK LAGI dihukum di sini —
   kini dipropagasikan ke scorecard: static MISMATCH -> SC_CL_23_1 / SC_CL_23_2 BELUM_SESUAI;
   dynamic verified_count < 2 -> SC_CL_24 BELUM_SESUAI (lihat VERIFICATION -> SCORECARD PROPAGATION).
-  Baris card_holder_verification TETAP menampilkan match apa adanya (untuk tabel & B17),
+  Baris card_holder_verification TETAP menampilkan match apa adanya (untuk tabel verifikasi),
   hanya item_score = 0.
   * tanggal_lahir            -> item_score = 0
   * nama_ibu_kandung         -> item_score = 0
@@ -2839,7 +2982,14 @@ After every verification field has an item_score, compute the verification score
 phase-3 score, and final ai_status. Do NOT re-scan or re-evaluate the transcript.
 
 1. cashline_verification_score
-   - Sum the "item_score" of EVERY field in cashline_data_verification.
+   - cashline_verification_score = 0 SELALU (31 Agustus 2026).
+     Seluruh kegagalan verifikasi cashline kini terekspresi di scorecard_result lewat
+     CASHLINE VERIFICATION -> SCORECARD PROPAGATION, sehingga sudah ikut mengurangi
+     ai_score_phase_2. Untuk MENCEGAH double-count, cashline tidak lagi menyumbang
+     pengurangan apa pun ke ai_score_verification.
+   - "item_score" per field di cashline_data_verification TETAP DITULIS seperti biasa
+     (lihat VERIFICATION ITEM SCORING): angkanya masih dipakai untuk menakar bobot
+     temuan di tabel verifikasi, hanya tidak lagi dijumlahkan ke dalam skor.
 
 2. card_holder_verification_score
    - card_holder_verification_score = 0 SELALU.
@@ -2854,6 +3004,9 @@ phase-3 score, and final ai_status. Do NOT re-scan or re-evaluate the transcript
 
 3. ai_score_verification
    - ai_score_verification = cashline_verification_score + card_holder_verification_score.
+   - Sejak 31 Agustus 2026 KEDUA suku itu 0, jadi ai_score_verification = 0 SELALU.
+     Field ini dipertahankan supaya bentuk keluaran tidak berubah; seluruh pengurangan
+     verifikasi kini hidup di ai_score_phase_2 lewat item scorecard-nya masing-masing.
 
 4. ai_score_critical_compliance_check
    Derive this ONLY from the already-produced "critical_compliance_check" object.
@@ -2865,9 +3018,12 @@ phase-3 score, and final ai_status. Do NOT re-scan or re-evaluate the transcript
          status = "FAIL", add a FULL score-bomb slice of -(maximum_score / 4).
        - For each item whose status = "PASS", add 0.
        - ai_score_critical_compliance_check = sum of those penalties.
-   - There are 4 critical checked_items (SC_CL_4, SC_CL_23_1, SC_CL_23_2, SC_CL_37).
-     Each FAIL costs a full -(maximum_score / 4) slice, so this value ranges from 0 (no FAIL)
-     down to -(4 * maximum_score / 4) = -maximum_score when all four FAIL.
+   - There are 5 critical checked_items (SC_CL_4, SC_CL_23_1, SC_CL_23_2, SC_CL_37, SC_CL_24).
+     Each FAIL costs a full -(maximum_score / 4) slice. Irisnya TETAP seperempat maksimal
+     walaupun itemnya kini lima: iris itu besaran HUKUMAN per pelanggaran kritis ("satu
+     pelanggaran kritis sudah cukup menenggelamkan tiket"), bukan pembagian kue tetap.
+     Nilainya karena itu berkisar dari 0 (tidak ada FAIL) sampai -(5 * maximum_score / 4)
+     bila kelimanya FAIL.
    (Example: maximum_score = 150, two checked_items FAIL ->
      ai_score_critical_compliance_check = 2 * -(150/4) = -75.0. Sebuah static card holder MISMATCH
      kini terhitung SATU kali saja di sini, yaitu melalui SC_CL_23_1 / SC_CL_23_2 yang menjadi FAIL

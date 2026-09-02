@@ -33,9 +33,12 @@ from compliance.error_codes import (
     apply_approved_critical_compliance_appeals,
     appeals_that_flip,
     approved_appeals_only,
+    apply_cashline_document_status,
     apply_static_document_status,
+    normalize_dynamic_verification,
     normalize_static_verification,
     build_error_code_table,
+    merge_dynamic_verification_rows,
     document_error_code_rows,
     effective_appeal_status,
     inject_added_rows,
@@ -47,6 +50,9 @@ from compliance.scoring import (
     _to_num,
     base_ai_status,
     has_blocking_intolerable_item,
+    non_tolerable_bomb,
+    phase3_score,
+    score_bomb_items,
     scorecard_score,
 )
 from compliance.stats_aggregate import (
@@ -325,10 +331,16 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
     # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
     evaluation = normalize_static_verification(evaluation)
+    # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip kosong)
+    # turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
+    evaluation = normalize_dynamic_verification(evaluation)
     # Status dokumennya menyusul: PENDING selama tenggat H+2 berjalan, MISMATCH bila
     # terlewat tanpa unggah (lihat ``error_codes.apply_static_document_status``).
     if doc_status is not None:
         evaluation = apply_static_document_status(evaluation, doc_status[0], doc_status[1])
+        # Sisi cashline menyusul: baris yang menunggu cover buku tabungan menjadi
+        # PENDING selama tenggat H+2, agar jalur dokumennya tidak terpotong.
+        evaluation = apply_cashline_document_status(evaluation, doc_status[0], doc_status[1])
     evaluation = apply_approved_appeals(evaluation, flip)
     evaluation = apply_approved_card_holder_appeals(evaluation, flip)
     evaluation = apply_approved_cashline_appeals(evaluation, flip)
@@ -343,19 +355,27 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     # original LLM values otherwise). Mirrors api/routers/stats.py::list_results.
     phase2 = scorecard_score(evaluation)
     if phase2 is not None:
-        verif = _to_num(evaluation.get("ai_score_verification")) or 0
-        critical = _to_num(evaluation.get("ai_score_critical_compliance_check")) or 0
-        phase3 = phase2 + verif + critical
+        # Rumus phase3 hidup di SATU tempat (termasuk iris 10% non-tolerable) —
+        # lihat compliance.scoring.phase3_score.
+        phase3 = phase3_score(evaluation)
         status_val = base_ai_status(evaluation)
         if status_val == "PASS" and has_blocking_intolerable_item(evaluation):
             status_val = "FAIL"
         evaluation = {
             **evaluation,
+            # Daftar SEMUA item yang mengebom skor — kritis (25%) DAN non-tolerable
+            # lain (10%) — supaya panel Critical Compliance Check / kolom SCOREBOMB
+            # menampilkan seluruh potongan, bukan hanya yang kritis.
+            "score_bomb_items": score_bomb_items(evaluation),
+            "ai_score_non_tolerable": non_tolerable_bomb(evaluation),
             "ai_score_phase_2": phase2,
             "ai_score_phase_3": int(phase3) if phase3 == int(phase3) else phase3,
             "ai_status": status_val,
         }
-    table = build_error_code_table(evaluation)
+    # Tampilan: B16 & B17-dinamis yang berulang dilebur jadi satu baris beralasan
+    # gabungan (31 Agustus 2026). Dilakukan di sini, bukan di dalam builder, supaya
+    # hitungan risk base tidak ikut mengecil — lihat merge_dynamic_verification_rows.
+    table = merge_dynamic_verification_rows(build_error_code_table(evaluation))
     doc_rows = document_error_code_rows(
         missing=bool(doc_overdue),
         missing_labels=doc_requirement_labels(result_json) if doc_overdue else (),

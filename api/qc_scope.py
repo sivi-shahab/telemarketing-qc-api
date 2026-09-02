@@ -113,6 +113,19 @@ def narrow_to_campaigns(db, customer_ids, campaigns):
     return [c for c in customer_ids if c in allowed_set]
 
 
+def _customer_id_of(result) -> str:
+    """Ticket id sebuah ``Result`` = prefix sebelum "_" pada source file pertama.
+
+    Definisi yang sama dipakai daftar Results, penyaring cakupan, dan penghapusan
+    tiket — sengaja tidak dibuat versi kedua di sini.
+    """
+    files = getattr(result, "source_files", None) or []
+    first = files[0] if files else None
+    if not isinstance(first, str) or not first:
+        return ""
+    return first.split("_", 1)[0]
+
+
 def ensure_can_view_result(db, current_user, result) -> None:
     """Raise 403 unless ``current_user`` is allowed to see ``result`` at all.
 
@@ -132,6 +145,21 @@ def ensure_can_view_result(db, current_user, result) -> None:
     """
     from api.rbac import data_scope_for, effective_campaigns_for
     from api import permissions as P
+    from compliance.stats_aggregate import is_hidden_ticket
+
+    # Tiket yang DISEMBUNYIKAN ditolak lebih dulu, sebelum aturan campaign & cakupan.
+    # Ini gerbang tunggal seluruh permukaan per-tiket — detail transkrip, PDF, unduhan,
+    # ekspor XLSX, Agent Error Summary, banding, status QC, manual check, dokumen —
+    # jadi satu pemeriksaan di sini menutup semuanya sekaligus.
+    #
+    # 404, bukan 403: tiket yang disembunyikan harus terlihat seolah TIDAK ADA. 403
+    # justru mengonfirmasi keberadaannya, dan itu bocor persis pada permukaan yang
+    # sedang ditahan untuk presentasi.
+    if is_hidden_ticket(_customer_id_of(result)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="result tidak ditemukan",
+        )
 
     allowed_campaigns = effective_campaigns_for(db, current_user)
     if allowed_campaigns is not None:

@@ -193,6 +193,15 @@ def get_db() -> Generator[Session, None, None]:
             refresh_doc_sla_cache(db)
         except Exception:
             pass
+        # Daftar tiket yang disembunyikan, dibaca sekali per request dengan alasan yang
+        # sama: penyaringnya dipanggil dari crud & agregator yang tidak semuanya
+        # memegang sesi DB. Lihat compliance.stats_aggregate.hidden_ticket_ids.
+        try:
+            from compliance.stats_aggregate import refresh_hidden_tickets_cache
+
+            refresh_hidden_tickets_cache(db)
+        except Exception:
+            pass
         yield db
     finally:
         db.close()
