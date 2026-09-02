@@ -74,7 +74,9 @@ def roster(monkeypatch):
         monkeypatch.setattr(sales_lookup.crud, "get_active_sales_database",
                             lambda db: _FakeRow())
         monkeypatch.setattr(sales_lookup, "get_minio", lambda: _FakeMinio())
-        monkeypatch.setattr(sales_lookup, "get_settings",
+        # Sesudah pemisahan repo, sales_lookup milik core dan mengambil settings
+        # dari core_config.get_core_settings() -- bukan lagi api.dependencies.get_settings.
+        monkeypatch.setattr(sales_lookup, "get_core_settings",
                             lambda: type("S", (), {"minio_bucket_sales_database": "b"})())
         sales_lookup._cache["key"] = None
         sales_lookup._cache["map"] = {}
