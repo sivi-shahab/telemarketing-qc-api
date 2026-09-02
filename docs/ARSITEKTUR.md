@@ -9,6 +9,114 @@
 
 ---
 
+## Mulai Cepat — Menjalankan Aplikasi
+
+Empat langkah, satu per aplikasi. Versi lengkap dengan penjelasan tiap perintah
+dan penanganan kegagalan ada di **bagian 12**.
+
+> `core` "dijalankan" dengan cara **disiapkan sebelum build**, bukan dinyalakan
+> jadi container. Dia tetap langkah 1 — hanya perintahnya bukan `docker compose up`.
+
+### Persiapan (sekali saja per host)
+
+```bash
+docker network create qc-net
+
+# Bebaskan port 4000/4005/4006/6378 kalau stack monorepo masih jalan
+cd /data/scorecard_v2/telemarketing-qc-system && docker compose down
+```
+
+### Langkah 1 — CORE
+
+```bash
+git -C /data/scorecard_v2/telemarketing-qc-api    submodule update --init --recursive
+git -C /data/scorecard_v2/telemarketing-qc-worker submodule update --init --recursive
+
+# Harus ada isinya — kalau kosong, langkah 2 dan 3 pasti gagal
+ls /data/scorecard_v2/telemarketing-qc-api/core/compliance
+ls /data/scorecard_v2/telemarketing-qc-worker/core/compliance
+```
+
+### Langkah 2 — API
+
+```bash
+cd /data/scorecard_v2/telemarketing-qc-api
+docker compose up -d --build
+docker compose logs -f api
+```
+
+Tunggu di log sampai muncul:
+
+```
+Running upgrade 0050 -> 0051, ...
+INFO:     Uvicorn running on http://0.0.0.0:4000
+```
+
+Lalu `Ctrl+C` dan pastikan:
+
+```bash
+curl -sf http://localhost:4000/health && echo " OK"
+docker compose exec api alembic current      # harus: 0051 (head)
+```
+
+**Berhenti di sini kalau belum `0051 (head)`** — jangan lanjut ke worker.
+
+Naik: container `api` + `redis`.
+
+### Langkah 3 — WORKER
+
+```bash
+cd /data/scorecard_v2/telemarketing-qc-worker
+docker compose up -d --build
+docker compose exec worker celery -A worker.celery_app inspect registered
+```
+
+Harus muncul tiga task: `process_transcript`, `process_document`,
+`reprocess_ticket`.
+
+Naik: container `worker` + `flower`.
+
+### Langkah 4 — DASHBOARD
+
+```bash
+cd /data/scorecard_v2/telemarketing-qc-dashboard
+docker compose up -d --build
+```
+
+Paling lama (`npm ci` + `npm run build`). Naik: container `dashboard`.
+
+### Cek akhir
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+```
+
+Lima container hidup:
+
+```
+api   redis   worker   flower   dashboard
+```
+
+Lima container dari empat langkah — `core` tidak menghasilkan container,
+sementara api membawa `redis` dan worker membawa `flower`.
+
+Terakhir: buka dashboard di browser dan **login**. Itu uji tercepat yang
+menangkap salah routing. Kalau dijawab 422, `VITE_API_URL` tidak terbawa saat
+build — perbaikannya rebuild dashboard, bukan restart.
+
+### Kalau gagal
+
+| Gejala | Tindakan |
+|---|---|
+| `network qc-net ... could not be found` | Persiapan terlewat |
+| `failed to compute cache key: "/core/db"` | `core/` kosong — ulangi langkah 1 |
+| `port is already allocated` | Stack monorepo masih jalan |
+| `ModuleNotFoundError: compliance` di worker | `docker compose build --no-cache worker` |
+| `[minio] Belum ada kredensial per-bucket` | `MINIO_*_KEY_<BUCKET>` tidak terbaca — cek `.env` |
+| Login 422 | Rebuild dashboard, jangan cuma restart |
+
+---
+
 ## 1. Gambaran Umum
 
 Sistem ini melakukan **quality control otomatis atas panggilan telemarketing**.
