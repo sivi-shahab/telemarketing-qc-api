@@ -16,7 +16,7 @@
 			"description": "Verifikasi data nasabah, terdiri dari verifikasi statik dan dinamis"
 		},
 		"Final Konfirmasi Mega Cashline": {
-			"description": "Konfirmasi ulang detail produk Mega Cashline dan memastikan nasabah sudah memahami produk yang telah disetujui. Evidence untuk item pada kategori ini WAJIB diambil dari segmen Final Konfirmasi (recap penutup saat agent mengulang/menegaskan detail Mega Cashline yang disetujui)."
+			"description": "Konfirmasi ulang detail produk Mega Cashline dan memastikan nasabah sudah memahami produk yang telah disetujui. Evidence untuk item pada kategori ini WAJIB diambil dari segmen Final Konfirmasi (recap penutup saat agent mengulang/menegaskan detail Mega Cashline yang disetujui). SYARAT SEBUAH BLOK DISEBUT RECAP (berlaku 24 Agustus 2026): harus ada (i) pembuka pengulangan -- 'saya ulangi kembali', 'dikonfirmasikan kembali', 'dengan detail sebagai berikut'; DAN (ii) MINIMAL DUA nilai komersial disebut ulang di blok yang sama (nominal pencairan / tenor / bunga / nominal cicilan per bulan / biaya admin / provisi / ketentuan pelunasan dipercepat). YANG BUKAN RECAP: legal statement/pernyataan persetujuan ('pada hari ini hari Rabu 22 Juli 2026 ... menyatakan sudah mengerti dan memahami ... mohon dibantu jawaban setuju'), dan informasi pasca-persetujuan ('pengajuannya sedang kami proses', 'hasilnya lewat SMS', 'tanggal cetaknya tanggal 16 atau 25', 'akan tampil di menu Akun Saya', 'www.bankmega.com', nomor Mega Call). MULTI-PANGGILAN: 'panggilan TERAKHIR yang memilikinya' berarti panggilan terakhir yang punya blok MEMENUHI syarat di atas -- panggilan yang lebih baru tetapi hanya berisi legal statement + informasi pasca-persetujuan TIDAK memindahkan segmen Final Konfirmasi ke sana. JANGAN memilih segmen recap hanya karena sebuah panggilan yang paling akhir. Bila kamu hendak menilai BANYAK item kategori ini BELUM_SESUAI sekaligus, itu SINYAL KUAT segmen yang dipilih salah -- periksa ulang panggilan yang LEBIH AWAL sebelum menyimpulkan agent tidak melakukan recap. Ditetapkan dari tiket 220122UZKb: recap sebenarnya ada di Panggilan ke-2 (06:37-08:12) tetapi model memilih Panggilan ke-3 yang hanya berisi legal statement + penutup, lalu menilai 7 item BELUM_SESUAI dengan satu kutipan pengisi yang sama."
 		},
 		"Final Konfirmasi Mega Ultima Shield": {
 			"description": "Konfirmasi customer consent, informasi detail, dan memastikan nasbah paham produk Mega Ultima Shield yang telah disetujui. Only evaluated when the customer is interested in MUS for the Cashline card (mus_interest_status = INTERESTED); otherwise the items in this category are skipped (TIDAK_DINILAI) and do not affect the score. Kategori ini KHUSUS menilai MUS yang menempel pada fasilitas Mega Cashline; MUS untuk kartu kredit non-Cashline TIDAK termasuk (informational only)."
@@ -153,14 +153,15 @@
 			"must_include_term": "effective rate",
 			"note": "Item boleh disebut di fase mana saja; ambil evidence penyebutan paling baru sebelum Final Konfirmasi. Jika tidak ada sebelum Final Konfirmasi, ambil dari Final Konfirmasi. Penyebutan bunga WAJIB menyertakan kata \"effective rate\" (atau ejaan \"efektif rate\"); jika \"effective rate\"/\"efektif rate\" tidak disebutkan, item BELUM_SESUAI."
 		},
-		"scoring_rule": "SESUAI HANYA jika penyebutan bunga MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '1,75% - 2,2% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI (bunga tidak sesuai acuan). Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
+		"scoring_rule": "SESUAI HANYA jika penyebutan bunga MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '0,99% - 3,99% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI (bunga tidak sesuai acuan). Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
 		"details" : {
-			"suku_bunga_cicilan" : "1,75% - 2,2% flat per bulan",
+			"suku_bunga_cicilan" : "0,99% - 3,99% per bulan (dihitung berdasarkan effective rate)",
 			"suku_bunga_revolving" : "0,1%/hari (berlaku untuk pencairan dana via ATM Bank Mega)"
 		},
 		"example_phrases": [
-			"Bunganya 1,75% per bulan dihitung berdasarkan effective rate",
-			"Bunga flat 1,75% sampai 2,2% per bulan berdasarkan efektif rate",
+			"Bunganya 0,99% per bulan dihitung berdasarkan effective rate",
+			"Bunga 0,99% sampai dengan 3,99% per bulan dihitung berdasarkan effective rate",
+			"nol koma sembilan sembilan persen sampai dengan tiga koma sembilan sembilan persen per bulan dihitung berdasarkan effective rate",
 			"Bunga promonya di xx% per bulan dihitung berdasarkan effective rate"
 		]
 	},
@@ -196,7 +197,7 @@
 		},
 		"details" : {
 			"cicilan_bulanan" : "(jumlah pinjaman / tenor) + (jumlah pinjaman x bunga)"
-		}
+		},
 		"example_phrases": [
 			"Jika Bapak/Ibu memilih tenor xx bulan, maka nominal cicilan bulanan sebesar xx Rupiah",
 			"Nominal cicilan yang dibayarkan sebesar xx Rupiah"
@@ -216,7 +217,7 @@
 		"details" : {
 			"limit_pencairan_minimal" : "2 juta Rupiah"
 			"limit_pencairan_maksimal" : "200 juta Rupiah"
-		}
+		},
 		"example_phrases": [
 			"Dana yang dapat kami cairkan yaitu sebesar Rp xxx (sebutkan nominal dana) dari limit yang tersedia",
 			"Bapak/Ibu dapat mencairkan dana tunai dengan limit sebesar Rp xxx",
@@ -240,7 +241,7 @@
 				"pencairan > 20 juta rupiah sampai <= 50 juta rupiah" : "300 ribu Rupiah",
 				"pencairan > 50 juta rupiah" : "500 ribu Rupiah"
 			}
-		}
+		},
 		"example_phrases": [
 			"Biaya Administrasi Mega Cashline sebesar xxx Rupiah (sesuai tiering)",
 			"biaya admin sebesar xxx Rupiah",
@@ -337,14 +338,20 @@
 				"description": "Nomor rekening pencairan Mega Cashline"
 			}
 		],
+		"scoring_rule": "SESUAI bila nomor rekening pencairan DIBERIKAN nasabah di percakapan. KOROBORASI TMS (WAJIB DICOBA SEBELUM MENILAI BELUM_SESUAI): ambil 'nomor_rekening' dari CASHLINE REFERENCE DATA (TMS) lalu cari deretan angka itu di transkrip. Bila ditemukan -- utuh MAUPUN tersambung dari beberapa potongan -- item SESUAI, apa pun kata-kata yang dipakai agent untuk menanyakannya. DIKTE SEPOTONG-SEPOTONG ADALAH HAL BIASA: nasabah sering menyebut nomornya dalam beberapa giliran bicara yang diselingi 'Baik'/'Iya' dari agent; potongan-potongan itu WAJIB disambung dulu (contoh tiket 030828TPgb, TMS 4531155933: 'Empat lima tiga' + 'Sebelas' + 'Empat lima tiga sebelas lima lima' + 'Sembilan tiga tiga' => 4531155933). PERTANYAAN AGENT TIDAK HARUS BAKU: 'aktif di rekening tabungan apa Pak?', 'untuk nama rekeningnya mohon dibantu', 'pencairannya ke rekening mana?' semuanya SAH selama nasabah menjawab dengan nomornya. PERTANYAAN EKSPLORATIF NASABAH TIDAK MEMBATALKAN ITEM: nasabah sering bertanya dulu ('Kalau rekening anak saya bisa ya?', 'boleh pakai nomor rekening suami saya?'); bila agent mengarahkan kembali ke rekening nasabah sendiri dan nasabah kemudian menyebut nomornya, item TETAP SESUAI. DILARANG menilai BELUM_SESUAI karena rekening yang hanya DITANYAKAN tetapi tidak jadi dipakai. ARAHNYA SATU: koroborasi ini hanya boleh MENAIKKAN status; nomor di transkrip yang berbeda dari TMS TETAP SESUAI di scorecard (selisih nilainya urusan cashline_data_verification, bukan scorecard). BELUM_SESUAI hanya bila nomor rekening tidak pernah diberikan sama sekali di seluruh panggilan. Ditetapkan 24 Agustus 2026 dari tiket 030828TPgb yang salah dinilai BELUM_SESUAI.",
 		"agent_example_phrases": [
 			"boleh disebutkan nomor rekeningnya Pak/Bu?",
 			"apakah benar di nomor rekening berikut?",
-			"nomor rekening nya Pak/Bu?"
+			"nomor rekening nya Pak/Bu?",
+			"ini untuk saat ini aktif di rekening tabungan apa Pak/Bu? Bebas selain Bank Mega juga boleh",
+			"untuk nama rekeningnya mohon dibantu Bapak/Ibu",
+			"pencairan dananya dikirimkan ke rekening mana Pak/Bu?"
 		],
 		"customer_example_responses": [
 			"(langsung menyebutkan nomor rekening)",
-			"nomor rekeningnya 123456789000"
+			"nomor rekeningnya 123456789000",
+			"(mendiktekan nomor rekening sepotong-sepotong dalam beberapa giliran bicara: 'Empat lima tiga.' / 'Sebelas.' / 'Lima lima.' / 'Sembilan tiga tiga.')",
+			"(bertanya lebih dulu 'Kalau rekening anak saya bisa ya?' lalu menyebut nomor rekeningnya sendiri setelah diarahkan agent)"
 		],
 		"evidence_rule": {
 			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
@@ -365,7 +372,7 @@
 		},
 		"details" : {
 			"biaya_pelunasan_dipercepat" : "7% dari sisa pokok pinjaman"
-		}
+		},
 		"example_phrases": [
 			"Apabila Bapak/Ibu memiliki rezeki lebih dan ingin melakukan pelunasan di awal sebelum berakhir tenor, bapak/ibu hanya diwajibkan untuk membayarkan sisa pokok pinjaman yang belum dibayarkan ditambah pinalty 7% saja"
 			"pelunasan dipercepat dikenakan pinalti 7$ dari sisa pokok pinjaman"
@@ -390,9 +397,18 @@
 			"jatuh temponya 20 hari kalender setelah tanggal cetak",
 			"pembayaran maksimal 20 hari kalender setelah tanggal cetak",
 			"tagihan tercetak di tanggal 16 atau 25",
-			"tanggal cetak di tanggal 16 atau 25"
+			"tanggal cetak di tanggal 16 atau 25",
+			"yang akan tercetak pada tanggal 16 terdekat ke depan setelah disetujui fasilitas Mega Cashline",
+			"akan tercatat pada tanggal 16 terdekat ke depan setelah menerima notifikasi pengajuan Cashline disetujui",
+			"tagihan cicilan apabila disetujui akan tercetak pada tanggal 16 atau 25 terdekat ke depan",
+			"tercetak tanggal 16 atau 25 terdekat ke depan dari tanggal issue fasilitas Mega Cashline",
+			"yang akan tercetak pada tanggal enam belas atau dua lima ke depan setelah disetujui Mega Cashline",
+			"tercetak tanggal enam belas atau dua lima ke depan dari tanggal issue fasilitas Bapak/Ibu",
+			"tercetak pada tanggal 16 ke depan",
+			"tercetak di tanggal enam belas",
+			"tagihannya tercetak tanggal 16 ya Pak/Bu"
 		],
-		"scoring_rule": "SESUAI jika salah satu terpenuhi: agent menjelaskan tanggal cetak tagihan ATAU tanggal jatuh tempo Mega Cashline. Tidak harus keduanya; cukup salah satu."
+		"scoring_rule": "SESUAI jika salah satu terpenuhi: agent menjelaskan tanggal cetak tagihan ATAU tanggal jatuh tempo Mega Cashline. Tidak harus keduanya; cukup salah satu. TANGGAL 16 WAJIB DISEBUT (aturan 24 Agustus 2026): penyebutan tanggal cetak tagihan SAH hanya bila memuat angka 16 (kata maupun angka: 'enam belas', '16'). 'tanggal 16' SAJA -> SESUAI. 'tanggal 16 atau 25' -> SESUAI. 'tanggal 25' SAJA TANPA 16 -> BELUM_SESUAI, dan reason menyatakan tanggal 16 tidak disebut. Alasannya tanggal 16 adalah tanggal cetak yang dipakai untuk total tagihan terhutang; 25 hanyalah alternatif pelengkap dan tidak pernah bisa menggantikan 16. FRASA 'HARI KALENDER' TIDAK WAJIB, begitu pula kata 'terdekat': bentuk apa pun yang menyatakan tanggal cetaknya sudah cukup -- 'tercetak pada tanggal enam belas atau dua lima KE DEPAN', 'tercetak tanggal 16 ke depan', 'tagihannya tercetak tanggal enam belas'. JANGAN menuntut kata 'hari kalender', 'terdekat', 'jatuh tempo', maupun '20 hari' bila tanggal cetaknya sudah disebut. Ditegaskan dari tiket 200405z4B9 yang salah dinilai BELUM_SESUAI padahal agent dua kali menyebut 'tercetak pada tanggal enam belas atau dua lima ke depan' (32:12 dan pada recap). KONTEKS PREMI TETAP DIHITUNG: agent sering menyebut tanggal cetak itu sambil menerangkan kapan premi Mega Ultima Shield mulai tercatat (mis. 'premi 0,68% dari total tagihan terhutang yang akan tercetak pada tanggal 16 terdekat ke depan setelah disetujui fasilitas Mega Cashline'). Tanggal cetak yang sama berlaku untuk tagihan Mega Cashline, jadi penyebutan seperti itu MEMENUHI item ini -- JANGAN menolaknya dengan alasan 'itu tanggal cetak premi MUS, bukan tagihan Cashline'. WAJIB DIPINDAI SAMPAI HABIS: penyebutan ini paling sering terkubur di TENGAH blok recap yang sangat panjang (bisa 3-4 menit, mis. segmen 22:19-25:53 pada tiket 2008422y6S) bersama belasan nilai lain. Baca blok panjang itu SAMPAI SELESAI sebelum menyimpulkan BELUM_SESUAI; jangan berhenti di kalimat-kalimat awalnya. Aturan ini ditegaskan 24 Agustus 2026 dari tiket 2008422y6S yang salah dinilai BELUM_SESUAI padahal agent menyebut 'tanggal enam belas terdekat ke depan'."
 	},
 	{
 		"kb_code": "KB_CL_17",
@@ -406,7 +422,7 @@
 		},
 		"details" : {
 			"premi" : "0,68% per bulan dari total tagihan terhutang Mega Cashline"
-		}
+		},
 		"example_phrases": [
 			"Preminya relatif kecil, hanya 0.68% per bulan",
 			"preminya hanya 0,68% per bulan"
@@ -422,9 +438,24 @@
 			"fallback": "NONE",
 			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
 		},
+		"scoring_rule": "SESUAI bila agent MENYAMPAIKAN bahwa pernyataan kesehatan DIPERLUKAN sebagai syarat pengajuan Mega Ultima Shield, DAN meminta nasabah menjawabnya. Permintaan jawaban itu terpenuhi oleh SALAH SATU bentuk berikut (cukup satu): (a) pertanyaan kesediaan eksplisit -- 'Apakah Bapak/Ibu bersedia?'; ATAU (b) permintaan menjawab dengan benar sebelum pernyataan dibacakan -- 'Mohon dijawab dengan sebenar-benarnya', 'mohon dijawab sejujurnya'; ATAU (c) pertanyaan konfirmasi setelah pernyataan dibacakan -- 'Apakah pernyataan tersebut benar?', 'Apakah jawaban tersebut benar?', 'Apakah pernyataan tersebut benar, Bu? Mohon dijawab iya benar atau tidak'. JANGAN mensyaratkan kata 'bersedia'. JANGAN mensyaratkan urutan tertentu; bentuk (c) yang muncul SETELAH pernyataan dibacakan TETAP memenuhi item ini. PENTING -- SKRIP AGENT DI LAPANGAN MENYATU: agent hampir selalu mengucapkan pengantar syarat + permintaan menjawab + isi pernyataan + pertanyaan konfirmasi dalam SATU blok ucapan panjang tanpa jeda. Blok tunggal itu memenuhi KB_CL_18, KB_CL_19, DAN KB_CL_20 sekaligus; ketiganya BOLEH memakai blok yang sama sebagai evidence dan TIDAK saling meniadakan. BELUM_SESUAI HANYA bila agent tidak pernah menyampaikan bahwa pernyataan kesehatan diperlukan, ATAU membacakan pernyataan tanpa pernah meminta jawaban/konfirmasi nasabah dalam bentuk apa pun. Jawaban nasabah ('Iya', 'Benar', 'Iya benar', 'Ya bersedia') MENEGUHKAN item ini; DILARANG menilai BELUM_SESUAI dengan alasan 'tidak menanyakan kesediaan secara eksplisit' ketika nasabah nyata-nyata menjawab konfirmasi kesehatannya. Aturan pelonggaran ini ditetapkan 24 Agustus 2026 dari tiket 2008422y6S, 220240GP9z, dan 200904GDcK yang ketiganya salah dinilai BELUM_SESUAI.",
 		"example_phrases": [
 			"Karena kepesertaan dalam program perlindungan tagihan ini tidak memerlukan pemeriksaan kesehatan, kami memerlukan Pernyataan Kesehatan dari Bapak/Ibu sebagai syarat pengajuan Mega Ultimate Shield. 
-			Apakah Bapak/Ibu bersedia? Mohon dijawab YA atau TIDAK"
+			Apakah Bapak/Ibu bersedia? Mohon dijawab YA atau TIDAK",
+			"Karena kepesertaan dalam program perlindungan tagihan ini tidak memerlukan pemeriksaan kesehatan, kami hanya memerlukan pernyataan kesehatan dari Bapak/Ibu sebagai syarat pengajuan Mega Ultima Shield. Mohon dijawab sebenar-benarnya dikarenakan pernyataan ini merupakan pernyataan penting",
+			"Apakah pernyataan tersebut benar? Mohon dijawab iya benar atau tidak",
+			"Apakah pernyataan tersebut benar, Ibu?",
+			"Apakah jawaban tersebut benar?",
+			"Apakah jawaban tersebut benar, Pak?",
+			"Mohon dipastikan pernyataan tersebut benar ya Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Iya",
+			"Benar",
+			"Iya benar",
+			"Benar, Mbak",
+			"Iya boleh, Mbak",
+			"Ya bersedia"
 		]
 	},
 	{
@@ -533,19 +564,32 @@
 			"tanggal lahir WAJIB benar",
 			"TAHUN LAHIR 2000-AN WAJIB 4 DIGIT: bila tahun lahir nasabah >= 2000, nasabah HARUS menyebutkan tahunnya lengkap 4 digit (mis. lahir 6 Juni 2005 -> '06 06 2005'). Menyebut 2 digit saja ('06 06 05') AMBIGU (1905 atau 2005) sehingga verifikasi DITOLAK LANGSUNG -> BELUM_SESUAI, meskipun tanggal dan bulannya benar, dan TIDAK masuk zona dokumen pendukung KTP. Untuk tahun lahir <= 1999, tahun 2 digit tetap diterima (mis. lahir 6 Juni 1955 boleh '06 06 55'). Lihat ATURAN TAHUN LAHIR 20XX WAJIB 4 DIGIT di prompt.",
 			"maksimal 3 kali pengulangan / pergantian pertanyaan statik",
-			"STATIC CONSISTENCY: keluarkan SEMUA penyebutan/jawaban tanggal lahir dari customer (maksimal 3 penyebutan), lalu bandingkan antar-penyebutan. Jika kesamaan (similarity) antar-penyebutan >= 90%, cocokkan SEMUA penyebutan itu ke acuan ascend lalu pakai penyebutan dengan similarity TERTINGGI terhadap ascend (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Jika kesamaan antar-penyebutan < 90% (customer memberi jawaban berbeda-beda), verifikasi DITOLAK -> BELUM_SESUAI, meskipun salah satu penyebutan cocok dengan acuan. Lihat STATIC VERIFICATION CONSISTENCY RULE di prompt."
+			"STATIC MATCHING: keluarkan SEMUA penyebutan/jawaban tanggal lahir dari customer di SELURUH panggilan (jangan dipotong, jangan di-dedup), masing-masing disertai source_file yaitu nama PDF panggilan tempat ucapan itu berada. TIDAK ADA cek konsistensi antar-penyebutan: aturan similarity antar-penyebutan >= 90% DICABUT pada 21 Agustus 2026, dan perbedaan antar-penyebutan TIDAK PERNAH menjadi alasan BELUM_SESUAI. TIDAK ADA syarat tanggal: penyebutan dari panggilan MANA PUN pada tiket ini setara, tidak peduli tanggal panggilannya maupun jaraknya dari tanggal submit TMS (dikonfirmasi Bank Mega 21 Agustus 2026; aturan saringan/prioritas tanggal yang sempat berlaku DICABUT). source_file dicatat untuk PENELUSURAN saja dan tidak memengaruhi penilaian. MENGEJA adalah jawaban yang SAH: ucapan huruf-per-huruf (mis. N-G T-J-U L-I-E-N) dibaca sebagai kata utuh dengan tanda hubung dan tanda baca penutup diabaikan, dan TIDAK BOLEH dinilai lebih rendah karena tanda hubungnya. ACUAN ASCEND TIDAK BOLEH DIUBAH: bandingkan ejaan terhadap nilai ascend APA ADANYA — dilarang membuang/menambah spasi pada acuan, menggabung kata-katanya, atau mengarang penggalan kata dari ejaan. Konsekuensinya diterima: ejaan yang tidak menyampaikan jeda kata bisa bernilai lebih rendah (mis. B-O-N-A-C-I-A-W vs BOEN A KIAW = 64%), dan itu memang hasil yang benar menurut acuan. LABEL FIELD dan SAPAAN tidak ikut dinilai: nasabah yang mengulang pertanyaan agent sebelum menjawab (mis. 'Nama ibu kandung, Wong Aiua') dicatat jawabannya saja ('Wong Aiua'), dan sapaan di depan nama ('Ibu Siumsi') dibuang — nama yang kebetulan berawalan serupa (Butet, Ibunda, Masitoh) tetap utuh. Adu SEMUA penyebutan itu ke acuan ascend lalu pakai yang similarity-nya TERTINGGI (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Ambang: 100 = SESUAI tanpa dokumen; 87,5 s/d kurang dari 100 = SESUAI tetapi perlu dokumen pendukung KTP; di bawah 87,5 = BELUM_SESUAI. Baris zona abu-abu ditulis match MATCH; SISTEM yang kemudian mengubahnya menjadi PENDING (dokumen masih ditunggu, tenggat H+2 berjalan) atau MISMATCH (tenggat lewat tanpa unggah, dan SC_CL_23_1 ikut BELUM_SESUAI). JANGAN menerbitkan PENDING sendiri. Lihat STATIC VERIFICATION MATCHING RULE di prompt."
+		],
+		"agent_example_phrases_tambahan_24agustus2026": [
+			"Untuk tempat lahirnya boleh tolong dibantu (dijawab nasabah dengan tempat DAN tanggal)",
+			"Untuk tempat tanggal lahirnya boleh dibantu Pak/Bu?",
+			"Bandung berapa, Pak? (mengejar bagian tanggal sesudah nasabah menyebut tempatnya)",
+			"tanggal berapa Pak/Bu?",
+			"tahunnya berapa Pak/Bu?"
+		],
+		"customer_example_responses_tambahan_24agustus2026": [
+			"Bandung, 15 Agustus 89",
+			"(menyebut tanggalnya bertahap: 'Lima belas' ... 'Delapan sembilan')"
 		],
 		"agent_example_phrases": [
 			"mohon dibantu tanggal lahirnya?",
-			"boleh disebutkan tanggal lahirnya?
+			"boleh disebutkan tanggal lahirnya?"
 		],
 		"customer_example_responses": [
 			"(langsung menyebut tanggal lahir)"
 		],
+		"scoring_rule": "SESUAI bila tanggal lahir nasabah DIMINTA agent dan DISEBUTKAN nasabah, dalam bentuk apa pun. Aturan pelonggaran 24 Agustus 2026: (1) PERTANYAAN GABUNGAN SAH -- agent yang bertanya 'tempat lahirnya boleh dibantu' / 'tempat tanggal lahirnya' lalu dijawab nasabah dengan tanggalnya ('Bandung, 15 Agustus 89') TETAP memenuhi item ini; agent TIDAK wajib mengucapkan frasa 'tanggal lahir' secara harfiah. (2) TINDAK LANJUT DIHITUNG -- agent yang mengejar bagian angkanya sesudah jawaban sebagian ('Bandung berapa, Pak?', 'tanggal berapa?', 'tahunnya?') sedang memverifikasi tanggal lahir; begitu pula agent yang MEMBACA ULANG angka yang disebut nasabah untuk dikonfirmasi. (3) JAWABAN BERTAHAP SAH -- nasabah yang menyebut tanggalnya terpotong beberapa giliran ('Lima belas' ... 'Delapan sembilan') tetap dihitung; sambung dulu potongannya sebelum menyimpulkan. BELUM_SESUAI HANYA bila tanggal lahir tidak pernah diminta agent, ATAU tidak pernah disebutkan nasabah di panggilan mana pun. DILARANG menilai BELUM_SESUAI dengan alasan 'agent hanya menanyakan tempat lahir' padahal nasabah menyebut tanggalnya dan agent menindaklanjutinya. PERIKSA EVIDENCE SENDIRI SEBELUM MEMVONIS: bila kutipan yang kamu lampirkan MEMUAT tanggal lahir nasabah, item ini TIDAK BOLEH BELUM_SESUAI -- kalimat alasan yang dibantah kutipannya sendiri adalah tanda vonisnya salah. Ini item tolerable NO dan termasuk critical compliance: satu vonis BELUM_SESUAI memotong maximum_score/4 (mis. -37,5) DAN memaksa AI Status FAIL berapa pun skornya, jadi jangan menjatuhkannya karena pilihan kata agent. Ditetapkan dari tiket 0912072CMV yang jatuh FAIL dari skor 135 (tepat di ambang lulus) padahal tanggal lahirnya terverifikasi 100% terhadap Ascend.",
 		"evidence_rule": {
 			"must_include": ["AGENT_QUESTION", "CUSTOMER_ANSWER"],
 			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
-			"window_size": 2
+			"window_size": 6,
+			"window_note": "Jendela SENGAJA lebih lebar daripada item lain (6, bukan 2). Verifikasi tanggal lahir sering berlangsung BERTAHAP: nasabah menjawab sebagian, agent mengejar sisanya, lalu membaca ulang untuk dikonfirmasi. Pada tiket 0912072CMV jendela 2 memotong evidence tepat sebelum agent bertanya 'Bandung berapa, Pak?', sehingga kutipannya menyembunyikan justru bagian tempat agent memverifikasi tanggalnya - dan item ini dinilai BELUM_SESUAI di atas potongan itu. Evidence WAJIB memuat seluruh rangkaian tanya-jawab tanggal lahir sampai nasabah selesai menyebutkannya."
 		}
 	},
 	{
@@ -572,11 +616,11 @@
 		"rules": [
 			"nama ibu kandung WAJIB benar",
 			"maksimal 3 kali pengulangan / pergantian pertanyaan statik",
-			"STATIC CONSISTENCY: keluarkan SEMUA penyebutan/jawaban nama ibu kandung dari customer (maksimal 3 penyebutan), lalu bandingkan antar-penyebutan. Jika kesamaan (similarity) antar-penyebutan >= 90%, cocokkan SEMUA penyebutan itu ke acuan ascend lalu pakai penyebutan dengan similarity TERTINGGI terhadap ascend (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Jika kesamaan antar-penyebutan < 90% (customer memberi jawaban berbeda-beda), verifikasi DITOLAK -> BELUM_SESUAI, meskipun salah satu penyebutan cocok dengan acuan. Lihat STATIC VERIFICATION CONSISTENCY RULE di prompt."
+			"STATIC MATCHING: keluarkan SEMUA penyebutan/jawaban nama ibu kandung dari customer di SELURUH panggilan (jangan dipotong, jangan di-dedup), masing-masing disertai source_file yaitu nama PDF panggilan tempat ucapan itu berada. TIDAK ADA cek konsistensi antar-penyebutan: aturan similarity antar-penyebutan >= 90% DICABUT pada 21 Agustus 2026, dan perbedaan antar-penyebutan TIDAK PERNAH menjadi alasan BELUM_SESUAI. TIDAK ADA syarat tanggal: penyebutan dari panggilan MANA PUN pada tiket ini setara, tidak peduli tanggal panggilannya maupun jaraknya dari tanggal submit TMS (dikonfirmasi Bank Mega 21 Agustus 2026; aturan saringan/prioritas tanggal yang sempat berlaku DICABUT). source_file dicatat untuk PENELUSURAN saja dan tidak memengaruhi penilaian. MENGEJA adalah jawaban yang SAH: ucapan huruf-per-huruf (mis. N-G T-J-U L-I-E-N) dibaca sebagai kata utuh dengan tanda hubung dan tanda baca penutup diabaikan, dan TIDAK BOLEH dinilai lebih rendah karena tanda hubungnya. ACUAN ASCEND TIDAK BOLEH DIUBAH: bandingkan ejaan terhadap nilai ascend APA ADANYA — dilarang membuang/menambah spasi pada acuan, menggabung kata-katanya, atau mengarang penggalan kata dari ejaan. Konsekuensinya diterima: ejaan yang tidak menyampaikan jeda kata bisa bernilai lebih rendah (mis. B-O-N-A-C-I-A-W vs BOEN A KIAW = 64%), dan itu memang hasil yang benar menurut acuan. LABEL FIELD dan SAPAAN tidak ikut dinilai: nasabah yang mengulang pertanyaan agent sebelum menjawab (mis. 'Nama ibu kandung, Wong Aiua') dicatat jawabannya saja ('Wong Aiua'), dan sapaan di depan nama ('Ibu Siumsi') dibuang — nama yang kebetulan berawalan serupa (Butet, Ibunda, Masitoh) tetap utuh. Adu SEMUA penyebutan itu ke acuan ascend lalu pakai yang similarity-nya TERTINGGI (bila seri, ambil yang PALING BARU) sebagai nilai yang dinilai. Ambang: 80 ke atas = SESUAI tanpa dokumen; 50 s/d kurang dari 80 = SESUAI tetapi perlu dokumen pendukung KK; di bawah 50 = BELUM_SESUAI. Baris zona abu-abu ditulis match MATCH; SISTEM yang kemudian mengubahnya menjadi PENDING (dokumen masih ditunggu, tenggat H+2 berjalan) atau MISMATCH (tenggat lewat tanpa unggah, dan SC_CL_23_2 ikut BELUM_SESUAI). JANGAN menerbitkan PENDING sendiri. PENYELARASAN SINGKATAN ASCEND (berlaku 24 Agustus 2026) -- nama di ascend sering lebih PENDEK daripada ucapan nasabah karena kolomnya terpotong atau nama depannya disingkat. SEBELUM similarity dihitung, token transkrip DIPENDEKKAN mengikuti bentuk singkatan ascend, dengan syarat token ascend paling banyak 3 huruf DAN merupakan AWALAN token transkrip pasangannya (Tirtosimono -> T, Theresia -> TH). ACUAN ASCEND TIDAK PERNAH DISENTUH; yang diselaraskan hanya sisi ucapan nasabah. HANYA BOLEH MENAIKKAN nilai -- bila penyelarasan malah menurunkan similarity, pakai nilai tanpa penyelarasan (token pendek kadang kebetulan menjadi awalan, mis. NI pada NI KETUT KERTI). BUKAN awalan tidak diselaraskan: RITA vs Sarita tetap apa adanya karena RITA adalah akhiran. Sesudahnya tabel ambang berlaku apa adanya, tanpa pembebasan dokumen tersendiri. Contoh: TRI WAHJOENINGSIH T vs Tri Wahyuningsih Tirtosimono -> 84% tanpa KK (010550Vosa); TH RUSMINAH vs Theresia Rusminah -> 100% tanpa KK (201032Mfgk); SITI HERTA ANGGIA vs Siti Herta -> 59% TETAP perlu KK. Lihat STATIC VERIFICATION MATCHING RULE dan PENYELARASAN SINGKATAN ASCEND di prompt."
 		],
 		"agent_example_phrases": [
 			"mohon dibantu Nama Ibu Kandung?",
-			"boleh dibantu nama ibu kandungnya Pak/Bu?
+			"boleh dibantu nama ibu kandungnya Pak/Bu?"
 		],
 		"customer_example_responses": [
 			"(langsung menyebut nama ibu kandung)"
@@ -759,7 +803,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [
@@ -775,7 +819,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [
@@ -791,11 +835,11 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"must_include_term": "effective rate",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi DAN penyebutan bunga WAJIB menyertakan kata \"effective rate\" (atau ejaan \"efektif rate\"). Jika \"effective rate\"/\"efektif rate\" tidak disebutkan, item BELUM_SESUAI."
 		},
-		"scoring_rule": "SESUAI HANYA jika penyebutan bunga (di segmen Final Konfirmasi) MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '1,75% - 2,2% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI. Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
+		"scoring_rule": "SESUAI HANYA jika penyebutan bunga (di segmen Final Konfirmasi) MEMUAT KETIGA unsur: (1) ANGKA PERSENTASE — ditandai simbol '%' atau kata 'persen'; (2) SATUAN PERIODE — 'per bulan' (atau 'bulan'/'perbulan'); (3) FRASA 'effective rate' / 'efektif rate'. Jika salah satu dari ketiga unsur ini TIDAK ada -> BELUM_SESUAI, dan reason menyebut unsur yang kurang. RANGE DIBOLEHKAN: bunga boleh dinyatakan sebagai RENTANG (mis. '0,99% - 3,99% per bulan'); rentang dianggap benar SELAMA nilai bunga acuan ascend (CASHLINE REFERENCE DATA field 'bunga', mis. 1,5%) BERADA DI DALAM rentang tersebut (batas inklusif). Jika nilai acuan ascend berada DI LUAR rentang yang disebut -> BELUM_SESUAI. Bila bunga disebut sebagai NILAI TUNGGAL, cocokkan dengan acuan memakai FUZZY MATCHING biasa.",
 		"example_phrases": [
 			"Bunga promonya di xx% per bulan dihitung berdasarkan effective rate",
 			"Dengan bunga xx% per bulan dihitung berdasarkan efektif rate",
@@ -810,7 +854,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"scoring_rule": "SESUAI HANYA jika penyebutan provisi (di segmen Final Konfirmasi) MEMUAT KEDUA unsur: (1) BESARAN — angka persentase (simbol '%' atau kata 'persen') dari LIMIT KREDIT / total limit yang disetujui (mis. '2% dari limit kredit'); DAN (2) WAKTU MULAI BERLAKU — dinyatakan dikenakan/berlaku MULAI TAHUN KE-2 (terima variasi ejaan/ASR: 'mulai tahun ke-2', 'mulai tahun kedua', 'mulai tahun ke 2', 'tahun ke-2', 'tahun kedua'). Jika unsur 'mulai tahun ke-2' TIDAK disebut -> BELUM_SESUAI (reason: penyebutan provisi tidak menyatakan mulai tahun ke-2). Bentuk baku: 'xx% dari limit kredit mulai tahun ke-2'.",
@@ -829,7 +873,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [
@@ -846,7 +890,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [
@@ -862,7 +906,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [
@@ -877,7 +921,7 @@
 			"phase_scope": "FINAL_CONFIRMATION",
 			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
 			"fallback": "NONE",
-			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang memilikinya. Pindai SEMUA panggilan.",
+			"multi_call_note": "Bila panggilan lebih dari satu, segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR yang MEMENUHI SYARAT RECAP, yaitu blok yang memuat (i) pembuka pengulangan dan (ii) minimal DUA nilai komersial yang disebut ulang. Panggilan yang lebih baru tetapi hanya berisi legal statement atau informasi pasca-persetujuan (proses 7 hari kerja, hasil lewat SMS, tanggal cetak, menu Akun Saya, website/Mega Call) BUKAN recap dan TIDAK memindahkan segmen ini ke sana. Pindai SEMUA panggilan dan tetapkan letak recap LEBIH DULU sebelum menilai item ini. Bila banyak item kategori ini hendak dinilai BELUM_SESUAI sekaligus, periksa ulang panggilan yang LEBIH AWAL. Lihat conversation_phases.Final Konfirmasi Mega Cashline.",
 			"note": "Evidence wajib diambil dari segmen Final Konfirmasi."
 		},
 		"example_phrases": [

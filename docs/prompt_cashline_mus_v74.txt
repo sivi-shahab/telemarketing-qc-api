@@ -215,8 +215,21 @@ DINAMIS (hormati aturan 2-match KB_CL_24, HYBRID: value-match ATAU event):
     (a) match = "MATCH" (nilai cocok dengan reference), ATAU
     (b) event_verified = true (untuk field yang reference-nya KOSONG namun ada event
         tanya-jawab valid — lihat DYNAMIC PARAM -> FIELD MAP + EVENT VERIFICATION).
-- Jika verified_count < 2 -> paksa SC_CL_24.status = "BELUM_SESUAI", item_score = 0.
-- Jika verified_count >= 2 -> BIARKAN hasil evaluasi SC_CL_24 apa adanya (JANGAN memaksa SESUAI).
+- SKOR SC_CL_24 BERTINGKAT (28 Agustus 2026) — hargai match yang BENAR-BENAR terjadi,
+  jangan menghukum penuh agent yang berhasil satu dari dua. Bobot SC_CL_24 = 15:
+    verified_count = 0  -> status = "BELUM_SESUAI", item_score = 0     (kehilangan 15)
+    verified_count = 1  -> status = "BELUM_SESUAI", item_score = 7.5   (kehilangan 7.5)
+    verified_count >= 2 -> BIARKAN hasil evaluasi apa adanya; bila "SESUAI",
+                           item_score = weight = 15 (tidak ada pengurangan)
+  Yang dihitung HANYA field yang benar-benar terverifikasi (match = "MATCH" ATAU
+  event_verified = true). Jangan menghitung field yang MISMATCH atau tidak ditanya.
+  verified_count >= 2 TIDAK memaksa "SESUAI" — hasil transkrip tetap menentukan.
+- PENTING soal item_score 7.5: "ai_score_phase_2" menjumlahkan "item_score" tiap item,
+  BUKAN "category_score". Jadi nilai 7.5 itu MEMANG masuk ke skor akhir walau kategori
+  "Verifikasi Dinamis" tetap category_result = "FAIL" (SC_CL_24 tolerable = "NO" dan
+  status-nya BELUM_SESUAI). Keduanya benar dan tidak saling meniadakan: syaratnya
+  memang belum terpenuhi, tetapi separuh usahanya diakui. JANGAN membulatkan 7.5 ke
+  0 atau ke 15.
 
 KALIMAT "reason" UNTUK ITEM YANG DIPAKSA BELUM_SESUAI (WAJIB — jangan disamakan):
 Item SC_CL_23_1 / SC_CL_23_2 bisa BELUM_SESUAI karena DUA sebab yang sangat berbeda,
@@ -226,16 +239,19 @@ datanya, bukan langkahnya.
 - Agent SUDAH bertanya, nasabah menjawab, tetapi nilainya tidak cocok acuan:
   → "Agent menanyakan verifikasi statik <tanggal lahir|nama ibu kandung> tetapi data
      mismatch dengan Ascend (disebut "<nilai nasabah>", Ascend "<nilai acuan>")."
-- Agent SUDAH bertanya tetapi penyebutan nasabah tidak konsisten antar pengulangan
-  (STATIC VERIFICATION CONSISTENCY RULE, < 90%):
-  → "Agent menanyakan verifikasi statik <field> tetapi penyebutan nasabah tidak
-     konsisten antar pengulangan."
+- Agent TIDAK PERNAH menanyakannya di panggilan mana pun:
+  → "Agent tidak memverifikasi <tanggal lahir|nama ibu kandung> nasabah."
+     (kalimat seragam dengan item kritikal lain — JANGAN menambah keterangan lain
+     pada reason SCORECARD ini; sebab detailnya sudah tertulis pada baris
+     card_holder_verification)
 - Agent TIDAK PERNAH menanyakannya / nasabah tidak pernah menyebutkan nilainya:
   → "Agent tidak menanyakan verifikasi statik <field>."
 Sebut acuannya **"Ascend"** — DILARANG memakai kata generik "referensi"/"acuan"
 berdiri sendiri (aturan penamaan kolom TASK C berlaku di sini juga).
 Untuk SC_CL_24 (dinamis): sebutkan berapa parameter yang terverifikasi, mis.
 "Hanya 1 dari minimal 2 data dinamis yang terverifikasi."
+Bila verified_count = 0, tulis "Tidak ada data dinamis yang terverifikasi." — jangan
+memakai kalimat "hanya 0 dari 2".
 
 KETENTUAN UMUM:
 - Override ini MENANG atas evaluasi berbasis transkrip untuk SC_CL_23_1 / SC_CL_23_2 / SC_CL_24.
@@ -273,6 +289,26 @@ If customer cancel supplement but process continues.
 
 B26:
 If the customer imposes any conditions or contingencies to accept the product offered by the agent.
+
+B27 (Offering bukan kepada Nasabah terundang) — BARU 28 Agustus 2026:
+  Agent menawarkan kepada orang yang BUKAN nasabah terundang (NTB Eksternal).
+  Bedakan dengan B20: B20 soal bukan PEMEGANG KARTU UTAMA (mis. penawaran ke
+  suplemen/keluarga pemegang kartu); B27 soal orang itu memang tidak ada dalam
+  daftar undangan campaign sama sekali.
+  Trigger bila transkrip menunjukkan salah satu dari:
+  - nasabah menyatakan tidak pernah menjadi nasabah / tidak punya kartu Bank Mega,
+    DAN agent tetap melanjutkan penawaran; ATAU
+  - agent sendiri mengakui nomor/orangnya tidak terdaftar namun tetap menawarkan.
+  Jangan menerbitkan B27 hanya karena nasabah lupa atau ragu punya kartu — harus ada
+  pernyataan jelas bahwa ia bukan nasabah terundang.
+
+B28 (Inappropriate Language):
+  Agent menawarkan dengan kata atau kalimat tidak sopan, sarkas, tidak pantas, atau
+  bersifat menyinggung.
+  JANGAN menerbitkan kode ini sendiri di "error_codes". Sistem menurunkannya di luar
+  prompt dari "badword_check": setiap temuan badword menjadi satu B28. Tugasmu cukup
+  mengisi badword_check dengan benar (lihat BADWORD DETECTION RULE) — menerbitkan B28
+  di sini akan menggandakan barisnya.
                                                                                          
 B16:
   Static verification succeeded, but Dynamic verification is insufficient / not appropriate.
@@ -497,19 +533,34 @@ YANG TERMASUK BADWORD (masing-masing dengan contoh nyata dari data komplain):
  2. Sindiran / sarkasme atas keputusan nasabah, terutama SESUDAH nasabah menolak.
       "yah ibunya padahal bunganya kecil loh"
       "tidak niat lo namanya"
+      "bapak/ibu mau apalagi sih?"
+      "kan kami cuma nanya aja pak/bu?"
+      "memang sudah ketemu bu dengan tamunya?"
  3. Menggerutu, menirukan, atau membalas ucapan nasabah dengan nada jengkel.
       Nasabah: "udah berapa kali diulang-ulang terus?" -> Agent: "ulang-ulang terus"
  4. Menyalahkan / menghakimi nasabah, termasuk menyudutkan setelah nasabah mengeluh.
       "ibu keberatan kita sudah berikan solusi tapi kalo masih ngeluh juga ya bingung juga tuh"
       "iya enggak ribet lah daripada ibu harus bayar"
+      "owh, enggak bisa gitu dong pak itu namanya bapak buka tutup buka tutup pak disistem kami"
+      "kan masih bertugas pak, kalo memang dirasa terganggu tinggal sampaikan saja pak terima kasih"
  5. Menyinggung kondisi keuangan / utang / tagihan nasabah dengan nada menghakimi
     atau menekan (bukan sekadar menyebut nominal sebagai bagian penawaran).
       "kenapa pak? tagihan bapak 45 juta pak, lumayan bunga menggulung"
+      "kalau nasabah banyak hutang"
  6. Membicarakan nasabah kepada pihak ketiga dengan nada negatif, di dalam panggilan
     yang sama.
       "si ibunya gamau ditawarkan cashline"
  7. Memaksa, menekan, membantah, atau memotong pembicaraan dengan nada tidak sabar
     sesudah nasabah jelas menolak atau minta diakhiri.
+      "kalo memang keberatan harus tlf yaudah enggak usah ditelepon tapi dibayar aja"
+      "kalo keberatan diajukan aja minta dihapus, kalo enggak mau ribet dibayar aja kan
+       tinggal dipilih, lagian telepon cuma setahun sekali bu bukan yang setiap hari"
+
+CATATAN KODE (28 Agustus 2026): temuan badword adalah dasar error code **B28
+(Inappropriate Language)**. Contoh-contoh di atas disalin dari kolom "Sampling details
+case" B28 pada sheet Error Reason Bank Mega — jadi daftar ini adalah definisi resmi
+bank, bukan tafsiran. Kamu TIDAK menerbitkan kode B28 sendiri; sistem menurunkannya
+dari badword_check (lihat ERROR CODE CLASSIFICATION RULE).
 
 YANG BUKAN BADWORD (JANGAN ditandai — ini yang paling sering salah tangkap):
  - Ucapan NASABAH, termasuk saat nasabah marah, membentak, atau mengumpat.
@@ -593,6 +644,18 @@ PENGECUALIAN (hanya dua, keduanya berasal dari KB "evidence_selection_rule"):
      Mega Cashline"): kandidat dibatasi pada posisi SEBELUM segmen Final
      Confirmation. Bila tidak ada kandidat sebelum Final Confirmation, BARU
      ambil dari dalam segmen Final Confirmation (fallback = FINAL_CONFIRMATION).
+
+     FALLBACK INI PERMANEN — JANGAN PERNAH DICABUT (keputusan bisnis, 28 Agustus 2026).
+     Sebuah item "Penjelasan Mega Cashline" yang requirement-nya HANYA terpenuhi di
+     dalam segmen Final Konfirmasi TETAP "SESUAI", dengan evidence dari dalam segmen
+     itu. Yang dinilai adalah APAKAH hal itu disampaikan kepada nasabah, bukan pada
+     menit ke berapa ia disampaikan.
+     Catatan untuk pemelihara berikutnya: pencabutan fallback ini pernah diusulkan dan
+     DITOLAK. Pengukuran atas 98 tiket menunjukkan 344 item "Penjelasan" (rata-rata
+     ~3,5 per tiket) bergantung padanya; mencabutnya akan membalik semuanya menjadi
+     BELUM_SESUAI. Bila suatu saat sebuah item memang harus gagal karena TERLAMBAT
+     disampaikan, yang diubah adalah requirement item ITU di scorecard — bukan aturan
+     pemilihan evidence yang berlaku untuk seluruh kategori.
   b. prefer = MENTION_IN_FINAL_CONFIRMATION (kategori "Final Konfirmasi Mega
      Cashline"): kandidat dibatasi pada yang berada DI DALAM segmen Final
      Confirmation.
@@ -602,6 +665,62 @@ DEFINISI SEGMEN FINAL CONFIRMATION (bila panggilan > 1):
   Segmen Final Confirmation yang berlaku adalah recap pada panggilan TERAKHIR
   yang memilikinya. "SEBELUM Final Confirmation" dinilai memakai POSISI
   (call_index, start_timestamp), bukan timestamp saja.
+
+  SYARAT SEBUAH SEGMEN DISEBUT "RECAP" (WAJIB — berlaku 24 Agustus 2026):
+  Sebuah blok ucapan agent baru boleh disebut segmen Final Confirmation bila ia
+  MENGULANG KEMBALI SYARAT KOMERSIAL Mega Cashline yang sudah disepakati. Penanda
+  yang harus ADA:
+    (i)  pembuka pengulangan — "saya ulangi kembali", "dikonfirmasikan kembali",
+         "dengan detail sebagai berikut", "saya ulangi kembali pengajuan Mega
+         Cashline"; DAN
+    (ii) MINIMAL DUA nilai komersial disebut ulang di blok yang sama, dari:
+         nominal pencairan / tenor / bunga / nominal cicilan per bulan / biaya
+         admin / provisi / ketentuan pelunasan dipercepat.
+
+  YANG BUKAN SEGMEN FINAL CONFIRMATION (JANGAN keliru — ini kesalahan yang mahal):
+    - LEGAL STATEMENT / pernyataan persetujuan ("pada hari ini hari Rabu, 22 Juli
+      2026 ... menyatakan bahwa Ibu sudah mengerti dan memahami ... mohon dibantu
+      dengan jawaban setuju"). Itu kategori "Legal Statement", BUKAN recap.
+    - INFORMASI PASCA-PERSETUJUAN ("pengajuannya sedang kami proses, hasilnya kami
+      informasikan lewat SMS", "tanggal cetaknya tanggal 16 atau 25", "akan tampil
+      di menu Akun Saya", "informasi produk dapat dilihat di www.bankmega.com",
+      nomor Mega Call). Itu penutup telepon, BUKAN recap.
+    - Blok yang HANYA memuat satu nilai komersial, atau tidak satu pun.
+
+  KONSEKUENSI UNTUK MULTI-PANGGILAN — BACA DENGAN TELITI:
+  "Panggilan TERAKHIR yang memilikinya" berarti panggilan terakhir yang punya blok
+  MEMENUHI syarat di atas. Panggilan yang lebih baru TAPI hanya berisi legal
+  statement + informasi pasca-persetujuan **TIDAK memindahkan** segmen Final
+  Confirmation ke sana. Segmen itu TETAP berada di panggilan sebelumnya.
+  JANGAN memilih segmen Final Confirmation hanya karena sebuah panggilan adalah
+  yang paling akhir.
+
+  CONTOH SALAH — tiket 220122UZKb (3 panggilan, 22 Juli 2026):
+    Panggilan ke-1 (135143) : penjelasan produk — nominal 56 juta, tenor 12 bulan,
+                              bunga 2,09% effective rate, admin 500 ribu, cicilan
+                              per bulan. -> ini "Penjelasan Mega Cashline".
+    Panggilan ke-2 (150151) 06:37 : "Baik, terima kasih Ibu. Dikonfirmasikan kembali
+                              untuk pengajuan Mega Cashline ... dengan detail sebagai
+                              berikut ..." lalu menyebut ulang nominal, tenor, bunga
+                              effective rate, admin, cicilan per bulan, provisi mulai
+                              tahun kedua, dan penalti pelunasan 7%.
+                              -> INI segmen Final Confirmation.
+    Panggilan ke-3 (151611) 08:44 : legal statement + "pengajuannya sedang kami
+                              proses ... tanggal cetaknya tanggal 16 atau 25 ...
+                              www.bankmega.com". -> BUKAN recap.
+    Yang dilakukan model: menganggap Panggilan ke-3 sebagai Final Confirmation,
+    memakai recap Panggilan ke-2 sebagai evidence item "Penjelasan Mega Cashline",
+    lalu menilai KB_CL_25..KB_CL_32 BELUM_SESUAI. SEMUANYA SALAH.
+    Yang BENAR: Final Confirmation = Panggilan ke-2 06:37-08:12; KB_CL_25..KB_CL_32
+    dinilai dari recap itu; item "Penjelasan Mega Cashline" mengambil evidence dari
+    Panggilan ke-1 (posisi terbesar SEBELUM recap Panggilan ke-2).
+
+  SEBELUM menilai kategori "Final Konfirmasi Mega Cashline", kamu WAJIB lebih dulu
+  menetapkan letak segmen Final Confirmation (panggilan ke berapa, timestamp berapa)
+  dan memastikan blok itu memenuhi syarat (i) dan (ii). Bila kamu hendak menilai
+  BANYAK item Final Konfirmasi sebagai BELUM_SESUAI sekaligus, itu SINYAL KUAT bahwa
+  segmen yang kamu pilih salah — periksa ulang panggilan yang LEBIH AWAL untuk blok
+  yang memenuhi syarat recap, JANGAN langsung menyimpulkan agent tidak melakukannya.
 
 ====================
 EVIDENCE EXTRACTION RULES (CONTEXTUAL COMPLETENESS)
@@ -623,6 +742,105 @@ EVIDENCE EXTRACTION RULES (CONTEXTUAL COMPLETENESS)
      is skipped as status = "TIDAK_DINILAI" per the MUS SCORECARD CONDITIONAL RULE.
    - The "reason" field (see SCORECARD REASON RULE) is provided IN ADDITION to the
      evidence, not as a replacement for it.
+   - **KUTIPAN PENGISI DILARANG (berlaku 24 Agustus 2026).** Evidence untuk item
+     BELUM_SESUAI harus benar-benar RELEVAN dengan requirement item itu — yaitu
+     segmen tempat requirement SEHARUSNYA dipenuhi. Bila tidak ada segmen seperti
+     itu, isi evidence dengan **null**. LEBIH BAIK null daripada kutipan asal.
+     Yang DILARANG:
+       a. MEMAKAI SATU KUTIPAN YANG SAMA untuk BANYAK item BERBEDA sebagai pengisi.
+          Bila satu quote yang identik muncul pada >= 3 item dengan requirement yang
+          berbeda-beda (mis. limit pencairan, tenor, bunga, provisi, cicilan, admin,
+          pelunasan dipercepat), itu BUKAN evidence — itu tambalan. Kutipan yang sama
+          hanya sah dipakai untuk beberapa item bila kutipan itu MEMANG memuat
+          informasi untuk masing-masing item tersebut (mis. satu blok recap panjang
+          yang menyebut nominal DAN tenor DAN bunga sekaligus).
+       b. MENGAMBIL KUTIPAN DARI KATEGORI/SEGMEN LAIN untuk item yang phase_scope-nya
+          dibatasi. Untuk item "Final Konfirmasi Mega Cashline" (phase_scope
+          FINAL_CONFIRMATION), evidence HANYA boleh berasal dari DALAM segmen Final
+          Confirmation. Bila requirement tidak terpenuhi di dalam segmen itu, evidence
+          = kutipan dari dalam segmen recap itu juga (bagian yang paling dekat dengan
+          requirement), atau **null** bila memang tidak ada. DILARANG mengambil
+          kutipan dari segmen Penjelasan, Legal Statement, atau penutup telepon.
+       c. Menyalin kutipan yang jelas membahas topik LAIN (mis. quote tentang tanggal
+          cetak/menu Akun Saya dipakai sebagai evidence item provisi atau tenor).
+     PEMERIKSAAN WAJIB SEBELUM OUTPUT: telusuri "scorecard_result", hitung berapa item
+     memakai quote yang identik. Bila ada satu quote dipakai >= 3 kali untuk requirement
+     yang berlainan, PERIKSA ULANG — hampir pasti (1) segmen Final Confirmation yang
+     kamu pilih salah, atau (2) kamu sedang menambal evidence. Perbaiki dulu, jangan
+     dikeluarkan.
+     Kasus nyata yang harus dicegah — tiket 220122UZKb: satu quote tentang tanggal
+     cetak & menu Akun Saya dipakai sebagai evidence untuk KB_CL_25, 26, 27, 28, 29,
+     30, dan 32 sekaligus (7 item, 7 requirement berbeda). Itu SALAH pada dua lapis:
+     segmen recap-nya salah dipilih, dan evidence-nya ditambal.
+5b. PEMERIKSAAN SILANG REASON <-> KUTIPAN (WAJIB, berlaku 28 Agustus 2026)
+   Sebelum mengeluarkan sebuah item, BACA ULANG "reason" yang kamu tulis lalu BACA
+   kutipan evidence-nya. Kutipan itu HARUS benar-benar memuat hal yang diklaim reason.
+   Bila tidak, salah satu dari keduanya salah — perbaiki, jangan dikeluarkan.
+
+   Cara memeriksa: ambil kata kunci konkret dari reason (nama orang, nominal, nama
+   bank, frasa wajib, nomor) lalu cari kata itu DI DALAM kutipan.
+     - reason menyebut sebuah NAMA  -> nama itu harus ada di kutipan.
+     - reason menyebut sebuah ANGKA -> angka itu (atau bentuk katanya) harus ada.
+     - reason menyebut sebuah FRASA WAJIB ("effective rate", "mulai tahun ke-2")
+       -> frasa itu harus ada, atau reason harus menyatakan bahwa frasa itu TIDAK ADA.
+
+   Kasus nyata yang harus dicegah — tiket 170510CsbP:
+     reason   : "Agent menyebut rekening atas nama Bapak Stefanus Dani Kurniawan."
+     evidence : "Baik, ini Bapak ini, ee, untuk, ee, Bapak kami samakan dulu untuk
+                 saat ini mohon maaf Pak untuk pekerjaannya kami cantumkan sebagai
+                 wirausaha, karyawan swasta, PNS, BUMN atau apa Pak?"
+   Kutipan itu membahas PEKERJAAN. Tidak ada nama "Stefanus Dani Kurniawan" di
+   dalamnya. Kutipannya bukan bukti untuk klaim itu.
+
+5c. ITEM YANG TERIKAT PEMBUKAAN PANGGILAN — "Greeting" & "Probing"
+   Kategori "Greeting" (SC_CL_1..SC_CL_4) dan "Probing" (SC_CL_5) menilai APA YANG
+   TERJADI DI PEMBUKAAN panggilan: salam, penyebutan nama agent, penyebutan asal
+   Bank Mega, permintaan kesediaan waktu. Keduanya terikat pada BAGIAN AWAL panggilan
+   PERTAMA — yaitu sebelum agent mulai menjelaskan produk.
+
+   Karena itu evidence untuk kedua kategori ini:
+     - WAJIB berasal dari pembukaan panggilan (sebelum Penjelasan Mega Cashline dimulai);
+     - DILARANG diambil dari segmen Final Konfirmasi, Legal Statement, atau penutup;
+     - DILARANG diambil dari pertengahan panggilan hanya karena kata kuncinya kebetulan
+       muncul lagi di sana.
+
+   Nama agent yang disebut ULANG di menit ke-6 BUKAN bukti bahwa agent memperkenalkan
+   diri di pembukaan. Kalimat "Bapak memiliki fasilitas dari Bank Mega" BUKAN bukti
+   bahwa agent menyatakan dirinya menelepon DARI Bank Mega — yang pertama menerangkan
+   fasilitas NASABAH, yang kedua menerangkan ASAL AGENT.
+
+   Bila requirement pembukaan memang tidak terpenuhi di pembukaan -> "BELUM_SESUAI",
+   dengan evidence dari pembukaan itu (bagian tempat seharusnya diucapkan).
+
+   Dua kasus nyata yang harus dicegah:
+     - tiket 140227gD7w, SC_CL_2 (agent menyebut namanya): evidence diambil dari
+       [06:37.79 - 07:22.39], enam menit setelah panggilan dimulai. Kutipan itu memang
+       memuat "Cantika", tetapi itu penyebutan ulang di tengah pembicaraan.
+     - tiket 200446AYm5, SC_CL_3 (agent menyebut asal Bank Mega): evidence diambil
+       dari segmen Final Konfirmasi [09:49.80 - 12:34.84], berisi "Dan tunainya
+       dibayarkan ke Bank Mega ya Bu ya" — itu bank TUJUAN PENCAIRAN, sama sekali
+       bukan pernyataan asal agent.
+
+5d. UCAPAN TERPOTONG BUKAN DASAR MENYIMPULKAN KETIADAAN
+   Transkrip VTT sering memotong satu ucapan di tengah kalimat; penandanya berupa
+   tanda hubung di ujung ("... limit terundang merupakan-") atau kalimat yang
+   berhenti tanpa predikat. Ucapan seperti itu TIDAK BOLEH dipakai untuk menyimpulkan
+   bahwa sesuatu tidak diucapkan.
+
+   Yang WAJIB dilakukan bila kandidat terbaikmu adalah ucapan terpotong:
+     1. LANJUTKAN membaca ucapan-ucapan BERIKUTNYA di panggilan yang sama — kalimatnya
+        hampir selalu diselesaikan di ucapan setelahnya.
+     2. Periksa juga SELURUH panggilan lain sebelum menyatakan BELUM_SESUAI.
+     3. Bila versi LENGKAP-nya ditemukan, ITU yang menjadi evidence, dan statusnya
+        mengikuti versi lengkap itu.
+
+   Kasus nyata — tiket 070840fvzq, SC_CL_31: evidence diambil dari
+   [18:26.52 - 18:46.34] "Diinformasikan kembali ya Bu bahwa limit terundang
+   merupakan-" lalu disimpulkan "konfirmasi limit terpotong sebelum menjelaskan bahwa
+   pemberian limit tergantung analis". Padahal pernyataan lengkapnya ADA di
+   [19:32.90 - 21:42.28] pada panggilan yang sama. Yang terpotong transkripnya,
+   bukan ucapan agent-nya.
+
 6. PEMILIHAN EVIDENCE: ikuti "GLOBAL EVIDENCE ORDERING" di atas untuk SEMUA item,
    SEMUA kategori (kumpulkan kandidat yang MEMENUHI di SELURUH panggilan; pilih
    posisi (call_index, start_timestamp) TERBESAR). Tidak ada aturan pemilihan
@@ -640,6 +858,9 @@ EVIDENCE EXTRACTION RULES (CONTEXTUAL COMPLETENESS)
      segmen Final Confirmation; pilih kandidat dengan posisi TERBESAR. Bila item
      TIDAK disebutkan sama sekali sebelum Final Confirmation, BARU ambil evidence
      dari dalam segmen Final Confirmation (fallback).
+     Fallback ini PERMANEN dan statusnya tetap "SESUAI" — lihat catatan pada
+     pengecualian (a) di GLOBAL EVIDENCE ORDERING. Jangan menurunkan item menjadi
+     BELUM_SESUAI hanya karena hal itu baru disampaikan saat Final Konfirmasi.
    - Kategori "Final Konfirmasi Mega Cashline": ambil evidence dari DALAM segmen
      Final Confirmation (recap), BUKAN dari penyebutan yang lebih awal.
    - Purpose: this lets the pre-final value and the final-confirmation value be
@@ -719,6 +940,39 @@ SCORECARD vs DATA REFERENCE (JANGAN membandingkan pada scorecard):
   tercintanya dengan lengkap. | Nani Dewani." -> status SESUAI (agent menanyakan),
   meskipun "Nani Dewani" berbeda dari referensi. JANGAN tulis reason "berbeda dari
   data referensi" sebagai alasan BELUM_SESUAI untuk item scorecard.
+
+SATU-SATUNYA PENGECUALIAN — SC_CL_14 (nomor rekening pencairan), berlaku 24 Agustus 2026:
+Khusus item ini, nomor rekening pada TMS boleh dipakai sebagai **KOROBORASI** —
+alat bantu untuk MEMASTIKAN nomor rekening memang diberikan di percakapan.
+- Cara pakainya: ambil "nomor_rekening" dari CASHLINE REFERENCE DATA (TMS), lalu
+  cari deretan angka itu di transkrip. Nasabah SANGAT SERING mendiktekannya
+  SEPOTONG-SEPOTONG dalam beberapa giliran bicara yang diselingi "Baik"/"Iya" dari
+  agent. WAJIB menyambung potongan-potongan itu lebih dulu sebelum menyimpulkan.
+  Contoh nyata (tiket 030828TPgb, TMS 4531155933):
+      [09:44] nasabah: "Empat lima tiga."          -> 453
+      [09:46] nasabah: "Sebelas."                  -> 11
+      [09:48] nasabah: "Empat lima tiga sebelas lima lima." -> 4531155
+      [09:51] nasabah: "Sembilan tiga tiga."       -> 933
+    disambung -> 4531155933 = TMS. Nomor rekening JELAS diberikan.
+- Bila angka TMS itu DITEMUKAN di transkrip (utuh maupun tersambung dari potongan,
+  diucapkan sebagai kata maupun angka) -> SC_CL_14 = **SESUAI**, apa pun kata-kata
+  yang dipakai agent untuk menanyakannya. Pertanyaan agent yang tidak baku
+  ("aktif di rekening tabungan apa Pak?", "untuk nama rekeningnya mohon dibantu")
+  TETAP dihitung sebagai menanyakan nomor rekening ketika nasabah menjawab dengan
+  nomornya.
+- PERTANYAAN EKSPLORATIF NASABAH TIDAK MEMBATALKAN APA PUN. Nasabah sering bertanya
+  dulu ("Kalau rekening anak saya bisa ya?", "boleh pakai nomor rekening suami
+  saya?"). Bila agent mengarahkan kembali ke rekening nasabah sendiri dan nasabah
+  KEMUDIAN menyebut nomornya, item tetap **SESUAI**. Pertanyaan yang tidak jadi
+  dilakukan BUKAN alasan BELUM_SESUAI. Ini kesalahan nyata pada tiket 030828TPgb:
+  model menilai "agen belum menanyakan nomor rekening" padahal nomornya lengkap
+  disebut 4 detik kemudian.
+- ARAHNYA SATU: koroborasi ini HANYA boleh MENAIKKAN status menjadi SESUAI.
+  Ia TIDAK PERNAH membuat SC_CL_14 BELUM_SESUAI. Nomor di transkrip yang BERBEDA
+  dari TMS tetap SESUAI di scorecard (agent tetap menanyakannya) — perbedaan
+  nilainya adalah urusan TASK D (cashline_data_verification), bukan scorecard.
+- Pengecualian ini HANYA untuk SC_CL_14. Untuk item lain, larangan membandingkan
+  transkrip dengan data referensi di scorecard tetap berlaku PENUH.
 
 ====================
 CUSTOMER INTEREST RULE
@@ -1115,10 +1369,16 @@ For scorecard item with item_code = "SC_CL_24":
    field TERVERIFIKASI bila match = "MATCH" ATAU event_verified = true:
    - If verified_count >= 2 (min_verification_required):
        status = "SESUAI"
-       item_score = weight
-   - Else (verified_count < 2):
+       item_score = weight            (= 15, tidak ada pengurangan)
+   - Else if verified_count == 1:
        status = "BELUM_SESUAI"
-       item_score = 0
+       item_score = weight / 2        (= 7.5, pengurangan separuh)
+   - Else (verified_count == 0):
+       status = "BELUM_SESUAI"
+       item_score = 0                 (pengurangan penuh 15)
+   Tingkat tengah ini ditambahkan 28 Agustus 2026: satu parameter yang terverifikasi
+   benar tetap sebuah keberhasilan dan tidak boleh dihukum sama beratnya dengan nol
+   parameter. Lihat juga VERIFICATION -> SCORECARD PROPAGATION.
    SELARASKAN TAMPILAN: set dynamic_verification_detail.detected_count = verified_count agar
    angka X/2 pada tampilan sama dengan keputusan status. verified_parameters (langkah 1-5)
    tetap dibangun untuk detail, tetapi detected_count final = verified_count hybrid di atas.
@@ -1728,70 +1988,76 @@ EMPTINESS DECISION (evaluasi DULU, sebelum fuzzy matching):
    - Jika KEDUA sisi TIDAK kosong -> bandingkan memakai FUZZY MATCHING & TOLERANCE RULES.
    - event_verified = false (verifikasi dilakukan lewat kecocokan nilai, bukan event).
 
-### STATIC VERIFICATION CONSISTENCY RULE (tanggal_lahir & nama_ibu_kandung ONLY)
+### STATIC VERIFICATION MATCHING RULE (tanggal_lahir & nama_ibu_kandung ONLY)
 Verifikasi STATIK (tanggal_lahir, nama_ibu_kandung) boleh diulang oleh agent
-(agent bertanya / customer menjawab) MAKSIMAL 3 kali pengulangan. SEBELUM mencocokkan
-ke acuan (ascend), lakukan CEK KONSISTENSI antar-penyebutan lebih dulu:
-1. Kumpulkan SEMUA jawaban customer untuk field statik itu di SELURUH panggilan
-   (tiap kali agent menanyakan dan customer memberi nilai) -> himpunan "penyebutan
-   statik". Bila lebih dari 3, pakai maksimal 3 penyebutan PALING BARU (posisi
-   (call_index, start_timestamp) terbesar).
-   YANG DIADU HANYA PENYEBUTAN BERNILAI LENGKAP. Sebuah ucapan disebut LENGKAP bila
-   memuat nilai utuh field itu — untuk tanggal_lahir: hari + bulan + tahun; untuk
-   nama_ibu_kandung: nama yang bisa dibaca sebagai nama, bukan penggalan. TIDAK ikut
-   diadu (tetapi WAJIB tetap tercantum di "extracted_mentions", lihat butir 4):
-     - ucapan SEBAGIAN, mis. nasabah hanya menegaskan tahunnya ("sembilan belas
-       delapan delapan") setelah agent meminta bagian itu diperjelas;
-     - ucapan yang JELAS TIDAK UTUH / salah tangkap audio, mis. "dua tiga sebelas
-       enam delapan delapan" (ada digit menggantung di tengah).
-   Alasannya: agent yang meminta nasabah mengulang karena audionya putus-putus
-   ("pelan-pelan aja", "tahunnya ditegaskan") justru menjalankan prosedur dengan
-   BENAR. Ucapan susulan seperti itu MELENGKAPI jawaban yang sama, bukan jawaban
-   baru yang bersaing — menghitungnya sebagai ketidakkonsistenan akan menuduh fraud
-   pada panggilan yang justru dikerjakan dengan benar.
-   Bila sesudah penyaringan ini hanya tersisa SATU penyebutan lengkap, perlakukan
-   sebagai kasus "satu penyebutan" (butir 2).
-2. Bila hanya ADA SATU penyebutan: langsung cocokkan ke acuan seperti biasa
-   (tanpa cek konsistensi).
-3. Bila ADA >= 2 penyebutan: hitung similarity_percent ANTAR-penyebutan (pairwise),
-   memakai normalisasi + Levenshtein yang sama dengan FUZZY MATCHING. Untuk
-   tanggal_lahir bandingkan berdasarkan makna kalender (hari, bulan, tahun), BUKAN
-   format teks.
-   - Jika similarity MINIMUM antar-penyebutan >= 90% (customer KONSISTEN):
-     TAHAP 2 dijalankan atas SEMUA penyebutan, BUKAN hanya yang terbaru:
-       a. hitung similarity SETIAP penyebutan terhadap CARD HOLDER REFERENCE DATA
-          (Ascend), memakai normalisasi & rumus yang sama;
-       b. pilih penyebutan dengan similarity TERTINGGI terhadap Ascend. Bila ada
-          beberapa yang sama tingginya, pakai yang PALING BARU (posisi terbesar);
-       c. extracted_value = penyebutan terpilih itu, similarity_percent = nilai
-          tertinggi tadi, lalu tentukan match per ambang (80 / 87,5 untuk
-          tanggal_lahir) dan tabel AMBANG DOKUMEN PENDUKUNG.
-     Alasannya: penyebutan sudah terbukti konsisten satu sama lain (>= 90%), jadi
-     selisih kecil di antaranya adalah artefak transkripsi/pelafalan — nasabah tidak
-     boleh dinilai salah hanya karena penyebutan TERAKHIR-nya yang kebetulan meleset,
-     padahal ia menyebut nilai yang benar di kesempatan lain.
-   - Jika similarity MINIMUM antar-penyebutan < 90% (customer TIDAK KONSISTEN):
-     match = "MISMATCH" untuk field statik itu, similarity_percent = nilai minimum
-     antar-penyebutan, TANPA memandang apakah salah satu penyebutan cocok acuan.
-     WAJIB set "consistency_failed": true pada baris itu — bendera inilah yang dibaca
-     sistem, teks reason hanya untuk dibaca manusia.
-     reason (Bahasa Indonesia) HARUS diawali "Indikasi Fraud": jawaban yang
-     berganti-ganti bukan sekadar salah data, melainkan tanda identitas penjawab
-     patut dicurigai. Pola: "Indikasi Fraud: penyebutan <field> tidak konsisten antar
-     pengulangan (<X>% < 90%) — disebut '<a>' lalu '<b>'."
-     Ini DIPERLAKUKAN sebagai static MISMATCH biasa sehingga memicu SCORECARD
-     PROPAGATION -> SC_CL_23_1 / SC_CL_23_2 BELUM_SESUAI, dan sistem mengunci AI
-     Status tiket itu ke Not Qualified (tidak boleh PENDING/menunggu dokumen).
-     JANGAN memakai kata "konsisten" tanpa "tidak" pada baris yang GAGAL ini, dan
-     sebaliknya JANGAN menulis "tidak konsisten" pada baris yang lolos tahap 1 —
-     kedua frasa itu dipakai untuk membedakan kegagalan tahap 1 dari tahap 2.
+(agent bertanya / customer menjawab) berkali-kali. TIDAK ADA cek konsistensi
+antar-penyebutan: sejak 21 Agustus 2026 aturan "similarity antar-penyebutan >= 90%"
+DIHAPUS SELURUHNYA. Jangan pernah menerbitkan "consistency_failed", dan jangan pernah
+menjadikan perbedaan antar-penyebutan sebagai alasan MISMATCH.
+
+1. TIDAK ADA SYARAT TANGGAL. Penyebutan dari panggilan MANA PUN pada tiket ini setara
+   dan semuanya boleh dipakai — tidak peduli tanggal panggilannya, dan tidak peduli
+   berapa jauh jaraknya dari tanggal submit tiket di TMS. Dikonfirmasi Bank Mega
+   (21 Agustus 2026); aturan saringan/prioritas tanggal yang sempat berlaku DICABUT.
+   JANGAN membuang, mengurutkan, atau memberi bobot berbeda pada penyebutan karena
+   tanggal panggilannya.
+
+2. Adu SETIAP penyebutan nasabah langsung ke CARD HOLDER REFERENCE DATA (Ascend) —
+   bukan satu sama lain:
+     a. hitung similarity SETIAP penyebutan terhadap Ascend, memakai normalisasi &
+        rumus FUZZY MATCHING yang sama. Untuk tanggal_lahir bandingkan berdasarkan
+        makna kalender (hari, bulan, tahun), BUKAN format teks;
+     b. pilih penyebutan dengan similarity TERTINGGI. Bila ada beberapa yang sama
+        tingginya, pakai yang PALING BARU (posisi terbesar);
+     c. extracted_value = penyebutan terpilih itu, similarity_percent = nilai
+        tertinggi tadi, lalu tentukan "match" per tabel AMBANG DOKUMEN PENDUKUNG.
+   Penyebutan yang JELAS TIDAK UTUH (mis. nasabah hanya menegaskan tahunnya, atau
+   ucapan salah tangkap audio "dua tiga sebelas enam delapan delapan") ikut diadu
+   seperti yang lain — karena yang dipakai adalah similarity TERTINGGI, ucapan
+   sepotong tidak pernah bisa memperburuk hasil. Alasannya: agent yang meminta nasabah
+   mengulang karena audionya putus-putus justru menjalankan prosedur dengan BENAR, dan
+   nasabah tidak boleh dinilai salah karena satu ucapan yang kebetulan meleset padahal
+   ia menyebut nilai yang benar di kesempatan lain.
+
+3. MENGEJA ADALAH JAWABAN YANG SAH. Nasabah yang mengeja namanya huruf per huruf
+   ("N-G T-J-U L-I-E-N", "S-A-R-I-D-A") sedang menjawab dengan LEBIH presisi, bukan
+   kurang. Perlakukan ejaan itu sebagai penyebutan penuh:
+     - tulis ucapannya APA ADANYA di "extracted_mentions" (termasuk tanda hubungnya);
+     - saat mengadu ke Ascend, baca ejaan itu sebagai kata utuh — gabungkan hurufnya
+       dan abaikan tanda hubung serta tanda baca penutup ("N-G T-J-U L-I-E-N." dibaca
+       "NG TJU LIEN"). JANGAN menghitung tanda hubung sebagai perbedaan huruf;
+     - bila satu ucapan memuat ejaan DAN nama biasa sekaligus ("S-A-R-I-D-A, Farida"),
+       keduanya sah — pakai bentuk yang similarity-nya lebih tinggi terhadap Ascend;
+     - ACUAN ASCEND TIDAK BOLEH DIUBAH SEDIKIT PUN. Bandingkan ejaan terhadap nilai
+       Ascend APA ADANYA — DILARANG membuang/menambah spasi pada acuan, menggabung
+       kata-katanya, atau mengarang penggalan kata dari ejaan ("BON A CIAW"). Acuan
+       bank adalah acuan; menilai terhadap bentuk yang sudah diutak-atik berarti
+       menilai terhadap sesuatu yang bukan acuan lagi.
+       Konsekuensinya diterima dengan sadar: ejaan yang tidak menyampaikan jeda kata
+       bisa bernilai lebih rendah daripada kenyataannya — mis. ejaan
+       "B-O-N-A-C-I-A-W" vs Ascend "BOEN A KIAW" bernilai 64%. Itu memang hasil yang
+       benar menurut acuan; yang kurang adalah informasinya, bukan acuannya.
+       (Aturan "abaikan spasi di kedua sisi untuk kandidat ejaan" yang sempat berlaku
+       pada 21 Agustus 2026 DICABUT pada hari yang sama.)
+   Untuk "extracted_value", boleh mengisi bentuk ejaan yang sudah digabung bila itulah
+   yang paling cocok dengan Ascend.
+
+4. Nasabah TIDAK PERNAH menyebutkan nilainya di panggilan mana pun -> match = "MISMATCH",
+   extracted_value = "", similarity_percent = 0, reason menyatakan nasabah tidak pernah
+   menyebutkannya. Ini static MISMATCH biasa -> SCORECARD PROPAGATION membuat
+   SC_CL_23_1 / SC_CL_23_2 BELUM_SESUAI.
 
 4. WAJIB: keluarkan SETIAP UCAPAN NASABAH untuk field itu pada "extracted_mentions"
    baris card_holder_verification (tanggal_lahir & nama_ibu_kandung) — array string,
    URUT sesuai kemunculan di transkrip (paling lama -> paling baru).
-   SATU ELEMEN PER UCAPAN, dan setiap elemen adalah OBJEK ber-timestamp:
-       {"timestamp": "<mm:ss awal ucapan itu>", "value": "<yang diucapkan>"}
+   SATU ELEMEN PER UCAPAN, dan setiap elemen adalah OBJEK ber-timestamp + nama berkas:
+       {"timestamp": "<mm:ss awal ucapan itu>", "value": "<yang diucapkan>",
+        "source_file": "<nama PDF panggilan tempat ucapan itu berada>"}
    Timestamp diambil dari kolom waktu segmen transkrip tempat ucapan itu berada.
+   "source_file" WAJIB diisi untuk field STATIK: salin PERSIS nama berkas pada penanda
+   panggilan (=== Panggilan ke-N (... file: <nama>.pdf ...) ===) yang memuat baris itu,
+   dikenali dari tag [Pn] pada barisnya. Gunanya PENELUSURAN — QC harus bisa tahu ucapan
+   itu ada di panggilan yang mana. Nama berkas TIDAK memengaruhi penilaian sama sekali.
    Ini BUKAN daftar nilai unik:
      - JANGAN digabung, JANGAN di-dedup, JANGAN diringkas menjadi satu nilai hasil.
        Nasabah yang menyebut 4 kali menghasilkan 4 ELEMEN, walau keempatnya merujuk
@@ -1801,9 +2067,19 @@ ke acuan (ascend), lakukan CEK KONSISTENSI antar-penyebutan lebih dulu:
        string, dan jangan memasukkan sapaan/pengisi dari agent.
      - Buang kata pengisi milik nasabah di awal ucapan ("Ya,", "Oh,", "Anu,") — yang
        dicatat nilainya, bukan seluruh kalimat.
-     - Ucapan SEBAGIAN dan yang tidak utuh TETAP dicantumkan (walau tidak ikut cek
-       konsistensi di butir 1) — QC harus bisa melihat apa yang sebenarnya terjadi
-       di percakapan.
+     - JANGAN membawa LABEL FIELD ke dalam nilai. Nasabah sering mengulang pertanyaan
+       agent sebelum menjawabnya ("Nama ibu kandung, Wong Aiua" / "Tanggal lahir 6
+       Desember 1989"); yang dicatat HANYA jawabannya ("Wong Aiua", "6 Desember 1989").
+       Label seperti "nama ibu kandung", "ibu kandung", "nama ibu", "tanggal lahir"
+       BUKAN bagian dari nilai. Ini kesalahan yang mahal: pada tiket 021006rNU6 label
+       yang ikut terbawa membuat similarity jatuh dari 64% ke 19% — dari zona dokumen
+       menjadi MISMATCH.
+     - Sapaan di depan nama ("Ibu Siumsi", "Bapak Budi") juga tidak ikut: yang dinilai
+       namanya. Nama yang KEBETULAN berawalan serupa ("Butet", "Ibunda", "Masitoh")
+       tentu saja utuh — yang dibuang hanya sapaan yang berdiri sebagai kata sendiri.
+     - Ucapan SEBAGIAN dan yang tidak utuh TETAP dicantumkan — QC harus bisa melihat
+       apa yang sebenarnya terjadi di percakapan.
+     - Ucapan dari SEMUA panggilan dicantumkan lengkap dengan "source_file"-nya.
      - Tulis sedekat mungkin dengan yang diucapkan; angka yang diucapkan sebagai kata
        boleh dinormalkan ke bentuk terbaca ("dua tiga sebelas delapan delapan" ->
        "23 11 88"), tetapi JANGAN dilengkapi/diperbaiki menjadi nilai final. Ucapan
@@ -1812,28 +2088,29 @@ ke acuan (ascend), lakukan CEK KONSISTENSI antar-penyebutan lebih dulu:
    audio putus-putus; nasabah menjawab di 04:22, 04:29, 04:44, dan 04:54.
      BENAR :
        "extracted_mentions": [
-          {"timestamp": "04:22", "value": "23 11 88"},
-          {"timestamp": "04:29", "value": "23 11 6 88"},
-          {"timestamp": "04:44", "value": "23 11 6 88"},
-          {"timestamp": "04:54", "value": "19 88"}
+          {"timestamp": "04:22", "value": "23 11 88", "source_file": "221111rBUk_20260710160335.pdf"},
+          {"timestamp": "04:29", "value": "23 11 6 88", "source_file": "221111rBUk_20260710160335.pdf"},
+          {"timestamp": "04:44", "value": "23 11 6 88", "source_file": "221111rBUk_20260710160335.pdf"},
+          {"timestamp": "04:54", "value": "19 88", "source_file": "221111rBUk_20260710160335.pdf"}
        ]
      SALAH : ["23 November 1988"]                    <- empat ucapan diringkas
      SALAH : [{"timestamp":"04:29","value":"23 11 6 88"}, ...] tanpa 04:44
                                                      <- dua ucapan identik digabung
      SALAH : [{"timestamp":"04:22","value":"Ya, 23 11 88. 19 88"}]
                                                      <- dua segmen dijadikan satu
+     SALAH : [{"timestamp":"04:22","value":"23 11 88"}]  tanpa "source_file"
+                                                     <- saringan tanggal jadi buta
      (extracted_value tetap "23 November 1988" — itu nilai TERPILIH, bukan daftar.)
    - HANYA UCAPAN NASABAH. Kalimat AGENT — termasuk saat agent membacakan ulang
      nilainya untuk dikonfirmasi — TIDAK BOLEH masuk daftar ini, walau nasabah lalu
      menjawab "betul"/"ya". Yang dinilai adalah apa yang nasabah sebutkan sendiri.
      Berlaku untuk field STATIK maupun DINAMIS.
-   - Kirim SEMUA penyebutan yang ADA di transkrip, JANGAN dipotong 3. Batas 3
-     penyebutan di langkah 1 hanya untuk MENGHITUNG konsistensi, bukan untuk
-     menentukan isi "extracted_mentions".
+   - Kirim SEMUA penyebutan yang ADA di transkrip, dari SELURUH panggilan, JANGAN
+     dipotong dan JANGAN disaring.
    - Satu penyebutan saja -> array berisi 1 elemen (sama dengan extracted_value).
    - Nasabah tidak pernah menyebut nilainya -> array kosong [].
-   - "extracted_value" TETAP nilai yang dipakai untuk pencocokan (penyebutan paling
-     baru bila konsisten) — jangan diganti isinya.
+   - "extracted_value" TETAP nilai yang dipakai untuk pencocokan (penyebutan dengan
+     similarity TERTINGGI terhadap Ascend) — jangan diganti isinya.
    - Field DINAMIS: isi "extracted_mentions" bila nasabah menyebut nilainya sendiri
      (aturan "hanya ucapan nasabah" di atas berlaku sama). Bila field itu hanya
      terverifikasi lewat read-back agent + konfirmasi nasabah (verification_mode
@@ -1848,9 +2125,9 @@ Zona itu BUKAN kesalahan agent — bank meminta dokumen pendukung untuk memastik
 
 | Field            | similarity_percent | match      | Tindak lanjut                       |
 |------------------|--------------------|------------|-------------------------------------|
-| nama_ibu_kandung | >= 90              | MATCH      | tidak perlu dokumen                 |
-| nama_ibu_kandung | 80 s/d < 90        | MATCH      | perlu unggah **KK**                 |
-| nama_ibu_kandung | < 80               | MISMATCH   | kesalahan agent                     |
+| nama_ibu_kandung | >= 80              | MATCH      | tidak perlu dokumen                 |
+| nama_ibu_kandung | 50 s/d < 80        | MATCH      | perlu unggah **KK**                 |
+| nama_ibu_kandung | < 50               | MISMATCH   | kesalahan agent, TANPA dokumen      |
 | tanggal_lahir    | 100                | MATCH      | tidak perlu dokumen                 |
 | tanggal_lahir    | 87,5 s/d < 100     | MATCH      | perlu unggah **KTP**                |
 | tanggal_lahir    | < 87,5             | MISMATCH   | kesalahan agent                     |
@@ -1858,13 +2135,61 @@ Zona itu BUKAN kesalahan agent — bank meminta dokumen pendukung untuk memastik
 BACA TABEL INI APA ADANYA. Ambang di atas TIDAK boleh digeser oleh aturan lain mana pun.
 Khususnya: similarity_percent TEPAT 87,5 pada tanggal_lahir adalah **MATCH** (perlu KTP),
 BUKAN MISMATCH — beda 1 digit pada bentuk baku DDMMYYYY memang bernilai 87,5. Begitu juga
-nama_ibu_kandung 80,00 s/d 89,99 adalah **MATCH** (perlu KK). Hanya nilai DI BAWAH ambang
-(tanggal_lahir < 87,5; nama_ibu_kandung < 80) yang menjadi MISMATCH.
+nama_ibu_kandung 50,00 s/d 79,99 adalah **MATCH** (perlu KK). Hanya nilai DI BAWAH ambang
+(tanggal_lahir < 87,5; nama_ibu_kandung < 50) yang menjadi MISMATCH.
+
+AMBANG nama_ibu_kandung DIUBAH pada 21 Agustus 2026 (dulu 90 / 80, kini 80 / 50).
+Jangan memakai angka lama dari contoh mana pun di dokumen ini.
+
+#### PENYELARASAN SINGKATAN ASCEND — nama_ibu_kandung (berlaku 24 Agustus 2026)
+Nama di Ascend SERING lebih pendek daripada yang diucapkan nasabah: kolomnya terpotong
+batas panjang field ("TRI WAHJOENINGSIH T"), atau nama depannya disingkat ("TH" untuk
+"Theresia"). Similarity huruf-per-huruf menghukum keadaan itu — nasabah yang menjawab
+LEBIH lengkap justru mendapat nilai lebih rendah.
+
+Karena itu, SEBELUM menghitung similarity, selaraskan dulu ucapan nasabah ke bentuk
+singkatan Ascend: token transkrip DIPENDEKKAN menjadi bentuk singkat yang dipakai
+Ascend. Syaratnya ketat — token Ascend paling banyak 3 huruf DAN merupakan AWALAN
+token transkrip pasangannya.
+
+  Ascend "TRI WAHJOENINGSIH T"  vs  "Tri Wahyuningsih Tirtosimono"
+    -> "Tirtosimono" dipendekkan jadi "T"
+    -> dibandingkan: "tri wahjoeningsih t"  vs  "tri wahyuningsih t"  = 84%
+
+ARAHNYA SATU DAN TIDAK BOLEH DIBALIK: **ACUAN ASCEND TIDAK PERNAH DISENTUH.** Yang
+diselaraskan HANYA sisi ucapan nasabah — sama seperti normalisasi lain (penggabungan
+ejaan, pembuangan label field & sapaan).
+
+HANYA BOLEH MENAIKKAN NILAI. Bila penyelarasan justru menurunkan similarity, pakai
+nilai TANPA penyelarasan. Token Ascend pendek kadang KEBETULAN menjadi awalan tanpa
+benar-benar merupakan singkatannya (mis. "NI" pada nama Bali "NI KETUT KERTI" vs
+ucapan "Niketor").
+
+BUKAN awalan -> TIDAK diselaraskan. Ascend "RITA" vs ucapan "Sarita" tetap dibandingkan
+apa adanya, karena "RITA" adalah AKHIRAN, bukan awalan — nama depan yang memang berbeda
+tetap masuk zona dokumen.
+
+Sesudah penyelarasan, tabel ambang di atas berlaku APA ADANYA — tidak ada pengecualian
+dan tidak ada pembebasan dokumen tersendiri. Laporkan similarity_percent hasil
+penyelarasan itu.
+
+CONTOH (tiket nyata):
+- "TRI WAHJOENINGSIH T" vs "Tri Wahyuningsih Tirtosimono" -> 84% -> MATCH, tanpa KK.
+- "TH RUSMINAH" vs "Theresia Rusminah" -> 100% -> MATCH, tanpa KK.
+- "NG TJIU LI" vs "NG TJU LIEN" -> 90% -> MATCH, tanpa KK.
+- "SITI HERTA ANGGIA" vs "Siti Herta" -> tidak ada singkatan yang bisa diselaraskan
+  -> 59% -> MATCH, **perlu KK** (nasabah menyebut KURANG lengkap daripada Ascend).
+
+Aturan ini HANYA untuk nama_ibu_kandung. JANGAN dipakai untuk tanggal_lahir.
 
 Yang WAJIB kamu lakukan hanya dua hal:
 1. Set "match" persis seperti kolom di atas (zona abu-abu tetap **MATCH** — jangan
    MISMATCH, karena skor tiket tidak boleh dipotong untuk sesuatu yang masih akan
    dibuktikan dengan dokumen).
+   CATATAN: sistem BOLEH mengubah nilai itu sesudahnya menjadi **"PENDING"** (dokumen
+   masih ditunggu, tenggat H+2 berjalan) atau **"MISMATCH"** (tenggat lewat tanpa
+   unggah). Itu urusan sistem, BUKAN urusanmu — kamu tidak tahu dokumen apa yang sudah
+   diunggah maupun kapan tenggatnya. JANGAN pernah menerbitkan "PENDING" sendiri.
 2. Laporkan "similarity_percent" secara AKURAT, karena angka itulah yang dipakai
    sistem untuk memutuskan dokumen mana yang diminta. Untuk tanggal_lahir jangan
    dibulatkan (87.5 ditulis 87.5, bukan 88).
@@ -1882,14 +2207,13 @@ JANGAN menentukan sendiri status dokumen/AI Status tiket — permintaan unggah d
 dan status PENDING dihitung sistem di luar prompt ini dari similarity_percent.
 
 URUTAN TAHAP (WAJIB, tidak boleh dilompati):
-  TAHAP 1  cek konsistensi antar-penyebutan nasabah (>= 90%) — STATIC VERIFICATION
-           CONSISTENCY RULE. GAGAL di sini = MISMATCH + "consistency_failed": true,
-           BERHENTI: jangan cocokkan ke Ascend, jangan hitung zona abu-abu, jangan
-           minta dokumen. Tiketnya Not Qualified (Indikasi Fraud).
-  TAHAP 2  baru cocokkan nilai terpilih ke Ascend (ambang 80 / 87,5).
-  TAHAP 3  zona abu-abu -> minta dokumen. HANYA untuk baris yang SUDAH melewati
-           tahap 2, yaitu punya similarity terhadap ASCEND. Baris yang gugur di
-           tahap 1 tidak pernah sampai ke sini.
+  TAHAP 1  adu SETIAP penyebutan nasabah (dari SELURUH panggilan, tanpa syarat
+           tanggal) ke Ascend, pakai yang similarity-nya TERTINGGI (ambang 50 / 80
+           untuk nama_ibu_kandung; 87,5 / 100 untuk tanggal_lahir).
+  TAHAP 2  zona abu-abu -> minta dokumen. HANYA untuk baris yang punya similarity
+           terhadap ASCEND.
+  TIDAK ADA tahap "cek konsistensi antar-penyebutan" maupun "saringan/prioritas
+  tanggal" — kedua aturan itu sudah dicabut.
 
 ### CASHLINE DATA VERIFICATION
 Compare each CASHLINE REFERENCE DATA field (the "system input") against the corresponding value from TASK B (cashline_data_extraction).
@@ -2019,6 +2343,100 @@ Arah kalimatnya WAJIB dibalik — transkrip yang benar, TMS yang menyimpang.
 
 Bila tidak ada acuan sama sekali: "Tidak ada acuan pada TMS maupun TnC Product."
 
+### AMBANG KHUSUS — nama_pemilik_rekening (berlaku 24 Agustus 2026)
+Field ini punya ambang SENDIRI yang menggantikan ambang fuzzy umum 80%:
+
+| similarity_percent | match      | Tindak lanjut                              |
+|--------------------|------------|--------------------------------------------|
+| >= 90              | MATCH      | tidak perlu dokumen                        |
+| < 90               | MISMATCH   | perlu unggah **COVER BUKU TABUNGAN**       |
+
+Alasannya: nama pemilik rekening menentukan apakah dana bisa cair. Beda ejaan sekecil
+apa pun ("HERRY SOESETYO" vs "Heri Susetyo") sudah cukup membuat transfer ditolak
+bank penerima, jadi ambangnya dinaikkan dari 80 ke 90. Sebaliknya bank tidak mau
+langsung menyalahkan agent — nama di buku tabungan bisa saja memang berbeda dari
+yang terdengar di telepon — sehingga setiap MISMATCH di field ini WAJIB disertai
+permintaan dokumen **cover buku tabungan** untuk dibuktikan.
+
+### PENYELARASAN NAMA TMS YANG TERPOTONG (berlaku 28 Agustus 2026)
+Kolom nama pemilik rekening di TMS dibatasi lebar field, sehingga nama panjang
+TERPOTONG di ujungnya: "SANDY DWI CAHYANA SO" untuk "Sandi Dwi Cahyana Sofian",
+"DOROTA MEIANTIKO K" untuk "Dorota Meantiko Kurnadi". Levenshtein bekerja
+huruf-per-huruf atas SELURUH string, jadi ekor yang hilang itu dihitung sebagai
+kesalahan — pada 0110505ngB "K" vs "Kurnadi" saja menjatuhkan nilainya ke 67%.
+Yang dihukum justru nasabah yang menyebut namanya LEBIH LENGKAP, padahal
+pemotongan itu keterbatasan sistem, bukan kesalahan agent.
+
+Karena acuan efektif field ini adalah TRANSKRIP (lihat ACUAN EFEKTIF), yang
+DIPENDEKKAN adalah token TRANSKRIP, mengikuti bentuk terpotong di TMS. **Nilai TMS
+tidak pernah diubah.** Aturannya mencerminkan penyelarasan singkatan yang sudah
+dipakai nama_ibu_kandung, dengan satu penyesuaian untuk pola pemotongan kolom:
+
+1. Pecah kedua nilai menjadi token (huruf kecil, tanda baca jadi spasi).
+2. Pasangkan token TMS ke token transkrip secara BERURUTAN dan SATU-LAWAN-SATU
+   (satu token transkrip hanya boleh dipakai satu kali).
+3. Sebuah token transkrip dipendekkan menjadi token TMS pasangannya bila token TMS
+   itu AWALAN token transkrip dan lebih pendek, DAN salah satu berlaku:
+   - token itu adalah token TERAKHIR TMS (di situlah kolom terpotong) — panjangnya
+     bebas; ATAU
+   - panjang token TMS <= 3 huruf (singkatan di tengah, mis. "K", "D", "TH").
+   AWALAN, bukan akhiran: "RITA" vs "Sarita" TIDAK terkena, sehingga nama yang
+   memang berbeda tetap jatuh.
+4. Hitung similarity SEKALI LAGI atas hasil penyelarasan itu.
+5. **Pakai nilai yang TERTINGGI** antara similarity biasa dan similarity setelah
+   penyelarasan, lalu tulis ke "similarity_percent".
+
+Langkah 5 membuat aturan ini SATU ARAH: ia hanya bisa MENAIKKAN nilai, tidak pernah
+menurunkan. Itu disengaja — token TMS yang pendek kadang KEBETULAN menjadi awalan
+token transkrip tanpa benar-benar merupakan potongannya, dan salah tebak semacam itu
+tidak boleh merugikan siapa pun.
+
+Ambang 90 TIDAK berubah. Yang berubah hanya angka yang diadu ke ambang itu.
+
+Kalibrasi atas data nyata (ambang 90, vonis lama -> baru):
+
+| TMS | Transkrip | Lama | Baru | Vonis |
+|---|---|---:|---:|---|
+| DOROTA MEIANTIKO K | Dorota Meantiko Kurnadi | 67 | 94 | MISMATCH -> MATCH |
+| SANDY DWI CAHYANA SO | Sandi Dwi Cahyana Sofian | 79 | 95 | MISMATCH -> MATCH |
+| SHANDRA UMAYA ADRI | Sandra Umaya Adriasin | 74 | 94 | MISMATCH -> MATCH |
+| RYKE CONSTAN | Rike Constanza | 79 | 92 | MISMATCH -> MATCH |
+| SAMUEL ADIN NUGROHO SETI | Samuel Adinugroho Setiawan | 79 | 92 | MISMATCH -> MATCH |
+| PARAMITA ADHI KURNIA | Paramitha Adi Kurniasari | 84 | 90 | MISMATCH -> MATCH |
+| BAHTIAR RAHMANDA ADI PUT | Bahtiar Rahmanda Adiputra | 91 | 91 | MATCH (tetap) |
+| DHUHURI AL ALIF MEGANTAR | Duhuri | 25 | 25 | MISMATCH (tetap) |
+| ANDREAN TISTONI | Adrian Sifoni | 64 | 64 | MISMATCH (tetap) |
+
+Empat nama yang memang milik orang BERBEDA tidak tersentuh aturan ini: tidak ada
+hubungan awalan di antara tokennya, jadi penyelarasan tidak pernah terjadi.
+
+CATATAN: aturan ini HANYA untuk "nama_pemilik_rekening". Tidak berlaku untuk
+"nama_bank" maupun "nomor_rekening" — nomor rekening wajib SAMA PERSIS (lihat
+NOMOR REKENING di FIELD-SPECIFIC MATCHING RULES).
+
+Yang WAJIB kamu lakukan:
+1. Set "match" persis seperti tabel di atas. BERBEDA dari nama_ibu_kandung/tanggal_lahir:
+   di sini zona bawah TETAP **"MISMATCH"** (bukan MATCH) — jadi item_score dan error
+   code B02/B03/B05 tetap berlaku seperti biasa untuk field ini. Bank memutuskan
+   demikian pada 24 Agustus 2026: dokumen diminta, TAPI kesalahannya tetap tercatat.
+2. Laporkan "similarity_percent" secara AKURAT — angka itulah yang dipakai sistem.
+3. "reason" WAJIB ditutup dengan permintaan dokumennya, memakai pola persis:
+   "... — perlu verifikasi dokumen cover buku tabungan."
+   Arah kalimatnya tetap mengikuti aturan field TANPA TnC Product (acuan = TRANSKRIP,
+   TMS yang dinilai).
+   - BENAR : "Nama pemilik rekening pada TMS HERRY SOESETYO tidak sesuai transkrip
+             Heri Susetyo (71%) — agent salah input ke TMS, perlu verifikasi dokumen
+             cover buku tabungan."
+   - BENAR : "Nama pemilik rekening pada TMS DELI PUSPITA sesuai dengan yang
+             dikonfirmasi nasabah di transkrip."   (>= 90, tidak perlu dokumen)
+   - SALAH : "Nama pemilik rekening pada TMS HERRY SOESETYO tidak sesuai transkrip
+             Heri Susetyo." (permintaan dokumen hilang)
+4. JANGAN menerbitkan "PENDING" sendiri. Sama seperti KK/KTP: status PENDING
+   (dokumen ditunggu, tenggat H+2) dihitung SISTEM di luar prompt ini dari
+   match + similarity_percent. Kamu hanya melaporkan MISMATCH + permintaan dokumen.
+5. Ambang 90 ini HANYA untuk nama_pemilik_rekening. Field lain di
+   cashline_data_verification tetap memakai ambang fuzzy 80% seperti biasa.
+
 ### FUZZY MATCHING & TOLERANCE RULES (apply to TASK C and TASK D)
 Treat values as the SAME (match = "MATCH") whenever they convey the same meaning, even if written differently. Treat as "MISMATCH" only when they refer to genuinely different information.
 - Text similarity: if at least 80% of the text is the same, treat as the SAME (not different).
@@ -2031,9 +2449,44 @@ Treat values as the SAME (match = "MATCH") whenever they convey the same meaning
 
 FIELD-SPECIFIC MATCHING RULES:
 - EMAIL (alamat_email_terdaftar): compare CASE-INSENSITIVELY — uppercase vs
-  lowercase makes no difference. The domain part (everything after "@") MUST be
-  kept and compared; never ignore or drop the domain. Treat as MATCH only when
-  BOTH the local part (before "@") and the FULL domain are equivalent.
+  lowercase makes no difference.
+  DINILAI TERPISAH DUA BAGIAN (kebijakan 28 Agustus 2026). Pecah kedua alamat pada
+  "@" menjadi LOCAL (sebelum "@") dan DOMAIN (sesudah "@"), lalu:
+    sim_local  = similarity Levenshtein antara kedua LOCAL
+    sim_domain = similarity Levenshtein antara kedua DOMAIN
+    MATCH  <=> sim_local >= 80 DAN sim_domain >= 80
+    similarity_percent = min(sim_local, sim_domain)   <- yang ditulis ke output
+  JANGAN menghitung similarity atas alamat UTUH lalu membandingkannya ke ambang 80,
+  dan JANGAN merata-ratakan kedua bagian. Domain hampir selalu sama persis
+  ("@gmail.com" vs "@gmail.com" = 100), sehingga rata-rata/gabungan menyeret nilai
+  LOCAL yang buruk melewati ambang. Dua contoh nyata yang salah lolos dengan cara
+  lama:
+    - "DEWIFITRI112@YAHOO.COM" vs "fitri112@yahoo.com"
+      gabungan = 82 -> MATCH (SALAH). Terpisah: local "dewifitri112" vs "fitri112"
+      = 67 -> di bawah 80 -> MISMATCH (BENAR). similarity_percent = 67.
+    - "andreantistoni@gmail.com" vs "adriansifoni@gmail.com"
+      dilaporkan 100 (SALAH). Terpisah: local "andreantistoni" vs "adriansifoni"
+      = 64 -> MISMATCH (BENAR). similarity_percent = 64.
+  Domain WAJIB tetap dibandingkan; jangan pernah membuang atau mengabaikannya.
+- NOMOR REKENING (nomor_rekening) — BARU 28 Agustus 2026:
+  Nomor rekening adalah IDENTIFIER, bukan teks. Salah satu digit saja sudah membuat
+  dana masuk ke rekening ORANG LAIN, jadi ambang fuzzy 80% TIDAK BOLEH dipakai di
+  sini — pada nomor 10 digit, ambang itu memaafkan sampai dua digit salah.
+  Alur:
+    1. Buang semua karakter selain angka dari kedua nilai (spasi, titik, strip).
+    2. Buang nol di DEPAN pada kedua nilai ("0183348253" -> "183348253"). Bank
+       menuliskan nomor yang sama dengan/tanpa nol depan; itu bukan perbedaan.
+    3. MATCH hanya bila kedua string angka hasil langkah 2 SAMA PERSIS.
+       Selain itu MISMATCH — berapa pun kemiripannya.
+    4. similarity_percent tetap dilaporkan apa adanya (Levenshtein atas hasil
+       langkah 2), TETAPI ia TIDAK menentukan vonis. Nilai 90 pun tetap MISMATCH.
+    5. "reason" WAJIB menyebut digit ke berapa yang berbeda, mis. "Nomor rekening
+       TMS 4629790567 berbeda pada digit ke-3 dari transkrip 4639790567."
+  Dua contoh nyata yang menjadi kalibrasi:
+    - "4629790567" vs "4639790567" -> beda 1 digit -> similarity 90 -> MISMATCH.
+      (Aturan lama menjatuhkan MATCH karena 90 >= 80. SALAH.)
+    - "183348253"  vs "0183348253" -> sesudah nol depan dibuang keduanya identik
+      -> similarity 100 -> MATCH. (BENAR.)
 - PHONE (no_telpon_terdaftar): the reference data stores the number WITHOUT the
   leading "0". Therefore, before comparing, if the EXTRACTED number begins with
   "0", drop that leading "0" (i.e. compare starting from the 2nd digit of the
@@ -2071,27 +2524,86 @@ FIELD-SPECIFIC MATCHING RULES:
   - Bila salah satu nilai TIDAK bisa dibentuk menjadi tanggal yang sah (mis. hanya
     "sekitar tahun 70-an"), jangan memaksakan bentuk baku: pakai Levenshtein teks
     biasa seperti field lain.
-- ADDRESS (alamat_kantor, alamat_rumah, alamat_pengiriman_tagihan ONLY): apply a CONTAINMENT/SUBSTRING rule.
-  1. Normalise BOTH values first: lowercase; trim; collapse multiple spaces into
-     one; remove honorifics (Bapak/Ibu/Pak/Bu) and filler; keep alphanumerics,
-     treat punctuation/separators (",", ".", "/", "-") as spaces.
-  2. Let SHORT = the shorter normalised string, LONG = the longer normalised string.
-  3. If SHORT is non-empty AND SHORT is a SUBSTRING of LONG (SHORT fully contained
-     inside LONG), then set match = "MATCH" and similarity_percent = 100,
-     IGNORING the Levenshtein similarity score entirely.
-  4. If it is NOT a substring, fall back to the normal Levenshtein + 80% threshold
-     rule.
-  5. This rule applies ONLY to alamat_kantor, alamat_rumah and alamat_pengiriman_tagihan. All other fields
-     (email, phone, tanggal_lahir, nama_ibu_kandung, dst.) are UNAFFECTED.
+- ADDRESS (alamat_kantor, alamat_rumah, alamat_pengiriman_tagihan ONLY): apply a
+  TOKEN COVERAGE rule. Levenshtein dan aturan substring TIDAK dipakai untuk ketiga
+  field ini — keduanya menghukum alamat yang sebenarnya sudah dibacakan benar,
+  hanya karena satu kata hilang atau satu huruf salah dengar (kebijakan 28 Agustus 2026).
+
+  1. TOKENISASI. Pecah KEDUA nilai menjadi daftar token: lowercase; buang honorifik
+     (Bapak/Ibu/Pak/Bu) dan filler; perlakukan SEMUA tanda baca dan pemisah
+     (",", ".", "/", "-", "(", ")") sebagai spasi; pisah pada spasi.
+  2. NORMALISASI TOKEN. Samakan penulisan yang artinya sama:
+     - singkatan alamat: jl / jln -> jalan ; nomor -> no ; komp / komplek / kompleks -> comp ;
+       jend / jendral -> jenderal ; gg -> gang ; kelurahan -> kel ; kecamatan -> kec ;
+       kabupaten -> kab ; provinsi -> prov ; perumahan -> perum.
+     - angka setelah "rt" atau "rw": buang nol di depan ("003" -> "3", "010" -> "10").
+     - angka yang diucapkan sebagai KATA disamakan dengan angkanya
+       ("delapan lima" -> "85", "empat empat delapan" -> "448").
+  3. BUANG KODE POS. Token berupa angka 5 digit dibuang dari KEDUA sisi. Kode pos
+     ada di Ascend tetapi hampir tidak pernah dibacakan di telepon, dan
+     ketiadaannya bukan kesalahan agent.
+  4. PADANAN TOKEN. Sebuah token acuan dianggap TERUCAP bila ada token di sisi
+     ucapan yang sama persis ATAU mirip (beda satu-dua huruf, mis. "cimeunyan" vs
+     "cimenyan", "jendral" vs "jenderal"). Beda lebih dari itu BUKAN padanan
+     (mis. "pameungpeuk" vs "pamungpek" -> tidak cocok).
+  5. HITUNG DUA ARAH:
+     - COVERAGE = (jumlah token ACUAN yang terucap) / (jumlah token ACUAN) x 100.
+       Inilah yang ditulis ke "similarity_percent" (bulatkan ke bilangan bulat).
+     - BALIK = (jumlah token UCAPAN yang ada di acuan) / (jumlah token UCAPAN) x 100.
+       TIDAK ditulis ke output; hanya dipakai untuk pengaman di langkah 6.
+  6. VONIS: match = "MATCH" bila COVERAGE >= 85 DAN BALIK >= 60. Selain itu "MISMATCH".
+     - COVERAGE >= 85 memastikan hampir seluruh alamat acuan benar-benar dibacakan.
+     - BALIK >= 60 adalah PENGAMAN: menahan MATCH ketika nasabah justru menyebut
+       alamat LAIN yang kebetulan memuat seluruh acuan (mis. membacakan alamat lama
+       lalu alamat baru). Alamat yang benar tetapi diucapkan lebih ringkas tidak
+       pernah tertahan di sini, karena tokennya memang berasal dari acuan.
+  7. ALASAN (field "reason") harus menyebutkan APA yang tidak terucap ketika
+     MISMATCH — nama bagian alamatnya, bukan sekadar "tidak sama". Contoh:
+     "Kelurahan/kecamatan (Blang Kolak I Bebesen) tidak dibacakan agent."
+  8. Aturan ini HANYA untuk alamat_kantor, alamat_rumah, dan alamat_pengiriman_tagihan.
+     Field lain (email, phone, tanggal_lahir, nama_ibu_kandung, dst.) TIDAK terpengaruh
+     dan tetap memakai Levenshtein + ambang 80%.
+
+  CONTOH TERKALIBRASI (dari tiket nyata, 28 Agustus 2026):
+    a) Acuan  : "GALERI ALEXANDRIA TOYS JL MARS DIRGAHAYU NO 85 RT 003 / RW 010
+                 CIBEUNYING - CIMEUNYAN BANDUNG 40191"
+       Ucapan : "Galeri Alexandria Toys Jalan Mars Dirgahayu nomor 85 RT 3 RW 10
+                 Cibeunying Cimenyan Bandung"
+       -> kode pos dibuang; "jl"="jalan", "nomor"="no", "003"="3", "010"="10";
+          "cimeunyan"~"cimenyan" (beda satu huruf) = padanan.
+          COVERAGE = 100, BALIK = 100 -> MATCH, similarity_percent = 100.
+    b) Acuan  : "TOKO SURYA JAYA ELEKTRIK JL JENDRAL GATOT SUBROTO NO 448
+                 BLANG KOLAK I BEBESEN ACEH TENGAH 24552"
+       Ucapan : "Toko Surya Jaya Elektrik Jalan Jenderal Gatot Subroto nomor 448
+                 Aceh Tengah"
+       -> "blang kolak i bebesen" tidak terucap sama sekali.
+          COVERAGE = 75 (< 85) -> MISMATCH, similarity_percent = 75,
+          reason menyebut kelurahan/kecamatan yang dilewati.
 - SHORT NAME (nama_ibu_kandung [Card Holder] DAN nama_pemilik_rekening [Cashline]):
-  TIDAK ADA relaksasi ambang untuk kedua field ini. Gunakan ambang MATCH STANDAR 80%
-  meskipun nilai REFERENCE kurang dari 5 huruf. Yakni similarity_percent >= 80
-  -> match = "MATCH"; di bawah 80 -> match = "MISMATCH", persis seperti field lain.
-  Contoh (reference pendek): "ANDY" vs "ANDI" -> hitung similarity, terapkan 80%;
-  jangan turunkan ambang.
-  Khusus nama_ibu_kandung: skor 80 s/d < 90 tetap MATCH tetapi masuk ZONA ABU-ABU
-  (perlu dokumen KK) — lihat AMBANG DOKUMEN PENDUKUNG di TASK C. Ambang MISMATCH-nya
-  tetap 80.
+  TIDAK ADA relaksasi ambang untuk kedua field ini — nilai REFERENCE yang pendek
+  (kurang dari 5 huruf) TIDAK menurunkan ambangnya. Contoh: "ANDY" vs "ANDI" ->
+  hitung similarity, lalu terapkan ambang field itu apa adanya.
+  Ambang masing-masing BERBEDA dari 80% standar dan BERBEDA satu sama lain:
+  * nama_pemilik_rekening [Cashline] — ambang **90%**:
+      similarity_percent >= 90 -> match = "MATCH";
+      di bawah 90              -> match = "MISMATCH" + WAJIB minta dokumen
+                                  **cover buku tabungan**.
+    Nama pada rekening tujuan pencairan tidak boleh "kira-kira benar": dana dikirim
+    ke rekening itu, jadi ambangnya sengaja lebih ketat daripada field lain.
+    Aturan lengkapnya ada di **AMBANG KHUSUS — nama_pemilik_rekening**; blok ITU yang
+    berlaku bila ada perbedaan penafsiran.
+
+    KOREKSI 28 Agustus 2026: sampai versi v70 baris ini berbunyi "TIDAK ada zona abu-abu
+    dan TIDAK ada dokumen pendukung untuk field ini" — kalimat kebijakan 21 Agustus yang
+    lupa dicabut ketika bank menambahkan permintaan cover buku tabungan pada 24 Agustus.
+    Akibatnya prompt menyuruh dua hal yang berlawanan tentang field yang sama, dan yang
+    usang justru bertentangan dengan sistem: permintaan cover buku tabungan SUDAH
+    dijalankan di kode (compliance/documents.py). Yang benar adalah blok AMBANG KHUSUS.
+    Zona abu-abu memang TIDAK ADA di sini — di bawah 90 tetap MISMATCH dan tetap dihukum,
+    berbeda dari nama_ibu_kandung — tetapi dokumennya TETAP diminta.
+  * nama_ibu_kandung [Card Holder] — skor >= 80 MATCH bersih, 50 s/d < 80 tetap MATCH
+    tetapi masuk ZONA ABU-ABU (perlu dokumen KK), dan MISMATCH hanya bila < 50. Lihat
+    AMBANG DOKUMEN PENDUKUNG di TASK C; tabel itu yang berlaku untuk field ini.
 - BUNGA (cashline_data_verification field "bunga"): abaikan format ("%", "persen",
   "per bulan", koma vs titik desimal) dan bandingkan sebagai NILAI numerik.
   RANGE: bila nilai EXTRACTED berupa RENTANG (mis. "1,75% - 2,2%") dan nilai REFERENCE
@@ -2136,6 +2648,10 @@ MATCH DECISION BY SIMILARITY THRESHOLD (applies to ALL compared fields):
 - Jika KEDUA sisi tidak EMPTY, after computing similarity_percent, decide match as follows:
     - If similarity_percent >= 80  -> match = "MATCH".
     - If similarity_percent <  80  -> match = "MISMATCH".
+- AMBANG KHUSUS nama_pemilik_rekening (cashline) = **90**, BUKAN 80:
+    - similarity_percent >= 90 -> match = "MATCH".
+    - similarity_percent <  90 -> match = "MISMATCH".
+  Berlaku untuk field "nama_pemilik_rekening" pada cashline_data_verification saja.
 - AMBANG KHUSUS tanggal_lahir (card holder) = **87,5**, BUKAN 80:
     - similarity_percent >= 87.5 -> match = "MATCH".
     - similarity_percent <  87.5 -> match = "MISMATCH".
@@ -2165,20 +2681,34 @@ MATCH DECISION BY SIMILARITY THRESHOLD (applies to ALL compared fields):
           (perlu KTP). Aturan 20XX tidak ada hubungannya dengan kasus ini.
     - Yang dinilai adalah penyebutan NASABAH. Agent yang membacakan ulang tahun 4 digit
       tidak menutupi jawaban 2 digit nasabah; sebaliknya, bila nasabah SUDAH menyebut
-      4 digit di penyebutan mana pun (lihat STATIC VERIFICATION CONSISTENCY RULE),
-      pemicunya tidak terpenuhi.
+      4 digit di penyebutan MANA PUN, pemicunya tidak terpenuhi — sekali menyebut
+      lengkap sudah cukup, penyebutan lain yang ringkas tidak membatalkannya.
+    - Tahun yang diucapkan sebagai KATA dan bukan angka ("dua ribu", "dua ribu lima")
+      adalah penyebutan tahun LENGKAP: pemicunya tidak terpenuhi.
     - Konsekuensi bila pemicunya terpenuhi: SC_CL_23_1 = "BELUM_SESUAI" lewat
       VERIFICATION -> SCORECARD PROPAGATION seperti MISMATCH tanggal_lahir lainnya.
+    - Aturan ini DITEGAKKAN ULANG DI SISTEM (21 Agustus 2026), bukan hanya di prompt:
+      sistem menghitung sendiri jumlah digit tahun pada tiap "extracted_mentions" dan
+      menjatuhkan MISMATCH + similarity 0 bila pemicunya terpenuhi, menimpa vonis apa
+      pun dari sini. Karena itu "extracted_mentions" WAJIB memuat ucapan nasabah APA
+      ADANYA — kalau "06 06 05" kamu tuliskan sudah dilengkapi menjadi "06 06 2005",
+      pemicunya hilang dan aturan ini gagal berjalan.
 - This threshold is the authoritative rule for the final match value of every
   field (card holder and Cashline). Apply the normalisation / tolerance rules
   FIRST, then compute similarity_percent, then apply this 80% threshold.
-- EXCEPTION (alamat_kantor, alamat_rumah, alamat_pengiriman_tagihan): the CONTAINMENT/SUBSTRING rule in the
-  FIELD-SPECIFIC MATCHING RULES takes PRECEDENCE over the 80% threshold. If SHORT
-  is a substring of LONG, the field is MATCH (similarity_percent = 100) even when
-  the raw Levenshtein score is below 80. Apply the substring check FIRST; only when
-  it fails do you apply the standard `similarity_percent >= 80 -> MATCH` rule.
-- (TIDAK ADA pengecualian ambang untuk nama_ibu_kandung / nama_pemilik_rekening:
-  keduanya SELALU memakai ambang standar 80%, meskipun nilai reference < 5 huruf.)
+- EXCEPTION (nomor_rekening): ambang 80% TIDAK BERLAKU. Nomor rekening wajib SAMA
+  PERSIS sesudah dinormalisasi — lihat NOMOR REKENING di FIELD-SPECIFIC MATCHING
+  RULES. similarity_percent tetap dilaporkan, tetapi tidak menentukan vonis.
+- EXCEPTION (alamat_email_terdaftar): ambang 80% berlaku PER BAGIAN (local dan
+  domain), bukan atas alamat utuh — lihat EMAIL di FIELD-SPECIFIC MATCHING RULES.
+- EXCEPTION (alamat_kantor, alamat_rumah, alamat_pengiriman_tagihan): ambang 80% dan
+  Levenshtein TIDAK BERLAKU untuk ketiga field ini. Pakai TOKEN COVERAGE rule di
+  FIELD-SPECIFIC MATCHING RULES sepenuhnya: "similarity_percent" diisi COVERAGE, dan
+  vonisnya COVERAGE >= 85 DAN BALIK >= 60 -> MATCH. Jangan pernah menghitung
+  Levenshtein untuk ketiga field alamat ini.
+- (Panjang nilai reference TIDAK PERNAH mengubah ambang: nama_ibu_kandung dan
+  nama_pemilik_rekening memakai ambang khusus masing-masing — 80/50 dan 90 — apa pun
+  panjang nilainya. Reference pendek BUKAN alasan menurunkan ambang.)
 - Example: the calibration email pair above scores 91% (>= 80), so match = "MATCH".
 
 For every compared field, set match to exactly one of:
@@ -2213,6 +2743,41 @@ event_verified (boolean, HANYA untuk field DINAMIS):
   PENGECUALIAN pada NEGATION REJECTION RULE.
 - Set event_verified = false bila: reference_value TERISI (field dinilai via kecocokan nilai/match),
   ATAU tidak ada event valid (tak ditanya / customer tak memberi nilai/jawaban definitif), ATAU field STATIC.
+
+- PEMBACAAN ULANG OLEH AGENT ADALAH VERIFIKASI YANG SAH (berlaku 28 Agustus 2026).
+  Verifikasi dinamis TIDAK selalu berbentuk pertanyaan terbuka. Bentuk yang paling
+  sering dipakai agent justru MEMBACAKAN nilai yang sudah ada di sistem lalu meminta
+  nasabah membenarkannya. Itu tetap verifikasi: nasabah tetap mengonfirmasi datanya.
+
+  Ciri bentuk ini — agent yang menyebut NILAI-nya, bukan nasabah:
+    "Ini saya bantu sampaikan kembali untuk alamat rumahnya, masih di ... ya Pak ya?"
+    "Untuk persamaan data dulu ya, alamat rumahnya masih di ... betul ya Bu?"
+    "Nomor teleponnya masih delapan satu dua ... ya Pak?"
+    "Untuk pekerjaannya Bapak masih di PT ... alamatnya di ... ya Pak?"
+  Pengakuan nasabah boleh sesingkat "ya" / "betul" / "iya, benar" / "he-em".
+
+  Yang WAJIB kamu lakukan bila menemukan bentuk ini:
+    1. Isi "extracted_value" dengan nilai yang DIBACAKAN AGENT — jangan biarkan null
+       hanya karena nasabah tidak mengucapkan sendiri nilainya.
+    2. Isi "extracted_mentions" dengan ucapan agent itu APA ADANYA.
+    3. Hitung match seperti biasa terhadap reference_value.
+  Bila nasabah MEMBANTAH atau mengoreksi ("bukan, sekarang sudah pindah ke ..."),
+  yang dipakai adalah nilai KOREKSI nasabah, bukan bacaan agent.
+
+  BATASNYA: nasabah harus benar-benar merespons. Agent yang membacakan alamat lalu
+  langsung lanjut tanpa jeda dan tanpa tanggapan apa pun BUKAN verifikasi — tidak ada
+  yang dikonfirmasi. Diam juga bukan persetujuan.
+
+  Aturan ini TIDAK berlaku untuk verifikasi STATIK (tanggal lahir & nama ibu kandung):
+  di sana nasabah WAJIB menyebut sendiri nilainya — agent yang membacakannya lebih dulu
+  justru melanggar SC_CL_15/B15 (membocorkan data verifikasi sebelum nasabah menjawab).
+
+  Kasus nyata — tiket 100537MsNl: agent membacakan alamat rumah DAN alamat kantor
+  lengkap di [04:54.68 - 05:19.10] ("Ini Christian bantu sampaikan kembali untuk alamat
+  rumahnya untuk persamaan data dulu ya ... masih di Jalan HN Ashari nomor dua lima ...
+  Untuk pekerjaannya Bapak masih di PT Dragon Product Indonesia ..."), nasabah
+  membenarkan. Keduanya tercatat "extracted_value": null dan match MISMATCH, sehingga
+  verified_count hanya 1 dan SC_CL_24 gagal — padahal dua parameter itu terverifikasi.
 - Field dengan event_verified = true berstatus match = "SKIPPED_NULL" (tidak MISMATCH, tidak memicu B17),
   tetapi TETAP dihitung TERVERIFIKASI pada verified_count SC_CL_24 (lihat DYNAMIC VERIFICATION
   SCORECARD RULE langkah 6 dan VERIFICATION -> SCORECARD PROPAGATION).
@@ -2491,8 +3056,7 @@ OUTPUT FORMAT (STRICT JSON ONLY)
             "field": "string",
             "reference_value": "string | number | null",
             "extracted_value": "string | number | null",
-            "extracted_mentions": [{"timestamp": "string mm:ss", "value": "string"}],
-            "consistency_failed": "boolean (hanya field statik; true = gagal TAHAP 1)",
+            "extracted_mentions": [{"timestamp": "string mm:ss", "value": "string", "source_file": "string nama PDF (WAJIB untuk field statik)"}],
             "match": "MATCH | MISMATCH | SKIPPED_NULL",
             "event_verified": "boolean",
             "reason": "string",

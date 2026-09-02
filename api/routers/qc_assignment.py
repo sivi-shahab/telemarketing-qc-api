@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE
+from api.qc_scope import scoped_customer_ids
 from api.rbac import require
 from db import crud
 from db.models import User
@@ -22,6 +23,23 @@ def _assignment_dict(a) -> dict:
         "assigned_by_username": a.assigned_by_username,
         "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
     }
+
+
+def _ensure_ticket_in_scope(db: Session, current_user, ticket_id: str) -> None:
+    """403 bila ``ticket_id`` di luar cakupan pemanggil.
+
+    Assignment memakai ticket id (prefix customer), sedangkan cakupan role sudah
+    dinyatakan sebagai daftar ticket id yang sama oleh ``scoped_customer_ids`` —
+    termasuk pembatasan CAMPAIGN. ``None`` = tanpa batas (SPQ Head / TL QC tanpa tag).
+    """
+    allowed = scoped_customer_ids(db, current_user)
+    if allowed is None:
+        return
+    if (ticket_id or "").strip() not in set(allowed):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ticket ini di luar campaign yang menjadi cakupan Anda",
+        )
 
 
 @router.get("/qc_assignment/qc_users")
@@ -44,8 +62,17 @@ def list_assignments(
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
-    """All ticket -> QC assignments (newest first)."""
-    return [_assignment_dict(a) for a in crud.list_qc_assignments(db)]
+    """Ticket -> QC assignments (newest first), DALAM CAKUPAN pemanggil.
+
+    Dulu selalu seluruh tabel: seorang pengawas yang dipersempit ke satu campaign
+    tetap membaca daftar ticket id campaign lain dari sini, padahal menu Results-nya
+    sudah kosong."""
+    allowed = scoped_customer_ids(db, current_user)
+    rows = crud.list_qc_assignments(db)
+    if allowed is not None:
+        allowed_set = set(allowed)
+        rows = [a for a in rows if (a.ticket_id or "").strip() in allowed_set]
+    return [_assignment_dict(a) for a in rows]
 
 
 @router.post("/qc_assignment")
@@ -60,6 +87,7 @@ def assign_ticket(
     qc_username = (qc_username or "").strip()
     if not ticket_id or not qc_username:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ticket_id dan qc_username wajib diisi")
+    _ensure_ticket_in_scope(db, current_user, ticket_id)
     qc = db.query(User).filter(User.username == qc_username, User.role == "qc").first()
     if qc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User QC tidak ditemukan")
@@ -74,6 +102,7 @@ def remove_assignment(
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
     """Unassign a ticket (QC then no longer sees it)."""
+    _ensure_ticket_in_scope(db, current_user, ticket_id)
     removed = crud.unassign_ticket(db, ticket_id)
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment tidak ditemukan")

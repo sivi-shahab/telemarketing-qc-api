@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import (
     get_current_user,
+    get_evaluation_detail_user,
     get_db,
 )
 from sales_lookup import (
@@ -35,6 +36,9 @@ from api.permissions import (
     RESULTS_EXPORT_TICKETS,
     RESULTS_EXPORT_VERIFICATION,
     RESULTS_FILTER_QC_SIDE,
+    RESULTS_STATUS_REASON_FULL,
+    STATS_RISK_BASE,
+    STATS_RISK_SYSTEM_NEW,
     SCOPE_QC_ASSIGNED,
     SCOPE_QC_SUPPORT_OWN,
     SCOPE_SALES_AGENT,
@@ -45,11 +49,10 @@ from api.permissions import (
     is_sales_scope,
 )
 from api.rbac import data_scope_for, effective_campaigns_for, has_perm, require
-from api.qc_scope import scoped_customer_ids
+from api.qc_scope import ensure_can_view_result, scoped_customer_ids
 from db import crud
 from compliance.badwords import badword_fail_reason, badword_rows, has_badword
 from compliance.error_codes import (
-    FRAUD_REASON,
     _appeal_kind,
     added_appeals_only,
     apply_added_score_appeals,
@@ -62,30 +65,39 @@ from compliance.error_codes import (
     appeals_that_flip,
     approved_appeals_only,
     CARD_HOLDER_DYNAMIC_FIELDS,
+    CARD_HOLDER_STATIC_SCORECARD,
     build_error_code_table,
     card_holder_two_match_satisfied,
     code_for_cashline_field,
     effective_appeal_status,
-    fraud_fail_reason,
     not_fulfilled_reason,
+    apply_static_document_status,
     normalize_static_verification,
     static_consistency_failures,
 )
 from compliance.documents import (
     DOCUMENT_TYPES,
     card_holder_bands_apply,
-    card_holder_doc_requirements,
+    required_doc_requirements,
     format_similarity,
 )
 from compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
+from compliance.scoring import (
+    max_score,
+    no_product_interest,
+    scorecard_score,
+)
 from compliance.stats_aggregate import (
-    DOC_SLA_ENABLED,
+    data_gap_map,
+    data_gap_reasons,
+    doc_sla_enabled,
     _doc_sla_expired,
     category_label,
     effective_manual_status,
     manual_review_state,
     manual_status_of,
     _missing_docs_map,
+    document_status_map,
     _parse_ymd,
     _result_ai_status,
     ai_status_for_result,
@@ -140,9 +152,15 @@ def _document_requirements(flags: dict, raw_result_json, bands_apply: bool, npwp
                 add(doc_type, label)
     # 2) Band similarity card holder (Fase #5): nama ibu kandung 80-89% -> KK,
     #    tanggal lahir 87,5-99% -> KTP.
+    # Sejak 24 Agustus 2026 daftar ini juga memuat cover buku tabungan dari
+    # cashline_data_verification (nama_pemilik_rekening MISMATCH), lewat
+    # required_doc_requirements — sebelumnya kewajibannya hanya berupa kalimat di
+    # "reason" dan tidak pernah muncul sebagai dokumen yang diminta.
     if bands_apply:
-        for req in card_holder_doc_requirements(raw_result_json):
-            add(req["doc_type"], f"{req['label']} mirip {format_similarity(req['similarity'])}%")
+        for req in required_doc_requirements(raw_result_json):
+            sim = req.get("similarity")
+            why = f"{req['label']} mirip {format_similarity(sim)}%" if sim is not None else req["label"]
+            add(req["doc_type"], why)
     # 3) Limit pencairan >= Rp 50 juta -> NPWP.
     if npwp_by_limit:
         add("npwp", "Limit >= 50 jt")
@@ -216,36 +234,14 @@ def _to_num(value) -> Optional[float]:
     return int(n) if n == int(n) else n
 
 
-def _max_score(evaluation: dict):
-    """Skor maksimal panggilan = jumlah produk yang diminati customer
-    (Mega Cashline 108.75 + Mega Ultima Shield 41.25); fallback ke
-    ``maximum_score`` dari evaluasi bila tidak ada produk yang diminati."""
-    total = 0.0
-    found = False
-    if (evaluation.get("cashline_interest") or {}).get("status") == "INTERESTED":
-        total += 108.75
-        found = True
-    if (evaluation.get("mus_interest") or {}).get("status") == "INTERESTED":
-        total += 41.25
-        found = True
-    if found:
-        return int(total) if total == int(total) else total
-    return _to_num(evaluation.get("maximum_score"))
-
-
-def _scorecard_score(evaluation: dict):
-    """Skor scorecard (phase 2) = skor maksimal dikurangi bobot tiap item
-    yang BELUM_SESUAI. Return None bila skor maksimal tidak diketahui."""
-    max_sc = _max_score(evaluation)
-    if max_sc is None:
-        return None
-    belum = sum(
-        w for it in (evaluation.get("scorecard_result") or [])
-        if it.get("status") == "BELUM_SESUAI"
-        and (w := _to_num(it.get("weight"))) is not None
-    )
-    score = max_sc - belum
-    return int(score) if score == int(score) else score
+# Skor dipinjam dari ``compliance/scoring.py`` — SATU implementasi untuk seluruh
+# sistem. Sampai 28 Agustus 2026 berkas ini menyimpan salinannya sendiri, dan
+# salinan itu tertinggal saat ZERO-SCORE RULE ditambahkan di modul aslinya: tabel
+# Results dan export XLSX memberi PASS kepada tiket yang oleh halaman detail sudah
+# dinyatakan FAIL. Alias dipertahankan supaya pemanggil di bawah tidak perlu diubah.
+_max_score = max_score
+_scorecard_score = scorecard_score
+_no_product_interest = no_product_interest
 
 
 def _manual_status(qc_req, ai_status) -> Optional[str]:
@@ -325,7 +321,7 @@ def qc_performance(
     current_user=Depends(require(STATS_QC_PERFORMANCE)),
 ):
     """Per-QC assigned / approved / approve-rate table, shown beneath the
-    Hierarki Error Rate tree. Restricted to Team Leader QC, SPQ Head and admin —
+    Hierarki Failure Rate tree. Restricted to Team Leader QC, SPQ Head and admin —
     the roles that manage the QC division. Dibatasi ke campaign yang menjadi cakupan
     pemanggil."""
     return crud.qc_performance_rows(db, campaign,
@@ -357,27 +353,41 @@ def results_hierarchy_options(
     return opts
 
 
-@router.get("/list_results", response_model=ResultListResponse)
-def list_results(
-    status: Optional[str] = Query(None),
-    campaign: Optional[str] = Query(None),
-    ticket_id: Optional[str] = Query(None),
-    ai_status: Optional[str] = Query(None, description="Filter AI Status: PASS (Qualified) | FAIL (Not Qualified) | PENDING"),
-    manual_status: Optional[str] = Query(None, description="Filter Manual Status (vonis human; default mengikuti AI Status): PASS | FAIL | PENDING"),
-    am_nip: Optional[str] = Query(None, description="Hierarchy filter: Area Manager NIP"),
-    tl_nip: Optional[str] = Query(None, description="Hierarchy filter: Team Leader NIP"),
-    agent_nip: Optional[str] = Query(None, description="Hierarchy filter: Sales Agent (TLO) NIP"),
-    qc_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets assigned to this QC (NIP)"),
-    qc_support_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets uploaded by this QC Support (NIP)"),
-    date_start: Optional[str] = Query(None, description="Transcript-date lower bound (YYYY-MM-DD, WIB)"),
-    date_end: Optional[str] = Query(None, description="Transcript-date upper bound (YYYY-MM-DD, WIB)"),
-    banding_pending: bool = Query(False, description="Keep only tickets with an appeal awaiting the caller's review tier"),
-    manual_status_pending: bool = Query(False, description="Pending Check menu: keep only tickets with a Manual Status request awaiting the caller's review tier (TL QC / SPQ Head)"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+def _resolve_filtered_results(
+    db,
+    current_user,
+    *,
+    status=None,
+    campaign=None,
+    ticket_id=None,
+    ai_status=None,
+    manual_status=None,
+    am_nip=None,
+    tl_nip=None,
+    agent_nip=None,
+    qc_username=None,
+    qc_support_username=None,
+    date_start=None,
+    date_end=None,
+    banding_pending=False,
+    manual_status_pending=False,
+    page=1,
+    limit=20,
 ):
+    """Baris hasil yang cocok dengan filter menu Results — TANPA pengayaan.
+
+    Dipakai bersama oleh ``/list_results`` (yang lalu mengayakan tiap baris) dan
+    Reprocess All (yang hanya butuh daftar tiketnya). Pemisahan ini bukan sekadar
+    kerapian: filter ``ai_status``/``manual_status`` diturunkan di Python, bukan di
+    SQL, jadi satu-satunya cara agar jumlah tiket yang DILIHAT Admin di modal
+    konfirmasi sama dengan yang DIKERJAKAN adalah memakai jalur pemilihan yang sama
+    persis. Dua salinan logika filter pasti menyimpang — seperti salinan
+    ``_max_score``/``_scorecard_score`` yang dulu tertinggal di berkas ini.
+
+    Mengembalikan ``(rows, total)``. Seluruh pengaman cakupan (campaign milik role,
+    ``data_scope``, isolasi QC Support) ada DI SINI, jadi pemanggil mana pun
+    mewarisinya dan tidak ada jalan pintas RBAC.
+    """
     d_start = _parse_ymd(date_start)
     d_end = _parse_ymd(date_end)
     # Pembatasan CAMPAIGN milik role: mempersempit, tidak pernah memperlebar. Role
@@ -388,7 +398,7 @@ def list_results(
     if role_campaigns is not None and campaign:
         allowed = {c.strip().casefold() for c in role_campaigns}
         if campaign.strip().casefold() not in allowed:
-            return ResultListResponse(items=[], total=0, page=page, limit=limit)
+            return [], 0
     # Sales Agent (TL) & QC (agent) are scoped to their tickets; other roles: all.
     scoped_cids = _scoped_customer_ids(db, current_user)
     # Hierarchy dropdown (AM / TL / TLO). Narrows WITHIN the role scope above —
@@ -452,6 +462,7 @@ def list_results(
         qcs = crud.qc_status_requests_for(db, ids)
         rjs = crud.result_json_map(db, ids)
         mdocs = _missing_docs_map(db, rows)
+        gaps = data_gap_map(db, rows)
         submits = crud.tms_submit_time_map(
             db, [c for c in (_customer_id_from_files(r.source_files) for r in rows) if c]
         )
@@ -462,6 +473,7 @@ def list_results(
             ai = _result_ai_status(
                 rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
                 _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
+                data_gap=gaps.get(rid),
             )
             if ai_filter and ai != ai_filter:
                 continue
@@ -532,6 +544,38 @@ def list_results(
             db, status=status, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=page,
             limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
+    return results, total
+
+
+@router.get("/list_results", response_model=ResultListResponse)
+def list_results(
+    status: Optional[str] = Query(None),
+    campaign: Optional[str] = Query(None),
+    ticket_id: Optional[str] = Query(None),
+    ai_status: Optional[str] = Query(None, description="Filter AI Status: PASS (Qualified) | FAIL (Not Qualified) | PENDING"),
+    manual_status: Optional[str] = Query(None, description="Filter Manual Status (vonis human; default mengikuti AI Status): PASS | FAIL | PENDING"),
+    am_nip: Optional[str] = Query(None, description="Hierarchy filter: Area Manager NIP"),
+    tl_nip: Optional[str] = Query(None, description="Hierarchy filter: Team Leader NIP"),
+    agent_nip: Optional[str] = Query(None, description="Hierarchy filter: Sales Agent (TLO) NIP"),
+    qc_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets assigned to this QC (NIP)"),
+    qc_support_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets uploaded by this QC Support (NIP)"),
+    date_start: Optional[str] = Query(None, description="Transcript-date lower bound (YYYY-MM-DD, WIB)"),
+    date_end: Optional[str] = Query(None, description="Transcript-date upper bound (YYYY-MM-DD, WIB)"),
+    banding_pending: bool = Query(False, description="Keep only tickets with an appeal awaiting the caller's review tier"),
+    manual_status_pending: bool = Query(False, description="Pending Check menu: keep only tickets with a Manual Status request awaiting the caller's review tier (TL QC / SPQ Head)"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    results, total = _resolve_filtered_results(
+        db, current_user,
+        status=status, campaign=campaign, ticket_id=ticket_id, ai_status=ai_status,
+        manual_status=manual_status, am_nip=am_nip, tl_nip=tl_nip, agent_nip=agent_nip,
+        qc_username=qc_username, qc_support_username=qc_support_username,
+        date_start=date_start, date_end=date_end, banding_pending=banding_pending,
+        manual_status_pending=manual_status_pending, page=page, limit=limit,
+    )
     # Customer Name + Nomor Kartu columns are surfaced to the "simple viewer" roles
     # (individual agent + team leader + area manager + telesales head), so only look
     # them up for those roles.
@@ -562,6 +606,11 @@ def list_results(
     # QC ticket -> (assignee, assigned_at). Team Leader QC / SPQ Head see who a
     # ticket is assigned to and when ("Assign Date").
     assignment_map = crud.assignment_map_for_tickets(db, [c for c in cids if c])
+    # Tiket di halaman ini yang reprosesnya masih mengantre/berjalan (satu query).
+    # Menahan tombol Reprocess sesudah refresh atau pindah menu: layar hanya
+    # mengingat job yang ia mulai sendiri di sesi itu, jadi tanpa penanda dari
+    # server tombolnya kembali enable padahal server akan menolaknya dengan 409.
+    reprocessing_cids = crud.active_reprocess_ticket_ids(db, [c for c in cids if c])
     # Per-ticket manual checks by QC for this page (batched, no N+1).
     manual_check_map = crud.qc_manual_checks_for_results(db, [str(r.id) for r in results])
     # Riwayat Manual Status per tiket (append-only) — hanya jumlahnya yang dikirim ke
@@ -570,6 +619,14 @@ def list_results(
     # Which results are "missing required documents" (TMS data changed or limit >= 50jt
     # but nothing uploaded) — drives the AI-status default + Manual Status "pending".
     mdocs_page = _missing_docs_map(db, results)
+    gaps_page = data_gap_map(db, results)
+    # Keterangan LENGKAP di kolom AI Status hanya untuk pemegang capability-nya
+    # (divisi QC + Admin). Empat role sisi sales hanya menerima keterangan
+    # "Menunggu dokumen ..." — satu-satunya alasan yang bisa mereka tindaklanjuti
+    # sendiri. Disaring di SINI, bukan di Vue: alasan yang disembunyikan tidak ikut
+    # terkirim ke browser sama sekali.
+    show_full_reason = has_perm(db, current_user, RESULTS_STATUS_REASON_FULL)
+    doc_status_page = document_status_map(db, results)
     _now_status = datetime.now()  # basis tenggat H+2 untuk status PENDING
     items = []
     for r in results:
@@ -578,9 +635,11 @@ def list_results(
         passing_grade = None  # dynamic: taken from the LLM evaluation below
         maximum_score = None
         audio_duration = None
+        audio_durations = None
         campaign_interest = None
         critical_compliance_check = None
         non_tolerable_items = None
+        scorecard_issues = []
         evaluation = None  # per-iteration; the RETURN rule below reads it after the QC override
         raw_result_json = None  # pre-appeal JSON — basis for the similarity-band doc triggers
         if r.status == "done":
@@ -589,6 +648,7 @@ def list_results(
                 raw_result_json = data.result_json
                 if isinstance(data.result_json, dict):
                     audio_duration = data.result_json.get("audio_duration")
+                    audio_durations = data.result_json.get("audio_durations")
                 evaluation = _evaluation_dict(data.result_json)
                 if evaluation is not None:
                     # Terapkan banding yang di-approve (baris error code dihapus &
@@ -598,6 +658,11 @@ def list_results(
                     _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
                     # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
                     evaluation = normalize_static_verification(evaluation)
+                    # Lalu status dokumennya: baris zona abu-abu jadi PENDING selama
+                    # tenggat H+2 berjalan, dan MISMATCH bila terlewat tanpa unggah.
+                    _ds = doc_status_page.get(str(r.id))
+                    if _ds is not None:
+                        evaluation = apply_static_document_status(evaluation, _ds[0], _ds[1])
                     evaluation = apply_approved_appeals(evaluation, _flip)
                     evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
                     evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -607,6 +672,7 @@ def list_results(
                     # Non-tolerable (tolerable=NO) scorecard items still BELUM_SESUAI —
                     # surfaced as a Results column (and what forces AI Status = RETURN).
                     non_tolerable_items = _non_tolerable_reasons(evaluation)
+                    scorecard_issues = _scorecard_issues(evaluation)
 
                     # AI Score dihitung deterministik dari scorecard (sumber tunggal,
                     # konsisten dengan XLSX export): phase2 = skor maksimal dikurangi
@@ -691,25 +757,40 @@ def list_results(
         # kolom AI Score, tabel Error Code, dan Ringkasan Kategori memang harus jujur.
         # Yang dikunci hanyalah STATUS-nya.
         qc_req = qc_map.get(str(r.id))
-        # 1) non-tolerable veto
-        if ai_status == "PASS" and evaluation is not None and _has_blocking_intolerable_item(evaluation):
+        # 1) non-tolerable veto — tanpa syarat status sebelumnya (28 Agustus 2026).
+        blocking = evaluation is not None and _has_blocking_intolerable_item(evaluation)
+        if blocking:
             ai_status = "FAIL"
         # 2) missing-documents: dalam tenggat H+2 -> PENDING; lewat tenggat -> FAIL.
-        if missing_docs:
+        # ``and not blocking``: tiket yang sudah kena pelanggaran non-tolerable tidak
+        # singgah di PENDING — dokumen susulan tidak akan menggugurkan pelanggaran
+        # yang sudah terbukti dari transkrip. Urutan ini WAJIB sama dengan helper
+        # kanonik ``_result_ai_status``; kalau berbeda, kolom di layar bertentangan
+        # dengan angka di Statistics dan dengan filter AI Status.
+        if missing_docs and not blocking:
             ai_status = "FAIL" if _doc_sla_expired(submit_map.get(cid), _now_status) else "PENDING"
-        # 2b) INDIKASI FRAUD: gugur di TAHAP 1 verifikasi statik (penyebutan nasabah
+        data_gap = gaps_page.get(str(r.id)) or ()
+        # 2b) KONSISTENSI VERIFIKASI STATIK: gugur di TAHAP 1 (penyebutan nasabah
         # tidak konsisten antar pengulangan). Diperiksa SESUDAH aturan dokumen karena
-        # harus menimpa PENDING — tiket ber-indikasi fraud tidak menunggu dokumen.
+        # harus menimpa PENDING — tiket seperti ini tidak menunggu dokumen.
         fraud_fields = static_consistency_failures(evaluation) if evaluation is not None else []
         if fraud_fields:
             ai_status = "FAIL"
         # 2c) BADWORD (13 Agustus 2026): agent mengucapkan kalimat bersentimen negatif
         # kepada nasabah — perilaku yang tidak dapat ditoleransi dan sumber komplain
-        # CCBM. Sama seperti indikasi fraud: menimpa PENDING (tiket seperti ini tidak
+        # CCBM. Sama seperti aturan 2b: menimpa PENDING (tiket seperti ini tidak
         # menunggu dokumen) dan tidak peduli berapa skornya.
         badwords = badword_rows(evaluation) if evaluation is not None else []
         if badwords:
             ai_status = "FAIL"
+        # 2d) KEKURANGAN DATA ACUAN (28 Agustus 2026): transkrip / TMS / agent /
+        # Ascend yang kosong membuat tiket PENDING, menimpa SEMUA aturan di atas
+        # (veto non-tolerable, tenggat dokumen, konsistensi statik, badword) — skor
+        # maupun temuan yang memicu keempatnya lahir dari evaluasi yang acuannya tidak
+        # lengkap. Urutannya sama persis dengan helper kanonik ``_result_ai_status``;
+        # kalau berbeda, kolom di layar akan bertentangan dengan angka di Statistics.
+        if data_gap:
+            ai_status = "PENDING"
         # 3) Vonis human yang SUDAH DISETUJUI mengunci AI Status — menimpa ketiga aturan
         # di atas. Sengaja memanggil helper kanonik yang sama dengan yang dipakai Stats,
         # filter, dan snapshot: baris ini dulu menghitung sendiri tanpa melihat qc_req,
@@ -727,23 +808,38 @@ def list_results(
         # sistem adalah dokumen wajib yang belum diunggah (tenggat H+2 dari
         # tms_cashline.submit_time); PENDING yang datang langsung dari LLM tidak punya
         # keterangan, jadi dibiarkan kosong ketimbang mengarang alasan.
-        # Indikasi fraud ditulis sebagai alasan tiket, sejajar pending_reason, supaya
-        # QC melihat SEBABNYA di kolom AI Status tanpa membuka baris.
-        # Badword ditulis dengan cara yang sama; bila keduanya kena, dua-duanya
-        # disebut — QC perlu tahu tiket ini gugur karena dua sebab, bukan satu.
-        fail_notes = []
-        if fraud_fields and ai_status == "FAIL":
-            fail_notes.append(fraud_fail_reason(evaluation))
-        if badwords and ai_status == "FAIL":
-            fail_notes.append(badword_fail_reason(evaluation))
-        fail_reason = " · ".join(n for n in fail_notes if n) or None
-        pending_reason = None
+        # Badword ditulis sebagai alasan tiket, sejajar pending_reason, supaya QC
+        # melihat SEBABNYA di kolom AI Status tanpa membuka baris.
+        # Kegagalan konsistensi verifikasi statik SENGAJA tidak diberi catatan di sini
+        # (kebijakan 21 Agustus 2026): aturannya tetap menggugurkan tiket, tetapi
+        # sebabnya dibaca dari kolom Critical Failure dan baris verifikasinya, bukan
+        # dari label khusus di kolom AI Status.
+        fail_notes = [] if show_full_reason else None
+        # Alasan Not Qualified yang TIDAK terbaca dari skor. Sengaja TANPA daftar
+        # item_code (permintaan 28 Agustus 2026): item mana yang gagal sudah terbaca
+        # di tabel Error Code saat barisnya dibuka, jadi menuliskannya lagi di kolom
+        # status hanya memanjangkan sel tanpa menambah informasi.
+        if fail_notes is not None:
+            if blocking and ai_status == "FAIL":
+                fail_notes.append("Error non-tolerable")
+            if badwords and ai_status == "FAIL":
+                fail_notes.append(badword_fail_reason(evaluation))
+        fail_reason = " · ".join(n for n in (fail_notes or []) if n) or None
+        pending_reasons = []
+        if ai_status == "PENDING" and data_gap and show_full_reason:
+            # Ditulis PALING DEPAN: ini penyebab yang tidak bisa diselesaikan agent
+            # maupun QC — datanya harus dilengkapi lebih dulu. SEMUA kekurangan
+            # disebut, bukan hanya yang pertama ditemukan.
+            pending_reasons.append(data_gap_reasons(data_gap))
         if ai_status == "PENDING" and missing_docs:
             _need = [_doc_label(t) for t in document_missing_types] or ["pendukung"]
             # Tenggatnya hanya disebut bila aturannya memang aktif — menuliskan
             # "SLA H+2" saat aturan itu dimatikan justru menyesatkan.
-            _sla = " (SLA H+2)" if DOC_SLA_ENABLED else ""
-            pending_reason = f"Menunggu dokumen {', '.join(_need)}{_sla}"
+            _sla = " (SLA H+2)" if doc_sla_enabled() else ""
+            pending_reasons.append(f"Menunggu dokumen {', '.join(_need)}{_sla}")
+        # Sebuah tiket bisa PENDING karena DUA hal sekaligus; keduanya ditulis apa
+        # adanya ketimbang memilih salah satu dan menyembunyikan sisanya.
+        pending_reason = " · ".join(pending_reasons) or None
         items.append(
             ResultListItem(
                 result_id=str(r.id),
@@ -755,9 +851,11 @@ def list_results(
                 source_files=r.source_files,
                 num_calls=r.num_calls,
                 audio_duration=audio_duration,
+                audio_durations=audio_durations,
                 campaign_interest=campaign_interest,
                 critical_compliance_check=critical_compliance_check,
                 non_tolerable_items=non_tolerable_items,
+                scorecard_issues=scorecard_issues,
                 status=r.status,
                 ai_score=ai_score,
                 passing_grade=passing_grade,
@@ -775,6 +873,7 @@ def list_results(
                 document_missing_types=document_missing_types,
                 document_missing_labels=[_doc_label(t) for t in document_missing_types],
                 document_requirements=doc_requirements,
+                reprocess_active=(cid in reprocessing_cids) if cid else False,
                 has_documents=str(r.id) in docset,
                 document_uploaded_at=doctimes.get(str(r.id)),
                 qc_request=qc_req,
@@ -796,14 +895,18 @@ def list_results(
 
 
 @router.get("/stats", response_model=StatsResponse)
-def get_stats(db: Session = Depends(get_db)):
-    data = crud.get_stats(db)
+def get_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    data = crud.get_stats(
+        db,
+        _scoped_customer_ids(db, current_user),
+        effective_campaigns_for(db, current_user),
+    )
     return StatsResponse(**data)
 
 
 @router.get("/stats/daily", response_model=DailyStatsResponse)
-def get_daily_stats(db: Session = Depends(get_db)):
-    days = crud.get_daily_stats(db)
+def get_daily_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    days = crud.get_daily_stats(db, _scoped_customer_ids(db, current_user))
     return DailyStatsResponse(days=days)
 
 
@@ -895,6 +998,72 @@ def stats_campaigns_monthly(
     return _snapshot_for(db, current_user)["campaign_monthly"]
 
 
+#: Field Risk Base pada tiap simpul pohon hierarki. Digerbangi ``STATS_RISK_BASE``
+#: (H/M/L) dan ``STATS_RISK_SYSTEM_NEW`` (System/New) — capability yang sama dengan
+#: yang menyembunyikan kolomnya di layar.
+#:
+#: ``total_risk`` SENGAJA TIDAK ADA DI SINI sejak 28 Agustus 2026 sore. Sebelumnya ia
+#: ikut dibuang bersama H/M/L, sehingga sisi sales menerima ``error_rate`` tanpa
+#: pembilangnya. Begitu kolom "Errors" diganti nama menjadi "Total Failure" atas
+#: permintaan bisnis, kolom itu terpaksa diisi ``errors`` (jumlah TIKET gagal) —
+#: angka yang berbeda dari pembilang rasionya, sehingga
+#: ``Total Failure ÷ Submissions`` tidak sama dengan ``Failure Rate`` yang tertera
+#: (mis. 26 / 98 = 26,5% padahal yang tampil 68,4%).
+#:
+#: Yang ditahan gate ini memang RINCIAN risk base (pecahan per severity), bukan
+#: totalnya: totalnya sudah lama terbaca sisi sales dalam bentuk persentase. Jadi
+#: mengirim ``total_risk`` tidak membuka informasi baru, hanya membuat kolomnya
+#: menamai angka yang benar.
+_HIER_RISK_FIELDS = ("risk_high", "risk_medium", "risk_low")
+_HIER_RISK_EXTRA_FIELDS = ("risk_system", "risk_new")
+
+
+def _strip_hierarchy_risk(node, drop: tuple):
+    """Buang field Risk Base dari sebuah simpul pohon (rekursif ke bawah).
+
+    Sampai 28 Agustus 2026 angka Risk Base SELALU ikut terkirim, dan yang menyembunyikannya
+    hanya ``v-if`` di Vue — artinya sisi sales tetap bisa membacanya lewat DevTools
+    meski capability-nya tidak mereka punya. Capability yang dipasang untuk menahan
+    informasi harus menahannya di server, bukan sekadar tidak menggambarnya.
+
+    ``error_rate`` dan ``total_risk`` sengaja DIPERTAHANKAN: rasionya memang
+    ditampilkan ke sisi sales, dan sejak 28 Agustus 2026 pembilangnya ikut — lihat
+    catatan pada ``_HIER_RISK_FIELDS``. Yang ditahan tinggal pecahan per severity
+    (High/Medium/Low, plus System/New untuk gate satunya).
+    """
+    if not isinstance(node, dict):
+        return node
+    for key in drop:
+        node.pop(key, None)
+    # ``all_telesales`` sebuah dict tunggal, sisanya list — keduanya harus ditelusuri.
+    # Melewatkan ``all_telesales`` berarti membocorkan justru angka yang paling besar:
+    # total Risk Base seluruh organisasi.
+    for child_key in ("all_telesales", "area_managers", "team_leaders", "agents", "tickets"):
+        child = node.get(child_key)
+        if isinstance(child, dict):
+            _strip_hierarchy_risk(child, drop)
+        else:
+            for item in child or ():
+                _strip_hierarchy_risk(item, drop)
+    return node
+
+
+def _scoped_hierarchy(db, current_user, tree: dict) -> dict:
+    """Pohon hierarki yang sudah dibersihkan dari field di luar hak pemanggil."""
+    drop = ()
+    if not has_perm(db, current_user, STATS_RISK_BASE):
+        drop += _HIER_RISK_FIELDS + _HIER_RISK_EXTRA_FIELDS
+    elif not has_perm(db, current_user, STATS_RISK_SYSTEM_NEW):
+        drop += _HIER_RISK_EXTRA_FIELDS
+    if not drop:
+        return tree
+    # deepcopy: payload-nya berasal dari snapshot yang di-cache di DB dan dipakai
+    # bersama seluruh pemanggil — memodifikasinya di tempat akan merusak respons role lain.
+    import copy
+
+    return _strip_hierarchy_risk(copy.deepcopy(tree), drop)
+
+
 @router.get("/stats/hierarchy")
 def stats_hierarchy(
     campaign: Optional[str] = Query(None, description="Batasi pohon ke satu campaign"),
@@ -914,12 +1083,12 @@ def stats_hierarchy(
     """
     snap = _snapshot_for(db, current_user)
     if not campaign:
-        return snap["hierarchy"]
+        return _scoped_hierarchy(db, current_user, snap["hierarchy"])
     by_camp = snap.get("hierarchy_by_campaign") or {}
     want = campaign.strip().casefold()
     for key, tree in by_camp.items():
         if (key or "").strip().casefold() == want:
-            return tree
+            return _scoped_hierarchy(db, current_user, tree)
     # Campaign aktif yang belum punya tiket: pohon kosong, bukan pohon global.
     from compliance.stats_aggregate import empty_hierarchy
 
@@ -949,7 +1118,7 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
     includes ``agents`` — the per-agent roster (for the Statistics table); each row
     carries its ``team_leader`` so the Area Manager roster can group by TL. For an
     Area Manager the response also carries ``hierarchy`` — a scoped Team Leader ->
-    Agent tree for the "Hierarki Error Rate" tab (no Area Manager level)."""
+    Agent tree for the "Hierarki Failure Rate" tab (no Area Manager level)."""
     from compliance.stats_aggregate import (
         compute_scoped_hierarchy,
         compute_scoped_overview,
@@ -1115,6 +1284,46 @@ def _append_errorcard_rows(sheet, result_json, cust_id, appeals=None) -> None:
         ])
 
 
+def _scorecard_issues(evaluation: dict) -> list:
+    """Item scorecard yang belum beres — isi kolom SCORECARD tata letak Demo.
+
+    Dua keadaan, dan keduanya berbeda artinya:
+
+    * ``BELUM_SESUAI`` — item benar-benar gagal; bobotnya SUDAH dipotong dari skor.
+    * ``PENDING`` — item verifikasi statik (SC_CL_23_1 tanggal lahir / SC_CL_23_2 nama
+      ibu kandung) yang baris verifikasinya masih di zona abu-abu: dokumen pendukungnya
+      ditunggu dan tenggat H+2 belum lewat, jadi skornya BELUM dipotong. Begitu tenggat
+      lewat tanpa unggah, ``apply_static_document_status`` menjadikan barisnya MISMATCH
+      dan ``_propagate_verification_to_scorecard`` menurunkan item-nya ke BELUM_SESUAI —
+      butir yang tadinya kuning berubah merah dengan sendirinya.
+
+    Dibaca dari evaluasi yang SUDAH melewati status dokumen + banding, sama dengan
+    sumber ``ai_score``, sehingga daftar ini tidak bisa berbeda dari skornya. Urutannya
+    mengikuti urutan scorecard, bukan dikelompokkan per status.
+    """
+    pending_codes = set()
+    for row in evaluation.get("card_holder_verification") or []:
+        if not isinstance(row, dict) or row.get("match") != "PENDING":
+            continue
+        code = CARD_HOLDER_STATIC_SCORECARD.get(row.get("field"))
+        if code:
+            pending_codes.add(code)
+
+    out = []
+    for item in evaluation.get("scorecard_result") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("item_code") or "").strip()
+        if not code:
+            continue
+        status = str(item.get("status") or "").strip().upper()
+        if status == "BELUM_SESUAI":
+            out.append({"item_code": code, "status": "BELUM_SESUAI"})
+        elif code in pending_codes:
+            out.append({"item_code": code, "status": "PENDING"})
+    return out
+
+
 def _non_tolerable_reasons(evaluation: dict) -> list:
     """Negated reasons for non-tolerable (tolerable=NO) scorecard items still unmet
     (status=BELUM_SESUAI), e.g. "Agent tidak menjelaskan biaya" — TEXT ONLY, without
@@ -1218,6 +1427,20 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
         change = -w if w is not None else blank
         desc = f'{category_label(it.get("category")) or "—"} - {it.get("item_code") or "—"} - {it.get("requirement") or "—"}'
         sheet.append([desc, change, blank])
+    # ZERO-SCORE RULE diberi barisnya sendiri: tanpa ini kolom "Perubahan" tidak
+    # menjumlah ke "Hasil" (skor maksimal 108,75, pengurangan scorecard hanya -7,5,
+    # tetapi hasilnya 0), sehingga terbaca seperti salah hitung.
+    if _no_product_interest(evaluation) and max_score is not None:
+        belum_weight = sum(
+            w for it in belum if (w := _to_num(it.get("weight"))) is not None
+        )
+        cut = -(max_score - belum_weight)
+        sheet.append([
+            "Nasabah tidak berminat — tidak tertarik Mega Cashline maupun Mega Ultima "
+            "Shield, sehingga skor dipaksa menjadi 0",
+            int(cut) if cut == int(cut) else cut,
+            blank,
+        ])
     delta = None
     if phase2 is not None and max_score is not None:
         delta = phase2 - max_score
@@ -1273,14 +1496,12 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
     # persis seperti salah hitung — 148 dari batas 135, tetapi "TIDAK LULUS".
     for _reason in _non_tolerable_reasons(evaluation):
         sheet.append([f"Tidak dapat ditoleransi — {_reason}", blank, blank])
-    # Indikasi fraud dan badword TIDAK mengurangi skor — keduanya hanya menggugurkan
-    # hasilnya. Karena itu skornya bisa berada di ATAS batas lulus sementara "Hasil"
-    # berbunyi TIDAK LULUS; tanpa baris-baris ini pembacanya wajar mengira ekspor
-    # salah hitung. Urutannya sama dengan kolom AI Status di daftar Results: fraud
-    # dulu, lalu badword.
-    fraud_note = fraud_fail_reason(evaluation)
-    if fraud_note:
-        sheet.append([fraud_note, blank, blank])
+    # Badword TIDAK mengurangi skor — ia hanya menggugurkan hasilnya. Karena itu
+    # skornya bisa berada di ATAS batas lulus sementara "Hasil" berbunyi TIDAK LULUS;
+    # tanpa baris ini pembacanya wajar mengira ekspor salah hitung. Kegagalan
+    # konsistensi verifikasi statik tidak lagi ditulis di sini, sama dengan kolom AI
+    # Status di daftar Results (kebijakan 21 Agustus 2026) — sebabnya terbaca dari
+    # item kritikal SC_CL_23_1/23_2 yang gagal.
     # Tiap ucapan badword disebut lengkap dengan timestamp + kutipannya, sama dengan
     # tabel Badword Summary di dashboard.
     badwords = badword_rows(evaluation)
@@ -1297,12 +1518,24 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
 
 
 @router.get("/export_result_xlsx/{result_id}")
-def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
+def export_result_xlsx(
+    result_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_evaluation_detail_user),
+):
     """Export scorecard rows (one per ``scorecard_result`` item) for a single
-    ``done`` result as an XLSX download."""
+    ``done`` result as an XLSX download.
+
+    Capability-nya sama dengan detail penilaian di layar (RESULTS_EVALUATION_DETAIL):
+    isi berkasnya persis itu. Tombolnya di Results memang sudah disembunyikan dari
+    role tanpa capability tersebut (``isSimpleViewer`` di ResultsView.vue), tetapi
+    endpoint-nya dulu tidak ikut menutup — sisi sales tetap bisa menariknya langsung."""
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=404, detail="result tidak ditemukan")
+    # Berkasnya memuat ringkasan penilaian + scorecard + errorcard satu tiket penuh,
+    # jadi cakupannya harus sama dengan halaman detail — bukan sekadar "sudah login".
+    ensure_can_view_result(db, current_user, result)
     if result.status != "done":
         raise HTTPException(status_code=422, detail="result belum selesai (done)")
     data = crud.get_result_data(db, result_id)
@@ -1325,6 +1558,9 @@ def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
             _approved = approved_appeals_only(appeals)
             _flip = [a for a in appeals_that_flip(_approved) if _appeal_kind(a) != "add"]
             evaluation = normalize_static_verification(evaluation)
+            _ds = document_status_map(db, [result]).get(result_id)
+            if _ds is not None:
+                evaluation = apply_static_document_status(evaluation, _ds[0], _ds[1])
             evaluation = apply_approved_appeals(evaluation, _flip)
             evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
             evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -1337,13 +1573,17 @@ def export_result_xlsx(result_id: str, db: Session = Depends(get_db)):
         # "Hasil" dulu disimpulkan dari dict evaluasi saja dan karenanya buta terhadap
         # keduanya; lihat ``_append_ringkasan_rows``.
         _status = ai_status_for_result(db, result)
-        _note = None
+        _notes = []
+        _gap = data_gap_map(db, [result]).get(result_id)
+        if _gap and _status in ("PENDING", "FAIL"):
+            _notes.append(data_gap_reasons(_gap))
         if _missing_docs_map(db, [result], {result_id: data.result_json}).get(result_id):
             if _status == "PENDING":
-                _sla = " (SLA H+2)" if DOC_SLA_ENABLED else ""
-                _note = f"Menunggu dokumen pendukung{_sla}"
+                _sla = " (SLA H+2)" if doc_sla_enabled() else ""
+                _notes.append(f"Menunggu dokumen pendukung{_sla}")
             elif _status == "FAIL":
-                _note = "Dokumen pendukung tidak diunggah sampai tenggat (SLA H+2)"
+                _notes.append("Dokumen pendukung tidak diunggah sampai tenggat (SLA H+2)")
+        _note = " · ".join(_notes) or None
         _append_ringkasan_rows(ringkasan_sheet, result_json, _status, _note)
         _append_scorecard_rows(scorecard_sheet, result_json, cust_id)
         _append_errorcard_rows(errorcard_sheet, result_json, cust_id, appeals)
@@ -1490,6 +1730,7 @@ def export_tickets_xlsx(
         qcs = crud.qc_status_requests_for(db, ids)
         rjs = crud.result_json_map(db, ids)
         mdocs = _missing_docs_map(db, rows_done)
+        gaps = data_gap_map(db, rows_done)
         submits = crud.tms_submit_time_map(
             db, [c for c in (_customer_id_from_files(r.source_files) for r in rows_done) if c]
         )
@@ -1500,6 +1741,7 @@ def export_tickets_xlsx(
             ai = _result_ai_status(
                 rjs.get(rid), appeals.get(rid), qcs.get(rid), mdocs.get(rid, False),
                 _doc_sla_expired(submits.get(_customer_id_from_files(r.source_files)), now),
+                data_gap=gaps.get(rid),
             )
             if ai_filter and ai != ai_filter:
                 continue
@@ -1577,7 +1819,7 @@ def delete_ticket(
     ticket_id: str = Query(..., description="Ticket id (prefix sebelum '_' pada nama file) yang semua entry-nya akan dihapus"),
     db: Session = Depends(get_db),
 ):
-    """Delete ALL result entries for a ticket (SPQ Head only).
+    """Delete ALL result entries for a ticket (Admin only).
 
     Removes every Result whose ticket id matches ``ticket_id`` along with its
     dependent rows (result_data, documents, qc_status_requests,

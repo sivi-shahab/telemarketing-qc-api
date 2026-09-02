@@ -33,6 +33,7 @@ from compliance.error_codes import (
     apply_approved_critical_compliance_appeals,
     appeals_that_flip,
     approved_appeals_only,
+    apply_static_document_status,
     normalize_static_verification,
     build_error_code_table,
     document_error_code_rows,
@@ -49,6 +50,7 @@ from compliance.scoring import (
     scorecard_score,
 )
 from compliance.stats_aggregate import (
+    document_status_map,
     _doc_sla_expired,
     _missing_docs_map,
     doc_requirement_labels,
@@ -290,7 +292,7 @@ def _appeal_history_entry(a):
 
 
 def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=None,
-                           doc_overdue: bool = False, documents=()):
+                           doc_overdue: bool = False, documents=(), doc_status=None):
     """Return a shallow copy of result_json with evaluation.error_code_table
     computed by the shared single-source-of-truth builder (so the dashboard
     renders the same grouped table the XLSX export uses).
@@ -323,6 +325,10 @@ def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=Non
     flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
     # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
     evaluation = normalize_static_verification(evaluation)
+    # Status dokumennya menyusul: PENDING selama tenggat H+2 berjalan, MISMATCH bila
+    # terlewat tanpa unggah (lihat ``error_codes.apply_static_document_status``).
+    if doc_status is not None:
+        evaluation = apply_static_document_status(evaluation, doc_status[0], doc_status[1])
     evaluation = apply_approved_appeals(evaluation, flip)
     evaluation = apply_approved_card_holder_appeals(evaluation, flip)
     evaluation = apply_approved_cashline_appeals(evaluation, flip)
@@ -419,6 +425,12 @@ def get_result(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Result tidak ditemukan",
         )
+    # Cakupan tiket, bukan sekadar capability: tanpa ini seluruh evaluasi (skor,
+    # error code, isi percakapan) satu tiket terbuka lewat result_id-nya saja untuk
+    # siapa pun yang punya RESULTS_EVALUATION_DETAIL — termasuk QC yang tiketnya
+    # tidak di-assign dan role ber-``data_scope: all`` yang dipersempit ke satu
+    # campaign. Daftar Results/Transcripts sudah ter-scope, halaman detailnya belum.
+    ensure_can_view_result(db, current_user, result)
 
     if result.status == "done":
 
@@ -441,6 +453,7 @@ def get_result(
         result_json = _with_error_code_table(
             raw_json, is_new_joiner, appeals, doc_overdue,
             crud.document_ocr_by_result(db, [str(result.id)]).get(str(result.id), ()),
+            document_status_map(db, [result]).get(str(result.id)),
         )
 
         return ResultResponse(

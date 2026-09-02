@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import ensure_buckets
 # qc_database dinonaktifkan (bucket qc-database di-comment di api/dependencies.py)
-from api.routers import agent_error, auth, campaign, document, error_code_appeal, qc_assignment, qc_manual_check, qc_status, role, sales_database, stats, transcript, webhook
+from api.routers import agent_error, app_setting, auth, campaign, document, error_code_appeal, qc_assignment, qc_manual_check, qc_status, reprocess, role, sales_database, stats, tickets_daily, tickets_daily_pdf, transcript, webhook
 
 
 @asynccontextmanager
@@ -19,7 +19,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +47,10 @@ app.include_router(error_code_appeal.router)
 app.include_router(qc_assignment.router)
 # app.include_router(qc_database.router)
 app.include_router(sales_database.router)
+app.include_router(reprocess.router)
+app.include_router(tickets_daily.router)
+app.include_router(tickets_daily_pdf.router)
+app.include_router(app_setting.router)
 
 
 @app.get("/health")

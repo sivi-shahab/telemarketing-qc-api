@@ -5,7 +5,7 @@ from api.dependencies import (
     get_current_user,
     get_db,
 )
-from api.qc_scope import ensure_qc_assigned_to_result
+from api.qc_scope import ensure_can_view_result
 from api.schemas.result import ErrorCodeAppealInfo
 from compliance.error_codes import effective_appeal_status, is_cashline_code
 from compliance.error_reasons import ERROR_REASONS
@@ -229,7 +229,9 @@ def submit_error_code_appeal(
     current_user=Depends(require(ERROR_CODE_APPEAL)),
 ):
     result = _validate_result(db, result_id)
-    ensure_qc_assigned_to_result(db, current_user, result)
+    # Assignment DAN campaign sekaligus — ``ensure_can_view_result`` menegakkan
+    # keduanya, jadi cakupan banding sama persis dengan cakupan melihat tiketnya.
+    ensure_can_view_result(db, current_user, result)
 
     fields = _normalize_appeal_form(
         error_code=error_code,
@@ -289,7 +291,10 @@ def direct_error_code_appeal(
     ('tl_direct' / 'spq_direct'). QC still submits through the tiered review; only
     reviewers may edit directly. Blocked (409) while a QC appeal is pending on the
     same row — use Review Banding for that instead."""
-    _validate_result(db, result_id)
+    # Edit langsung berlaku SEKETIKA (auto-approved), jadi cakupan tiketnya wajib
+    # ditegakkan di sini: tanpa ini reviewer yang dipersempit ke satu campaign bisa
+    # mengubah error code — dan karenanya skor — tiket campaign lain.
+    ensure_can_view_result(db, current_user, _validate_result(db, result_id))
 
     fields = _normalize_appeal_form(
         error_code=error_code,
@@ -331,6 +336,21 @@ def direct_error_code_appeal(
     return _appeal_info(appeal)
 
 
+def _appeal_in_scope(db: Session, current_user, appeal_id: int):
+    """Banding ``appeal_id`` + jaminan pemanggil boleh menyentuh TIKETNYA.
+
+    Endpoint review bekerja dengan ``appeal_id``, bukan ``result_id``, sehingga
+    cakupan tiket gampang terlewat: sebelum ini seorang reviewer yang dipersempit ke
+    satu campaign tetap bisa approve/reject banding milik campaign lain — cukup
+    dengan menebak id banding-nya (integer berurutan). 404 bila banding tidak ada,
+    403 bila tiketnya di luar cakupan."""
+    appeal = crud.get_error_code_appeal(db, appeal_id)
+    if appeal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Banding tidak ditemukan")
+    ensure_can_view_result(db, current_user, _validate_result(db, str(appeal.result_id)))
+    return appeal
+
+
 @router.post("/error_code_appeal/{appeal_id}/tl_review", response_model=ErrorCodeAppealInfo)
 def tl_review_error_code_appeal(
     appeal_id: int,
@@ -354,6 +374,7 @@ def tl_review_error_code_appeal(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Komentar wajib diisi saat menolak banding",
         )
+    _appeal_in_scope(db, current_user, appeal_id)
     appeal = crud.tl_review_error_code_appeal(
         db, appeal_id=appeal_id, decision=decision, reviewer_username=current_user.username,
         comment=comment,
@@ -385,9 +406,7 @@ def review_error_code_appeal(
         )
 
     # Tiered flow: SPQ Head may only decide banding that Team Leader QC ESCALATED.
-    existing = crud.get_error_code_appeal(db, appeal_id)
-    if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Banding tidak ditemukan")
+    existing = _appeal_in_scope(db, current_user, appeal_id)
     if getattr(existing, "tl_qc_status", "pending") != "escalated":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

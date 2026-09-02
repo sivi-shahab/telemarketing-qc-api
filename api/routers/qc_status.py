@@ -6,16 +6,15 @@ from api.dependencies import (
     get_db,
     get_manual_status_setter_user,
 )
-from api.qc_scope import ensure_can_view_result, ensure_qc_assigned_to_result
+from api.qc_scope import ensure_can_view_result
 from api.schemas.result import QcStatusEventListResponse, QcStatusRequestInfo
 from db import crud
 from api.permissions import (
-    SCOPE_QC_ASSIGNED,
     MANUAL_STATUS_DIRECT,
     MANUAL_STATUS_REVIEW_SPQ,
     MANUAL_STATUS_REVIEW_TL,
 )
-from api.rbac import data_scope_for, has_perm, require
+from api.rbac import has_perm, require
 from compliance.stats_aggregate import ai_status_for_result, manual_status_of
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -91,8 +90,12 @@ def submit_qc_status_request(
     kepadanya.
     """
     result = _validate_result(db, result_id)
-    if data_scope_for(db, current_user) == SCOPE_QC_ASSIGNED:
-        ensure_qc_assigned_to_result(db, current_user, result)
+    # Cakupan TIKET, bukan hanya assignment: ``ensure_can_view_result`` menegakkan
+    # keduanya sekaligus (campaign role + assignment untuk cakupan ``qc_assigned``).
+    # Versi lama hanya memeriksa assignment, sehingga pemegang MANUAL_STATUS_DIRECT
+    # yang dipersempit ke satu campaign tetap bisa memvonis tiket campaign lain —
+    # dan vonis itu final saat itu juga.
+    ensure_can_view_result(db, current_user, result)
 
     requested_status = (requested_status or "").strip().upper()
     if requested_status not in VALID_STATUS:
@@ -153,6 +156,7 @@ def tl_review_qc_status_request(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Komentar wajib diisi saat menolak permintaan",
         )
+    ensure_can_view_result(db, current_user, _validate_result(db, result_id))
     req = crud.tl_review_qc_status_request(
         db, result_id=result_id, decision=decision, reviewer_username=current_user.username,
         comment=comment,
@@ -185,6 +189,8 @@ def review_qc_status_request(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Komentar wajib diisi saat menolak permintaan",
         )
+
+    ensure_can_view_result(db, current_user, _validate_result(db, result_id))
 
     # Tiered flow: SPQ Head may only decide requests that Team Leader QC ESCALATED.
     existing = crud.get_qc_status_request(db, result_id)

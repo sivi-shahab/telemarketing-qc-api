@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.dependencies import get_db, get_agent_error_summary_user
+from api.qc_scope import ensure_can_view_result
 from sales_lookup import active_sales_map, new_joiner_info
 from compliance.badwords import badword_rows
 from compliance.error_codes import (
@@ -88,11 +89,19 @@ def _snapshot_cashline(result_data) -> dict:
     cashline = ref.get("cashline")
     return cashline if isinstance(cashline, dict) else {}
 @router.get("/agent_error_summary/{result_id}")
-def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
+def agent_error_summary(
+    result_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_agent_error_summary_user),
+):
     """Agent + campaign + error-code rows for one result (used in the Results dropdown)."""
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=404, detail="result tidak ditemukan")
+    # Isinya adalah tabel Error Code + badword tiket itu — sama sensitifnya dengan
+    # halaman detailnya, jadi ikut aturan cakupan tiket dan bukan hanya "sudah login".
+    ensure_can_view_result(db, current_user, result)
+
     # [FIX] agent_id & submit_time (Tanggal) dibaca dari SNAPSHOT
     # ``reference_data.cashline`` di result_json dulu, baru jatuh ke baris DWH
     # live. Sebelumnya HANYA dari DWH live, jadi Agent ID/Name/Tanggal kosong
@@ -163,26 +172,42 @@ def agent_error_summary(result_id: str, db: Session = Depends(get_db)):
         table = inject_added_rows(build_error_code_table(evaluation), added_appeals_only(appeals))
         table = relabel_error_table(table, [a for a in approved if _appeal_kind(a) != "add"])
 
-    # Collapse rows that repeat the same reason into a single entry (first wins,
+    # Collapse rows that repeat the SAME FINDING into a single entry (first wins,
     # order preserved) — the summary lists an agent's distinct errors, so an
-    # identical value surfacing twice is noise. De-dup on ``details_error``: that
-    # is the code description the frontend actually renders in the "Reason" column,
-    # so two rows sharing the same code (e.g. B17 for both Tanggal Lahir & Nama Ibu
-    # Kandung) collapse into one instead of showing a duplicated reason. Empty
-    # values are left as-is.
+    # identical value surfacing twice is noise.
+    #
+    # De-dup key = (details_error, reason, evidence). Sampai 28 Agustus 2026 kuncinya
+    # hanya ``details_error``, sehingga satu kode yang dilanggar di beberapa tempat
+    # (mis. B17 untuk Tanggal Lahir DAN Nama Ibu Kandung) runtuh jadi satu baris.
+    # Sejak kolom Evidence & Reason ditambahkan ke Agent Error Summary hal itu
+    # berarti membuang evidence temuan kedua dan seterusnya, jadi kuncinya diperluas:
+    # satu baris = satu temuan, dan kode yang sama boleh muncul berkali-kali selama
+    # reason/evidence-nya berbeda. Baris yang ketiga nilainya kosong dibiarkan lewat.
     errors = []
-    seen_details: set = set()
+    seen_findings: set = set()
     for row in table:
         details = row.get("details_error") or ""
-        if details and details in seen_details:
+        reason = row.get("reason") or ""
+        evidence = row.get("evidence") or ""
+        key = (details, reason, evidence)
+        if any(key) and key in seen_findings:
             continue
-        if details:
-            seen_details.add(details)
+        if any(key):
+            seen_findings.add(key)
         errors.append(
             {
                 "ticket_id": row.get("ticket_id") or "",
                 "details_error": details,
-                "reason": row.get("reason") or "",
+                # Kategori error dari tabel Error Code (mis. "Data Input"). Sejak
+                # 28 Agustus 2026 INILAH yang dirender Agent Error Summary di kolom
+                # "Failure Category"; ``details_error`` tetap dikirim karena dipakai
+                # untuk de-dup di atas dan oleh kolom "Detail Error" yang masih ada
+                # di template (nonaktif lewat flag).
+                "error_category": row.get("error_category") or "",
+                # Kutipan transkrip + timestamp pemicu error code, apa adanya dari
+                # ``trigger_source`` evaluasi (sudah ikut banding QC yang disetujui).
+                "evidence": evidence,
+                "reason": reason,
             }
         )
 

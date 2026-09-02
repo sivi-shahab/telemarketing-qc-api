@@ -9,6 +9,8 @@ di kode. Aturan pengamannya:
 * Role yang masih dipakai user tidak bisa dihapus — user-nya harus dipindah dulu.
 * Pemegang ADMIN_ROLE_WRITE tidak bisa mencabut ADMIN_ROLE_WRITE dari role dirinya
   sendiri; tanpa itu tidak ada seorang pun yang bisa mengelola role lagi.
+* Role di ``PROTECTED_ROLES`` (``spq_head``, ``admin``, ``demo``) tidak bisa dihapus
+  dan tidak bisa kehilangan ADMIN_ROLE_WRITE, siapa pun yang menyimpannya.
 * Campaign KOSONG = semua campaign. Ini bawaan setiap role, termasuk ``qc``.
 """
 import re
@@ -115,12 +117,14 @@ def _validate_permissions(perms: list, role_key: str = "") -> list:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Permission tidak dikenal: {', '.join(sorted(unknown))}",
         )
-    # Capability pengurusan data hanya untuk role ``admin`` (14 Agustus 2026).
-    # Dicek di sini, bukan hanya disembunyikan dari daftar checkbox: menyembunyikan
-    # saja masih menyisakan jalan lewat request langsung ke API. ``admin`` sendiri
-    # tetap boleh disimpan ulang lewat Manage Role — kalau tidak, role itu tidak
-    # akan pernah bisa diedit lagi karena daftarnya memang memuat capability ini.
-    if role_key != "admin":
+    # Capability pengurusan data hanya untuk role admin-like — ``admin`` sejak
+    # 14 Agustus 2026, ditambah ``demo`` sejak 27 Agustus 2026 (lihat
+    # ``P.ADMIN_LIKE_ROLES``). Dicek di sini, bukan hanya disembunyikan dari daftar
+    # checkbox: menyembunyikan saja masih menyisakan jalan lewat request langsung ke
+    # API. Role admin-like sendiri tetap boleh disimpan ulang lewat Manage Role —
+    # kalau tidak, role itu tidak akan pernah bisa diedit lagi karena daftarnya
+    # memang memuat capability ini.
+    if role_key not in P.ADMIN_LIKE_ROLES:
         forbidden = [p for p in perms if p in P.ADMIN_ONLY_PERMISSIONS]
         if forbidden:
             raise HTTPException(
@@ -260,11 +264,11 @@ def update_role(
 
     # Capability admin-only tidak muncul di form (lihat `permission_catalog`), jadi
     # ia juga tidak ikut terkirim balik. Bawa serta apa adanya dari DB — tanpa ini
-    # menyimpan role Admin lewat Manage Role akan diam-diam mencabut seluruh menu
-    # pengurusan data dari satu-satunya role yang memilikinya.
+    # menyimpan role admin-like (``admin``/``demo``) lewat Manage Role akan diam-diam
+    # mencabut seluruh menu pengurusan data dari role yang memilikinya.
     carried = (
         [p for p in (role.permissions or []) if p in P.ADMIN_ONLY_PERMISSIONS]
-        if role.key == "admin" else []
+        if role.key in P.ADMIN_LIKE_ROLES else []
     )
     permissions = list(dict.fromkeys(
         carried + _validate_permissions(body.permissions, role.key)
@@ -307,6 +311,11 @@ def delete_role(
     role = db.query(Role).filter(Role.id == role_id).first()
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role tidak ditemukan")
+    if role.key in P.PROTECTED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Role '{role.key}' memegang kendali sistem dan tidak dapat dihapus",
+        )
     if role.is_system:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

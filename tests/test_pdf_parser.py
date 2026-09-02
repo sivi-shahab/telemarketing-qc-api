@@ -78,7 +78,7 @@ def test_parse_pdf_no_empty_text():
 def test_build_transcript_sorts_and_indexes():
     paths = glob.glob(_pdf("130220dkIM_*.pdf"))
     # shuffle by passing in reverse to prove sorting is by filename timestamp
-    sorted_filenames, messages, _ = build_transcript(sorted(paths, reverse=True))
+    sorted_filenames, messages, _, _ = build_transcript(sorted(paths, reverse=True))
     # ascending by YYYYMMDDHHMMSS
     assert sorted_filenames == sorted(os.path.basename(p) for p in paths)
     # call_index is 1-based and contiguous
@@ -104,7 +104,7 @@ def test_ticket_id_from_filename():
 
 def test_build_transcript_duplicate_suffix_set():
     paths = glob.glob(_pdf("130525f7HE_*.pdf"))
-    sorted_filenames, messages, _ = build_transcript(paths)
+    sorted_filenames, messages, _, _ = build_transcript(paths)
     # 4 files (two base + two " (1)" duplicates), ascending by timestamp
     assert len(sorted_filenames) == len(paths)
     ts = [parse_filename_timestamp(f) for f in sorted_filenames]
@@ -114,6 +114,6 @@ def test_build_transcript_duplicate_suffix_set():
 
 def test_build_transcript_three_file_session():
     paths = glob.glob(_pdf("210112Fzav_*.pdf"))
-    sorted_filenames, messages, _ = build_transcript(paths)
+    sorted_filenames, messages, _, _ = build_transcript(paths)
     assert len(sorted_filenames) == 3
     assert max(m["call_index"] for m in messages) == 3

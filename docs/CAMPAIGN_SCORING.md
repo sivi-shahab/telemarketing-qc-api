@@ -22,8 +22,8 @@ plus **RIPLAY** PDF opsional.
 
 | Berkas | Isi | Versi aktif (13 Agustus 2026) |
 |---|---|---|
-| **prompt.txt** | Instruksi/sistem prompt LLM — seluruh logika evaluasi & scoring | `prompt_cashline_mus_v54.txt` (~132 KB) |
-| **knowledge_base.txt** | Materi acuan/KB (dirujuk scorecard lewat kode `KB_CL_*`) | `cashline_kb_v21.txt` (~59 KB) |
+| **prompt.txt** | Instruksi/sistem prompt LLM — seluruh logika evaluasi & scoring | `prompt_cashline_mus_v74.txt` (~169 KB) |
+| **knowledge_base.txt** | Materi acuan/KB (dirujuk scorecard lewat kode `KB_CL_*`) | `cashline_kb_v34.txt` (~77 KB) |
 | **scorecard.txt** | Daftar item yang dinilai + bobot | `cashline_scorecard_v3.txt` (**39 item**) |
 | **riplay.pdf** | Fact sheet produk resmi bank; jadi ground truth angka produk | `riplay_cashline.pdf` |
 
@@ -89,6 +89,32 @@ Karena `kb_text_raw` disimpan terpisah, overlay selalu bisa dibangun ulang dari 
 
 ---
 
+
+### Koreksi manual pada `riplay_extraction` (24 Agustus 2026)
+
+Nilai **suku bunga cicilan** dari RIPLAY di-*override* di DB:
+
+| | |
+|---|---|
+| RIPLAY PDF | `Mulai dari 1,75% (Flat per bulan)` |
+| Dipakai sekarang | `0,99% - 3,99% per bulan (dihitung berdasarkan effective rate)` |
+
+Alasannya ada di catatan kaki RIPLAY itu sendiri: *"Ilustrasi Pembayaran cicilan
+menggunakan suku bunga terendah yaitu 1,75%, nominal angsuran dapat berbeda-beda
+berdasarkan suku bunga yang diberikan oleh Bank"* — angka itu **ilustrasi/simulasi**
+memakai batas terendah, bukan envelope produk. Agent di lapangan mengutip rentang
+operasional 0,99%–3,99% effective rate.
+
+Satu perubahan menyentuh dua tempat sekaligus, karena keduanya membaca field yang sama
+(`suku_bunga.cicilan`):
+- **TnC Product** field `bunga` (`build_tnc_product_reference` di `compliance/riplay.py`);
+- **overlay KB** `KB_CL_7` & `KB_CL_27` (`details.suku_bunga_cicilan`).
+
+> ⚠️ **Meng-upload ulang RIPLAY PDF lewat menu Campaign akan MENIMPA koreksi ini** —
+> `_extract_and_gate_riplay` mengekstrak ulang dari PDF dan menyimpannya. Alasan koreksi
+> ditulis di `riplay_extraction.suku_bunga.keterangan` supaya tidak "diperbaiki" balik
+> tanpa sengaja. Setelah upload ulang, terapkan lagi koreksinya.
+
 ## 3. Cara Upload / Update Campaign
 
 1. Dashboard → **Upload Data → Upload Campaign** → isi nama campaign + unggah file.
@@ -121,6 +147,16 @@ Karena `kb_text_raw` disimpan terpisah, overlay selalu bisa dibangun ulang dari 
 
 > `maximum_score` & `passing_grade` **dihasilkan LLM** di JSON evaluasi (bukan kolom DB;
 > `passing_grade` sudah di-drop dari scorecard sejak migrasi 0003) — bersifat dinamis per tiket.
+
+> **Ringkasan Kategori tidak menghitung item `TIDAK_DINILAI`** (24 Agustus 2026). Saat
+> nasabah tidak berminat MUS, 11 item MUS dilewati dan menurut KB "do not affect the score".
+> Sebelumnya bobotnya tetap dijumlahkan, sehingga tiga kategori MUS tampil **PASS bernilai
+> penuh** (22,5 + 11,25 + 7,5) padahal tidak satu pun itemnya dinilai, dan total Ringkasan
+> Kategori 150 bertentangan dengan `maximum_score` 108,75 di layar yang sama. Kini kategori
+> yang SELURUH itemnya dilewati bernilai **0/0** berlabel **TIDAK DINILAI** (badge abu-abu),
+> dan totalnya cocok dengan `maximum_score`. Murni perbaikan tampilan —
+> `scorecard_score` memang tidak pernah menghitungnya (`derive_category_summary`
+> di `compliance/error_codes.py`).
 
 ### 4.2 Tiga komponen skor
 
@@ -173,95 +209,54 @@ pemanggil (`stats.py`), bukan di `scoring.py`.
 > double-counting. `_card_holder_address_group_score` selalu mengembalikan 0.
 > Mekanismenya diuraikan di **Propagasi** di bawah.
 
-#### Grey band → minta dokumen (bukan langsung salah)
+#### Penyelarasan singkatan Ascend — `nama_ibu_kandung` (24 Agustus 2026)
 
-Field statik yang **hampir** cocok bukan MATCH bersih dan bukan kesalahan agent: bank
-meminta dokumen pendukung. Selama dokumen belum ada, tiket **PENDING** (`compliance/documents.py`):
+Nama di Ascend sering lebih **pendek** daripada yang diucapkan nasabah: kolomnya
+terpotong batas panjang field (`TRI WAHJOENINGSIH T`), atau nama depannya disingkat
+(`TH` untuk Theresia). Levenshtein bekerja **huruf-per-huruf pada seluruh string**,
+sehingga sisipan yang hilang dihitung sebagai kesalahan — nasabah yang menjawab
+**lebih lengkap** justru mendapat nilai lebih rendah.
 
-| Field | MATCH bersih | Grey band → dokumen | MISMATCH (error agent) |
-|---|---|---|---|
-| `nama_ibu_kandung` | ≥ 90 | 80 .. < 90 → **KK** | < 80 |
-| `tanggal_lahir` | = 100 | 87.5 .. < 100 → **KTP** | < 87.5 |
+Contoh 010550Vosa: `T` vs `Tirtosimono` saja menyumbang **10 dari 13** operasi dan
+menjatuhkan nilai ke **54%**. Bahkan bila ejaan Ascend diperbaiki, singkatan itu
+sendiri masih menahan nilainya di 64% — **tidak ada ambang yang bisa menolongnya.**
 
-Batas bawah band **sama** dengan batas MISMATCH pada prompt, sehingga keputusan LLM sejalan
-dengan tabel ini. Mengubah ambang berarti mengubah keduanya bersamaan.
+**Aturannya:** sebelum similarity dihitung, token transkrip **dipendekkan** mengikuti
+bentuk singkatan Ascend — hanya bila token Ascend ≤ 3 huruf **dan** merupakan
+**awalan** token transkrip pasangannya. Pemasangan token satu-lawan-satu.
 
-> **Cutoff retroaktif:** band hanya berlaku untuk result dengan
-> `uploaded_at >= CARD_HOLDER_DOC_BANDS_EFFECTIVE_FROM` (**2026-08-06 07:00 WIB**). Tanpa
-> cutoff, tiket lama yang jendela unggahnya sudah lama tutup akan berbalik
-> Qualified → Not Qualified seketika tanpa bisa ditindaklanjuti siapa pun.
+| Ascend | Transkrip | Sebelum | Sesudah | Hasil |
+|---|---|---|---|---|
+| `TRI WAHJOENINGSIH T` | Tri Wahyuningsih Tirtosimono | 54% | **84%** | MATCH, tanpa KK |
+| `TH RUSMINAH` | Theresia Rusminah | 65% | **100%** | MATCH, tanpa KK |
+| `NG TJIU LI` | NG TJU LIEN | 73% | **90%** | MATCH, tanpa KK |
+| `SITI HERTA ANGGIA` | Siti Herta | 59% | 59% | MATCH, **perlu KK** |
+| `RITA PATRIA` | Sarita Patricia | 73% | 73% | MATCH, **perlu KK** |
 
-#### Similarity & reason dihitung ulang di Python
+> **Acuan Ascend tidak pernah disentuh** — yang diselaraskan hanya sisi ucapan nasabah,
+> sejalan dengan normalisasi lain di `static_similarity.py` (penggabungan ejaan,
+> pembuangan label field & sapaan).
 
-`error_codes.py::normalize_static_verification` **tidak mempercayai angka LLM** untuk kedua
-field statik. Dipanggil di **semua** jalur baca (detail tiket, daftar Results, XLSX,
-agent error, agregat Statistics), jadi dashboard/export selalu memakai angka yang sama.
+> **Hanya boleh MENAIKKAN nilai** (`max(tanpa_penyelarasan, dengan_penyelarasan)`).
+> Token Ascend pendek kadang KEBETULAN menjadi awalan tanpa benar-benar merupakan
+> singkatannya: pada tiket `011013QyLm`, `NI` (partikel nama Bali `NI KETUT KERTI`)
+> memenggal ucapan `Niketor` dan menjatuhkan nilai 71% → 57%. Mengambil yang tertinggi
+> membuat salah-tebak seperti itu tidak pernah merugikan nasabah.
 
-| Tahap | Yang dilakukan |
-|---|---|
-| 1. Hitung ulang | Levenshtein ternormalisasi (`compliance/static_similarity.py`). Nama dibulatkan ke bilangan bulat; tanggal lahir dihitung atas bentuk baku `DDMMYYYY` dan **tidak** dibulatkan (87,5 tetap 87,5) |
-| 2. Penyebutan terbaik | Setiap elemen `extracted_mentions` **plus** nilai pilihan LLM diadu ke Ascend; similarity tertinggi menang, seri dimenangkan penyebutan **paling baru** |
-| 3. Tegakkan band | `match` diset ulang dari tabel di atas, bukan dari vonis LLM |
-| 4. Tulis ulang `reason` | Baris yang angkanya berubah mendapat kalimat deterministik: nilai disebut, nilai Ascend, persentase, tindak lanjut |
+> `RITA` vs `Sarita` **tidak** terkena karena `RITA` adalah **akhiran**, bukan awalan —
+> nama depan yang memang berbeda tetap masuk zona dokumen (`071100bNE9`).
 
-Kenapa perlu: angka LLM terbukti meleset — "ARNIYETTI" vs "Sarieti" pernah dilaporkan 44%
-padahal 56%, dan selisih sebesar itu memindahkan tiket melewati ambang 80 / 87,5. Tahap 4
-ditambahkan **13 Agustus 2026**: sebelumnya `match` dan `similarity_percent` dikoreksi tetapi
-`reason`-nya tetap kalimat LLM untuk vonis lama, sehingga tiket bisa berbunyi *"masih di atas
-ambang match Ascend"* tepat di sebelah kolom Match yang berbunyi **MISMATCH** — dan kalimat
-itu ikut terbawa ke kolom Reason tabel Error Code.
+> Sesudah penyelarasan, **tabel band berlaku apa adanya**. Tidak ada pembebasan dokumen
+> tersendiri: `similarity_percent` yang tampil sudah benar, sehingga permintaan dokumen,
+> kalimat `reason`, dan transisi PENDING/MISMATCH otomatis sepakat. Mekanisme
+> "cakupan token" yang sempat dipakai lebih awal pada 24 Agustus 2026 — pembebasan
+> terpisah di tiga tempat — **DICABUT**: ia menyisakan angka membingungkan di layar
+> (54% tetapi tanpa dokumen) dan satu jalur sempat terlewat sehingga QC diminta
+> mengunggah KK yang tidak pernah diwajibkan sistem.
 
-Dua larangan kata dipatuhi kalimat baru itu, keduanya punya konsekuensi mesin:
-
-- **zona abu-abu tidak memakai "sesuai"/"cocok"** — nilainya memang belum sama, itu justru
-  sebabnya dokumen diminta;
-- **"tidak konsisten"/"inkonsisten" tidak pernah dipakai** — frasa itu penanda kegagalan
-  tahap 1 yang dibaca `_reason_says_inconsistent`, jadi menuliskannya akan salah memvonis
-  tiket sebagai indikasi fraud.
-
-> **Baris yang gugur tahap 1 tidak disentuh sama sekali.** Pada baris itu
-> `similarity_percent` berisi kemiripan **antar-penyebutan nasabah**, bukan terhadap Ascend
-> (lihat §7 baris 2b). Membacanya sebagai nilai band akan "menyelamatkan" tiket yang justru
-> gagal karena jawabannya berubah-ubah. Dikenali dari bendera `consistency_failed` (prompt
-> v52) **dan** teks alasannya — hasil lama belum punya bendera itu.
-
-#### Propagasi: verifikasi → scorecard → critical compliance
-
-Kegagalan verifikasi tidak berhenti di tabel verifikasi; ia menuruni tiga tingkat:
-
-```
-card_holder_verification MISMATCH
-        │  _propagate_verification_to_scorecard
-        ▼
-scorecard SC_CL_23_1 / SC_CL_23_2 BELUM_SESUAI  (item_score 0 → phase_2 turun)
-        │  _sync_critical_compliance   (SC_CL_23_x termasuk item kritis)
-        ▼
-critical_compliance_check entry FAIL  → satu iris −(maximum_score / 4)
-```
-
-`SC_CL_24` (dinamik < 2 match) ikut diturunkan di langkah pertama, tetapi **bukan** item
-kritis sehingga tidak memicu iris beku. Propagasi hanya pernah **menurunkan**; memulihkan
-item ke SESUAI adalah wewenang banding.
-
-Keduanya berjalan lewat `apply_added_score_appeals`, sesudah semua banding diterapkan —
-sehingga banding B17 yang disetujui (MISMATCH → MATCH) menang atas propagasi.
-
-Ketiga tingkat memakai **satu sumber kalimat**, `static_verification_failure_reason`, agar
-tidak ada permukaan yang berbunyi lain: `reason` item scorecard ditulis ulang saat item itu
-dipaksa turun (tanpa itu tabel Scorecard berbunyi BELUM_SESUAI dengan alasan yang justru
-menyatakan item terpenuhi), dan entri critical compliance mendapat kalimat yang sama dari
-`annotate_critical_compliance_reasons`, yang jalan **sesudah** propagasi di jalur baca.
-
-> **Diperbaiki 13 Agustus 2026.** Sebelumnya kedua langkah ikut terjaga di balik
-> `if not added_appeals: return` — jadi hanya jalan pada tiket yang kebetulan punya banding
-> `add`, yakni minoritas. Akibatnya pada mayoritas tiket sebuah field statik MISMATCH
-> **tidak pernah** menurunkan SC_CL_23_x: tiket menampilkan B17 di tabel Error Code
-> sementara skornya utuh dan AI Status-nya tetap PASS — error yang terlihat tapi tidak
-> pernah dipotong. Perbaikan ini menurunkan skor **3 dari 98** tiket tersimpan (semuanya
-> `SC_CL_23_2`), **2** di antaranya berpindah PASS → Not Qualified.
-
-Nilai per tiket untuk `nama_ibu_kandung` bisa ditarik lewat `GET /get_nama_ibu_kandung`
-(lihat [`API_REFERENCE.md`](./API_REFERENCE.md) §5.2).
+> Dihitung saat **read-time**, jadi berlaku untuk tiket lama tanpa reproses. Dampak pada
+> data: **3 dari 98** baris berpindah dari "perlu KK" menjadi "tanpa dokumen".
+> Berlaku **hanya** untuk `nama_ibu_kandung`, tidak untuk `tanggal_lahir`.
 
 ### 5.2 Cashline Data — penalti per field MISMATCH
 
@@ -274,6 +269,13 @@ Ditambahkan ke `ai_score_verification` (negatif):
 | `nominal_cicilan_per_bulan` | −1 | `nomor_rekening` | −2 |
 | `bunga` | −1 | `nama_pemilik_rekening` | −2 |
 | `provisi` | −4 | `biaya_admin` | −5 |
+
+> **Ambang match `nama_pemilik_rekening` = 90%** (prompt v57, 21 Agustus 2026), bukan
+> 80% seperti field cashline lainnya: nama itu adalah tujuan pencairan dana, jadi
+> "kira-kira benar" tidak cukup. Tidak ada zona abu-abu dan tidak ada dokumen
+> pendukung — di bawah 90% langsung MISMATCH dengan penalti −2 di atas. Ambang ini
+> ditegakkan LLM lewat prompt; tidak ada hitung ulang di Python, jadi tiket yang sudah
+> dievaluasi baru mengikutinya setelah **diproses ulang**.
 
 Kode error yang muncul: **B02/B03/B05** (risk-graded per field). Lihat [`ERROR_CODE_CATALOG.md`](./ERROR_CODE_CATALOG.md).
 
@@ -311,12 +313,14 @@ Kategori harus jujur). Yang dikunci hanyalah **status**. Urutan di `api/routers/
 |---|---|---|
 | 1 | Veto non-tolerable (§4.4) | `PASS → FAIL` |
 | 2 | **Kekurangan dokumen wajib** | dalam tenggat H+2 → **PENDING**; lewat tenggat → **FAIL** |
-| 2b | **Indikasi fraud** — penyebutan nasabah tidak konsisten antar pengulangan (gugur tahap 1 verifikasi statik) | **FAIL**, menimpa PENDING (tiket ber-indikasi fraud tidak menunggu dokumen) |
+| 2b | **Konsistensi verifikasi statik** — penyebutan nasabah berubah-ubah antar pengulangan (gugur tahap 1) | **FAIL**, menimpa PENDING. **Hanya untuk tiket pra-v56**: aturannya dicabut pada 21 Agustus 2026, dan `static_consistency_failures` selalu kosong untuk evaluasi ber-`static_rules_version` ≥ 2. Tanpa catatan di kolom AI Status sejak tanggal yang sama |
 | 2c | **Badword** — agent mengucapkan kalimat bersentimen negatif kepada nasabah (prompt v53+) | **FAIL**, menimpa PENDING, tidak peduli skor |
 | 3 | **Manual Status yang sudah disetujui** | otoritas final, menimpa semua di atas |
 
-Bila 2b dan 2c kena bersamaan, **keduanya** ditulis di kolom AI Status dipisah ` · ` — QC
-perlu tahu tiketnya gugur karena dua sebab, bukan satu.
+Sejak 21 Agustus 2026 hanya aturan **2c (badword)** yang menuliskan catatan di kolom AI
+Status; aturan 2b berjalan diam-diam. Kolom **Critical Failure** yang menerangkan sebabnya,
+dengan kalimat seragam `Agent tidak memverifikasi <field> nasabah` — sama polanya dengan
+tiga item kritikal lain, tanpa label "Indikasi Fraud".
 
 ### 7.1 AI Status dihitung, tidak pernah disimpan
 
@@ -372,7 +376,6 @@ terbaca persis seperti salah hitung:
 | `Tidak dapat ditoleransi — <alasan>` | veto non-tolerable (aturan 1) — satu baris per item |
 | `Menunggu dokumen pendukung (SLA H+2)` | dokumen kurang, masih dalam tenggat → PENDING |
 | `Dokumen pendukung tidak diunggah sampai tenggat (SLA H+2)` | dokumen kurang, tenggat lewat → FAIL |
-| `Indikasi fraud …` | aturan 2b |
 | `Terindikasi Badword …` + satu baris per ucapan | aturan 2c |
 
 Baris non-tolerable adalah celah lama yang ikut ditutup: bobot itemnya memang sudah muncul
@@ -420,6 +423,10 @@ band card holder** (§5.1).
 ### Tenggat H+2 (SLA unggah dokumen)
 
 - **"H+2" = 48 jam sejak `tms_cashline.submit_time`** (`SLA_HOURS = 48`).
+- **Kebijakan ini bisa dimatikan dari menu Results** (role `admin`, 24 Agustus 2026):
+  saat NONAKTIF tenggat dianggap tidak pernah lewat sehingga tiket kekurangan dokumen
+  tetap PENDING. Tersimpan di `app_settings.doc_sla_enabled` — lihat
+  [`RUNBOOK.md`](./RUNBOOK.md) §9.
 - Selama tenggat belum lewat & dokumen belum diunggah → **PENDING**; setelah lewat → **FAIL**
   (Not Qualified).
 - `submit_time` kosong/tak terbaca → dianggap **sudah lewat** (tidak ada masa tenggang yang
@@ -565,4 +572,4 @@ Yang **tidak** ikut dikecualikan, dan itu disengaja:
 - [`ERROR_CODE_CATALOG.md`](./ERROR_CODE_CATALOG.md) — katalog kode & banding
 - [`INTEGRATION.md`](./INTEGRATION.md) — bagaimana transkrip diproses (worker + LLM)
 - [`RUNBOOK.md`](./RUNBOOK.md) — proses ulang tiket, sakelar SLA, refresh snapshot
-- Artefak campaign aktif di `docs/`: `prompt_cashline_mus_v54.txt`, `cashline_kb_v21.txt`, `cashline_scorecard_v3.txt`
+- Artefak campaign aktif di `docs/`: `prompt_cashline_mus_v74.txt`, `cashline_kb_v34.txt`, `cashline_scorecard_v3.txt` (identik byte-per-byte dengan DB; diverifikasi md5 28 Agustus 2026)

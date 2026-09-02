@@ -12,8 +12,9 @@ Referensi lengkap **46 error code**, arti **Risk Base**, kode mana yang **berded
 > 14 Agustus 2026; distribusi risk_base H=5 / M=8 / L=4 / O=1) — itu kode yang dikenali
 > mesin evaluasi. **46 kode** di bawah adalah katalog master lengkap untuk dropdown banding.
 >
-> Dari 18 entri itu, yang benar-benar **ditampilkan** hanya 10 (`ALLOWED_ERROR_CODES`, §4);
-> `B08` dan `B11/B13/B15/B19/B20/B24/B26` dikatalogkan tetapi tidak diterbitkan. Tiap entri
+> Dari entri itu, yang benar-benar **ditampilkan** hanya 12 (`ALLOWED_ERROR_CODES`, §4);
+> `B08` dan `B11/B13/B15/B19/B20/B24/B26` dikatalogkan tetapi tidak diterbitkan.
+> **B27 & B28** ditambahkan 28 Agustus 2026 dan ikut ditampilkan. Tiap entri
 > juga membawa `error_type` & `error_category` dari sheet — lihat §4.1.
 
 ---
@@ -82,7 +83,7 @@ Distribusi risk_base di katalog (46 kode): **O=20, M=10, L=7, H=5, H+T=3, Approv
 | A14 | System | — | Supplement belum dapat diproses (basic card rejected) |
 | A15 | System | — | Base on CCBM ada perubahan No HP |
 
-### Error - Human — B01–B26 (26)
+### Error - Human — B01–B28 (28)
 | Code | Category | Risk | Campaign | Details |
 |---|---|---|---|---|
 | B01 | Data Input | O | — | Penulisan nama typo/kurang 1 huruf/pelafalan Inggris salah |
@@ -111,6 +112,8 @@ Distribusi risk_base di katalog (46 kode): **O=20, M=10, L=7, H=5, H+T=3, Approv
 | B24 | TnC Product | L | — | Customer cancel supplement (crosselling) namun sudah tersubmit |
 | B25 | TnC Product | L | — | No HP supplement sama dengan basic |
 | B26 | Legal Statement | M | — | Legal statement bersyarat |
+| **B27** | Offering bukan kepada CH | M | All Campaign | Offering bukan kepada Nasabah terundang (NTB Eksternal) |
+| **B28** | Inappropriate Language | M | All Campaign | Penawaran dengan kata/kalimat tidak sopan, sarkas, tidak pantas, menyinggung |
 
 ### Error - Customer — C01–C04 (4, semua Risk Base `O`)
 | Code | Category | Campaign | Details |
@@ -146,8 +149,34 @@ hanyalah label turunan; Risk Base hanya untuk pelaporan/statistik.
 > [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §5.1.
 
 **Filter tampilan:** hanya kode dalam `ALLOWED_ERROR_CODES = {B02, B03, B05, B09, B10, B12,
-B16, B17, B18, C03}` yang muncul di tabel Error Code. Kode lain (mis. B08, B11, B13, B15,
-B19…) tidak ditampilkan — dan karena tidak berdeduksi, penyembunyian ini tidak mengubah skor.
+B16, B17, B18, B27, B28, C03}` yang muncul di tabel Error Code. Kode lain (mis. B08, B11,
+B13, B15, B19…) tidak ditampilkan — dan karena tidak berdeduksi, penyembunyian ini tidak
+mengubah skor.
+
+> **B27 & B28 ditambahkan 28 Agustus 2026** bersama masuknya kedua kode itu ke sheet
+> `Error Reason - Telemarketing QC_28082026.xlsx` (baris 44-45). Keduanya Risk Base **M**,
+> jadi begitu muncul ia IKUT menaikkan Total Failure & Failure Rate — itu memang yang
+> dimaksud, bukan efek samping.
+>
+> Dua hal yang mudah salah kalau menebak, keduanya disalin apa adanya dari sheet:
+> - `error_category` **B27 = "Offering bukan kepada CH"**, sama dengan B20 — bukan kategori
+>   sendiri. Kolom inilah yang dirender dashboard sebagai **Failure Category**.
+> - Risk Base keduanya **M**, bukan H.
+>
+> Bedanya B27 dengan B20: B20 soal penawaran yang tidak sampai ke pemegang kartu UTAMA
+> (orangnya tetap terundang); B27 soal orang yang memang TIDAK ADA dalam daftar undangan
+> (NTB Eksternal).
+>
+> **B28 tidak diterbitkan LLM.** Ia diturunkan di sisi kode dari `badword_check`: satu
+> temuan badword = satu baris B28 (bagian `--- 4)` pada `build_error_code_table`).
+> `item_code`-nya kosong karena temuan itu tidak menempel pada item scorecard mana pun,
+> sehingga de-dup `add()` tidak aktif — dan itu benar, sebab satu panggilan bisa memuat
+> beberapa ucapan bermasalah yang masing-masing berdiri sendiri. `badword_rows()` sendiri
+> sudah melipat temuan kembar (timestamp + kutipan sama).
+>
+> Konsekuensi: karena diturunkan di KODE (bukan prompt), tiket lama yang evaluasinya sudah
+> memuat `badword_check` langsung menampilkan B28 **tanpa perlu Reprocess**. B27 sebaliknya
+> — ia diterbitkan LLM, jadi hanya berlaku untuk evaluasi setelah prompt v70.
 
 ---
 

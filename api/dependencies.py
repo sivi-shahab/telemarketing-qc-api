@@ -183,6 +183,16 @@ def get_db() -> Generator[Session, None, None]:
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     db = _SessionLocal()
     try:
+        # Sakelar kebijakan SLA H+2 (app_settings) dibaca sekali per request lalu
+        # disimpan di cache modul, karena _doc_sla_expired dipanggil dari banyak
+        # fungsi yang tidak memegang sesi DB. crud-nya sendiri ber-TTL 10 detik,
+        # jadi ini tidak menambah query di setiap permintaan.
+        try:
+            from compliance.stats_aggregate import refresh_doc_sla_cache
+
+            refresh_doc_sla_cache(db)
+        except Exception:
+            pass
         yield db
     finally:
         db.close()
@@ -385,25 +395,6 @@ async def get_agent_error_summary_user(
     return current_user
 
 
-# async def get_evaluation_detail_user( 
-#     current_user=Depends(get_current_user),
-# ):
-#     # Detail penilaian (Executive Summary + verifikasi Ascend/TMS) hanya untuk
-#     # sisi QC. Sisi sales — sales_agent, team_leader, area_manager, telesales_head
-#     # — cukup Agent Error Summary; mereka tidak boleh membuka detail penilaian
-#     # tiket agent di bawah mereka.
-#     #
-#     # qc_support ikut boleh, tapi tetap stand alone: scoping-nya di
-#     # _scoped_customer_ids/list_results membatasi dia hanya ke upload-annya sendiri.
-#     # "demo" (read-only showcase) may open evaluation detail, mirroring the SPQ view.
-#     if current_user.role not in (
-#         "qc", "team_leader_qc", "qc_support", "spq_head", "admin", "demo",
-#     ):
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="Detail penilaian hanya untuk QC, TL QC, QC Support, SPQ Head, atau Admin",
-#         )
-#     return current_user
 # Detail penilaian (Executive Summary + verifikasi Ascend/TMS) hanya untuk sisi QC;
 # sisi sales cukup Agent Error Summary. qc_support ikut boleh tapi tetap stand alone
 # karena data_scope-nya yang membatasi dia ke upload-annya sendiri.

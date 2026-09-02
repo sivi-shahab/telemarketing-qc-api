@@ -143,20 +143,45 @@ mc mirror qc/documents   ./backup/documents
 
 ## 7. Memproses Ulang Tiket (reprocess)
 
-Tidak ada endpoint "reprocess" khusus. Untuk mengevaluasi ulang sebuah tiket:
+Ada **tiga** cara, semuanya butuh akun `admin`. Karena prompt/scorecard/KB diambil
+**fresh dari DB** tiap task, ketiganya otomatis memakai konfigurasi campaign terbaru —
+inilah cara menerapkan revisi prompt ke tiket yang sudah ada.
 
-1. **Hapus tiket** (menu Delete, permission `admin.ticket.delete`), atau via endpoint
-   `DELETE /delete_ticket?ticket_id=<id>` (lihat [`API_REFERENCE.md`](./API_REFERENCE.md)).
-2. **Upload ulang** transkripnya (menu Upload Transcript), atau jalankan ulang webhook
-   ingestion (lihat [`INTEGRATION.md`](./INTEGRATION.md)) — task Celery baru akan
-   mengevaluasi ulang dengan prompt campaign yang aktif saat itu.
+| Cara | Untuk | Permission |
+|---|---|---|
+| Tombol **Reprocess** (kolom Action, menu Results) | satu ticket id | `admin.ticket.reprocess` |
+| Menu **Upload Data → Reprocess All Ticket** | semua tiket satu/beberapa campaign | `admin.ticket.reprocess` |
+| Hapus + upload ulang transkrip | kasus khusus (mis. berkas PDF-nya sendiri salah) | `admin.ticket.delete` + `transcript.upload` |
 
-> ⚠️ **Sejak 14 Agustus 2026 kedua langkah itu butuh akun `admin`.** Menghapus tiket dan
-> seluruh menu Upload Data sudah tidak dimiliki SPQ Head — lihat
-> [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.1.
+Dua cara pertama memakai mesin yang sama dan **aman terhadap kegagalan**: entry lama
+sebuah ticket id hanya dihapus SETELAH entry barunya berstatus `done`; kalau gagal,
+entry baru dibuang dan entry lama dipertahankan apa adanya. Yang dihapus persis id yang
+dibekukan saat tombol ditekan, jadi upload yang masuk di tengah job tidak ikut terhapus.
 
-> Karena prompt/scorecard diambil **fresh dari DB** tiap task, memproses ulang setelah
-> mengubah campaign akan memakai konfigurasi terbaru — berguna setelah revisi prompt/KB/scorecard.
+Yang **hilang** pada entry lama setelah reproses berhasil: banding Error Code,
+usulan/approval Manual Status, dan dokumen pendukung. Berkas transkrip & JSON hasil di
+MinIO tidak dihapus.
+
+```bash
+# satu tiket
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  "http://<host>:4000/reprocess_ticket?ticket_id=221111rBUk" | jq
+
+# pantau (job_id dari respons di atas, atau dari POST /reprocess_tickets)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://<host>:4000/reprocess_job/<job_id>" | jq '.status, .counts'
+```
+
+**Ongkosnya nyata**: satu panggilan LLM per unique ticket id. Rerun 98 tiket cashline
+pada 21 Agustus 2026 memakan ~30 menit dengan `CELERY_CONCURRENCY=16` (~5 menit per
+tiket, 16 slot paralel). Naikkan concurrency lewat `.env` lalu **`docker compose up -d
+worker`** — `docker restart` TIDAK cukup, karena nilainya masuk ke *command* container
+saat compose merender `--concurrency=${CELERY_CONCURRENCY:-8}`.
+
+> Perubahan yang murni soal **pembacaan** (ambang band, pemilihan penyebutan verifikasi
+> statik, teks reason) tidak menuntut reproses: semuanya dihitung ulang tiap kali
+> halaman dibuka. Yang menuntut reproses adalah perubahan yang mengubah **keluaran
+> LLM** — revisi prompt/KB/scorecard.
 
 ---
 
@@ -179,29 +204,43 @@ curl -s -H "X-API-Key: $API_KEY" http://<host>:4010/campaign_readiness | jq
 ## 9. Sakelar Aturan Tenggat H+2 (SLA dokumen)
 
 Tiket yang kekurangan dokumen wajib berstatus **PENDING** selama masih dalam 48 jam sejak
-`tms_cashline.submit_time`, dan **FAIL** setelahnya. Aturan itu punya satu sakelar:
+`tms_cashline.submit_time`, dan **FAIL** setelahnya.
 
-```python
-# compliance/stats_aggregate.py
-DOC_SLA_ENABLED = True   # False = tenggat dianggap tidak pernah lewat (PENDING selamanya)
+**Sejak 24 Agustus 2026 sakelarnya ada di LAYAR, bukan di kode.** Menu **Results** memuat
+indikator kebijakan untuk semua peran, dan tombol on/off untuk role `admin`. Tidak perlu
+edit file, tidak perlu restart, tidak perlu refresh manual:
+
+| | |
+|---|---|
+| **Lokasi** | menu **Results**, bilah di bawah baris filter |
+| **Tombol** | hanya muncul untuk role `admin` (capability `admin.doc_sla.write`) |
+| **Indikator** | biru = H+2 AKTIF · oranye = NONAKTIF; tampil untuk **semua** peran |
+| **Penyimpanan** | `app_settings.doc_sla_enabled` (`"true"`/`"false"`) |
+| **Endpoint** | `GET /doc_sla_policy` (cukup login) · `PUT /doc_sla_policy` (admin) |
+
+Lewat API bila perlu:
+
+```bash
+TOKEN=$(curl -s -X POST http://<host>:4010/auth/login \
+          -d 'username=<admin>&password=<pass>' | jq -r .access_token)   # form-encoded!
+curl -s -X PUT http://<host>:4010/doc_sla_policy \
+     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"enabled": false}'
 ```
 
 Kapan dimatikan: saat perlu **menguji tampilan PENDING** pada data yang submit_time-nya sudah
 lama lewat (semua tiket jatuh ke FAIL sehingga PENDING tak pernah muncul di layar).
 
-Prosedur mengubahnya:
-
-```bash
-# 1. Edit satu baris di compliance/stats_aggregate.py
-# 2. Backend tidak auto-reload:
-docker restart telemarketing-qc-system-api-1
-
-# 3. WAJIB — cache snapshot Statistics tidak ikut invalid (lihat §11):
-curl -s -X POST -H "X-API-Key: $API_KEY" http://<host>:4010/stats/refresh
-```
-
-> Hanya baris itu yang perlu diubah — semua pembaca lewat `_doc_sla_expired()`. Worker tidak
-> perlu di-restart (tidak mengimpor `stats_aggregate`).
+> **`POST /stats/refresh` TIDAK lagi diperlukan** untuk sakelar ini: kebijakannya ikut di
+> dalam `_stats_signature` (versi `v11`), jadi snapshot Statistics otomatis basi dan
+> dihitung ulang. Perubahan logika LAINNYA tetap butuh refresh manual — lihat §11.
+>
+> Konstanta lama `compliance/stats_aggregate.py: DOC_SLA_ENABLED` kini hanya **nilai
+> cadangan** bila nilai DB belum sempat terbaca. **Jangan** mengeditnya untuk mengubah
+> kebijakan — yang berlaku adalah isi `app_settings`.
+>
+> Semua pembaca tetap lewat `_doc_sla_expired()`. Worker tidak perlu di-restart
+> (tidak mengimpor `stats_aggregate`).
 >
 > **Dampaknya besar pada data lama:** mengaktifkan kembali membuat semua tiket PENDING yang
 > tenggatnya sudah lewat langsung terbaca Not Qualified, dan error rate organisasi naik.

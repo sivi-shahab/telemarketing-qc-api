@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
-from api.qc_scope import ensure_qc_assigned_to_result
+from api.qc_scope import ensure_can_view_result, ensure_qc_assigned_to_result
 from api.schemas.result import QcManualCheckInfo
 from db import crud
 from api.permissions import QC_MANUAL_CHECK_APPROVE
@@ -58,7 +58,12 @@ def get_manual_check_history(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Full audit trail for a ticket, oldest first. Readable by any authenticated
-    role — the Results list already scopes which tickets a user can see."""
-    _validate_result(db, result_id)
+    """Full audit trail for a ticket, oldest first.
+
+    Cakupannya mengikuti TIKET (``ensure_can_view_result``), bukan sekadar "sudah
+    login". Asumsi lama — "daftar Results toh sudah men-scope" — hanya benar untuk
+    UI: endpoint ini dipanggil dengan result_id, jadi tanpa gate ini riwayat
+    pemeriksaan tiket campaign lain terbaca oleh siapa pun yang tahu id-nya."""
+    result = _validate_result(db, result_id)
+    ensure_can_view_result(db, current_user, result)
     return crud.qc_manual_check_history(db, result_id)

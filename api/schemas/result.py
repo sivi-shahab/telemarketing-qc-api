@@ -132,9 +132,17 @@ class ResultListItem(BaseModel):
     source_files: Optional[list]
     num_calls: Optional[int]
     audio_duration: Optional[str] = None  # total spoken duration, e.g. "40m 30s"
+    # Rincian durasi per PDF: [{"file": "<nama>.pdf", "duration": "12m 3s"}], urut
+    # kronologis sama dengan `source_files`. Dipakai kolom Call Duration tata letak
+    # Demo. None pada tiket lama yang diproses sebelum rincian ini disimpan —
+    # tampilannya jatuh balik ke nama berkas tanpa durasi.
+    audio_durations: Optional[list] = None
     campaign_interest: Optional[list] = None  # LLM evaluation.campaign_interest (product names)
     critical_compliance_check: Optional[dict] = None  # LLM evaluation.critical_compliance_check (status + checked_items)
     non_tolerable_items: Optional[list] = None  # negated reasons for non-tolerable (tolerable=NO) unmet scorecard items
+    # Item scorecard yang belum beres: [{"item_code": "SC_CL_12", "status": "BELUM_SESUAI"
+    # | "PENDING"}]. Kolom SCORECARD tata letak Demo — lihat _scorecard_issues.
+    scorecard_issues: list[dict] = []
     status: str
     ai_score: Optional[float] = None  # LLM evaluation.ai_score_phase_3
     passing_grade: Optional[float] = None  # LLM evaluation.passing_grade
@@ -154,6 +162,11 @@ class ResultListItem(BaseModel):
     # Dokumen yang diminta BESERTA alasannya: [{"doc_type","doc_label","reason"}].
     # Kolom Document merangkainya jadi "Perlu Dokumen NPWP karena Perubahan NPWP".
     document_requirements: list[dict] = []
+    # Tiket ini punya item reproses yang masih mengantre/berjalan. Menahan tombol
+    # Reprocess di menu Results SETELAH refresh atau pindah menu — layar sendiri
+    # hanya mengingat job yang ia mulai di sesi itu, dan lupa begitu komponennya
+    # dibuang. Sumbernya sama dengan pengaman 409 di POST /reprocess_ticket.
+    reprocess_active: bool = False
     has_documents: bool = False  # at least one uploaded document exists for this result
     document_uploaded_at: Optional[datetime] = None  # latest document upload time, if any
     manual_status: Optional[str] = None  # PASS | FAIL | PENDING — vonis human, default mengikuti AI Status
@@ -168,8 +181,9 @@ class ResultListItem(BaseModel):
     # (SLA H+2)". None bila statusnya bukan PENDING atau PENDING-nya datang dari LLM.
     pending_reason: Optional[str] = None
     # Kenapa AI Status-nya Not Qualified, untuk sebab yang TIDAK terbaca dari skor —
-    # saat ini hanya indikasi fraud (penyebutan verifikasi statik tidak konsisten).
-    # None = tidak ada sebab khusus; kegagalan biasa cukup dibaca dari skor & error code.
+    # sejak 21 Agustus 2026 hanya badword. None = tidak ada sebab khusus; kegagalan
+    # biasa cukup dibaca dari skor & error code, dan kegagalan konsistensi verifikasi
+    # statik dibaca dari item kritikal SC_CL_23_1/23_2 yang gagal.
     fail_reason: Optional[str] = None
     # Jumlah kejadian pada riwayat Manual Status (0 = belum pernah berubah).
     manual_status_history_count: int = 0

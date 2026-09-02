@@ -104,12 +104,18 @@ panggilan dan membuka transkrip dengan legenda (hanya bila `source_files` tersed
 
 ```
 === DAFTAR PANGGILAN (pakai tag [Pn] di tiap baris untuk mengisi evidence.ticket_id) ===
-P1 = 030808fLO1_20260710111836   (waktu: 2026-07-10 11:18:36)
+P1 = 030808fLO1_20260709111836   (waktu: 2026-07-09 11:18:36)
 P2 = 030808fLO1_20260710160335   (waktu: 2026-07-10 16:03:35)
 === AKHIR DAFTAR PANGGILAN ===
 === Panggilan ke-2 (ticket_id: …) ===
 [P2] [Agent] [31:39.32 - 32:31.01] Iya. Ya itu nggak ada susahnya kok…
 ```
+
+> Legenda ini sempat membawa penanda tanggal per panggilan (`[VERIFIKASI STATIK: SAH /
+> TIDAK SAH]` di v56–v57, lalu `[TANGGAL SUBMIT]` / `[H±n]` di v58) untuk aturan tanggal
+> verifikasi statik. Aturan itu **dicabut pada v59** atas konfirmasi Bank Mega, jadi
+> penandanya ikut dibuang — menyisakannya hanya mengundang model memberi bobot pada
+> sesuatu yang bukan lagi aturan. Lihat [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §5.1.
 
 Sebelumnya `ticket_id` hanya ada di penanda `=== Panggilan ke-N ===`, jadi mengisi
 `evidence.ticket_id` menuntut model mengingat header yang bisa puluhan ribu karakter di
@@ -121,7 +127,7 @@ mustahil ada di panggilan yang disebutnya — jadi bug ini mengenai evidence sco
 error code, bukan hanya badword.
 
 Dengan tag menempel pada barisnya, model tidak lagi butuh memori jarak jauh: jawabannya ada
-di baris yang sedang dikutip. Biaya ~5 karakter per baris (<3% transkrip besar). Prompt v54
+di baris yang sedang dikutip. Biaya ~5 karakter per baris (<3% transkrip besar). Prompt v54+
 (§`INPUT SCHEMA` → "TAG PANGGILAN PER BARIS") mewajibkan `ticket_id` diambil dari tag `[Pn]`
 baris yang dikutip, dengan larangan eksplisit menyalin penanda `=== Panggilan ke-N ===`
 terdekat. Diuji di `tests/test_evaluator.py`.

@@ -240,8 +240,19 @@ def upload_detail_campaign(
 
 
 @router.get("/list_campaigns", response_model=CampaignListResponse)
-def list_campaigns(db: Session = Depends(get_db)):
+def list_campaigns(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Daftar campaign DALAM CAKUPAN pemanggil (sumber semua dropdown Campaign).
+
+    Dashboard sudah menyaringnya di sisi klien (``utils/campaignScope.js``), tetapi
+    penyaringan itu kosmetik — endpoint-nya sendiri dulu selalu mengembalikan seluruh
+    tabel, jadi nama campaign lain tetap terbaca dari respons mentahnya."""
+    from api.rbac import effective_campaigns_for
+
     campaigns = crud.list_campaigns(db)
+    allowed = effective_campaigns_for(db, current_user)
+    if allowed is not None:
+        names = {(c or "").strip().casefold() for c in allowed}
+        campaigns = [c for c in campaigns if (c.name or "").strip().casefold() in names]
     return CampaignListResponse(
         campaigns=[CampaignItem.model_validate(c) for c in campaigns]
     )
@@ -251,9 +262,24 @@ def list_campaigns(db: Session = Depends(get_db)):
 def get_campaign(
     campaign: str = Query(..., description="Nama campaign"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Return a campaign's full config (text content + original upload filenames)
-    for the dashboard viewer."""
+    for the dashboard viewer.
+
+    Dibatasi ke campaign yang menjadi cakupan pemanggil: isinya adalah knowledge
+    base, prompt dan scorecard — aturan QC campaign itu seutuhnya — dan dulu terbuka
+    untuk SIAPA PUN yang sudah login, cukup dengan menyebut namanya."""
+    from api.rbac import effective_campaigns_for
+
+    allowed = effective_campaigns_for(db, current_user)
+    if allowed is not None and campaign.strip().casefold() not in {
+        (c or "").strip().casefold() for c in allowed
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Campaign ini di luar cakupan Anda",
+        )
     c = crud.get_campaign_by_name(db, campaign)
     if not c:
         raise HTTPException(
@@ -301,7 +327,6 @@ def delete_campaign(
     return CampaignDeleteResponse(
         campaign=campaign, deleted=True, archive_objects_removed=removed
     )
-    
 
 
 @router.get(

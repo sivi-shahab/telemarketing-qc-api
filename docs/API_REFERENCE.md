@@ -85,24 +85,27 @@ Endpoint yang ikut dibatasi campaign: `/list_results`, `/list_transcripts`, `/st
 
 ---
 
-## 3. Daftar Permission (51)
+## 3. Daftar Permission (54)
 
 Dikelompokkan sesuai form **Manage Role** (`GET /roles/catalog`).
 
-> 🔒 Sejak 14 Agustus 2026 **19 dari 51 permission bersifat admin-only** dan
+> 🔒 Sejak 14 Agustus 2026 **22 dari 54 permission bersifat admin-only** dan
 > **tidak dikembalikan** oleh `GET /roles/catalog` — form Manage Role hanya menawarkan 32.
+> (Angka sebelumnya di dokumen ini — 19 dari 51 — sudah melenceng dari
+> `api/permissions.py` sebelum pembaruan 24 Agustus 2026; kini dihitung ulang dari
+> `ALL_PERMISSIONS` / `ADMIN_ONLY_PERMISSIONS`.)
 > `POST /roles` & `PUT /roles/{id}` menolak `422` bila permission itu dikirim untuk role
 > selain `admin`. Daftar & alasannya: `ADMIN_ONLY_PERMISSIONS` di `api/permissions.py`,
 > [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.1.
 
 | Kelompok | Permission |
 |---|---|
-| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.role_hierarchy`, 🔒 `menu.campaigns`, 🔒 `menu.sales_database`, 🔒 `menu.qc_database`, 🔒 `menu.upload_campaign`, 🔒 `menu.upload_audio`, 🔒 `menu.upload_transcript`, 🔒 `menu.get_result`, 🔒 `menu.upload_sales_database`, 🔒 `menu.upload_qc_database`, 🔒 `menu.delete_campaign`, 🔒 `menu.manage_user`, 🔒 `menu.manage_role` |
+| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.role_hierarchy`, 🔒 `menu.campaigns`, 🔒 `menu.sales_database`, 🔒 `menu.qc_database`, 🔒 `menu.upload_campaign`, 🔒 `menu.upload_audio`, 🔒 `menu.upload_transcript`, 🔒 `menu.get_result`, 🔒 `menu.upload_sales_database`, 🔒 `menu.upload_qc_database`, 🔒 `menu.reprocess_tickets`, 🔒 `menu.delete_campaign`, 🔒 `menu.manage_user`, 🔒 `menu.manage_role` |
 | **Results** | `results.evaluation_detail`, `results.critical_failure`, `results.category_score`, `results.manual_status.column`, `results.manual_status.set`, `results.manual_status.direct`, `results.manual_status.review_tl`, `results.manual_status.review_spq`, `results.error_code.appeal`, `results.error_code.direct_edit`, `results.error_code.review_tl`, `results.error_code.review_spq`, `results.document.upload`, `results.document.view`, `results.document.verification`, `results.manual_check.approve`, `results.filter.qc_side`, `results.export.verification`, `results.export.tickets` |
 | **Stats** | `stats.qc_performance`, `stats.failure_reason`, `stats.risk_base`, `stats.risk_system_new` |
 | **Upload** | 🔒 `transcript.upload`, 🔒 `audio.upload` |
 | **QC** | `qc.assignment.write` |
-| **Admin** | `admin.ticket.delete`, 🔒 `admin.campaign.write`, 🔒 `admin.user.write`, 🔒 `admin.role.write`, 🔒 `admin.sales_database.write`, 🔒 `admin.qc_database.write` |
+| **Admin** | 🔒 `admin.ticket.delete`, 🔒 `admin.ticket.reprocess`, 🔒 `admin.campaign.write`, 🔒 `admin.user.write`, 🔒 `admin.role.write`, 🔒 `admin.sales_database.write`, 🔒 `admin.qc_database.write` |
 
 Pemetaan permission → role bawaan: [`HIERARKI_ROLE.md`](./HIERARKI_ROLE.md) §4.
 
@@ -195,7 +198,7 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /stats/failure_reasons_hierarchy` | Failure Reason dipecah per hierarki sales | `stats.failure_reason` (idem) |
 | `GET /stats/qc_performance` | Tabel assigned/approved/approve-rate per QC | `stats.qc_performance` |
 | `POST /stats/refresh` | Paksa recompute snapshot Statistics | login |
-| `DELETE /delete_ticket` | Hapus tiket/result (query `?ticket_id=`) | `admin.ticket.delete` |
+| `DELETE /delete_ticket` | Hapus **SEMUA** entry sebuah ticket id (query `?ticket_id=`) — permanen, tanpa jejak audit; berkas di MinIO tidak ikut dihapus | `admin.ticket.delete` |
 
 > `stats.failure_reason` ditegakkan **di dalam** fungsi lewat `has_perm(...)` lalu
 > `raise HTTPException(403)`, bukan lewat `Depends(require(...))`. Efeknya sama, tapi
@@ -261,6 +264,65 @@ Detail ketiga endpoint terakhir: §5.
 | `GET /sales_database/roster` | Isi roster database sales yang aktif | `admin.sales_database.write` |
 | `POST /upload_qc_database` | Upload XLSX database QC | `admin.qc_database.write` |
 | `GET /list_qc_databases` | Daftar database QC | `admin.qc_database.write` |
+
+### Reprocess Ticket
+Proses ulang tiket memakai konfigurasi campaign terbaru, lalu buang entry lama tiap
+ticket id (sisa: satu entry terbaru per unique id). Satu panggilan LLM per unique
+ticket id.
+
+Dua pintu masuk, satu mesin (`reprocess_jobs` + `reprocess_job_items` + task Celery
+`reprocess_ticket`), dibedakan oleh `reprocess_jobs.scope`:
+
+| Method & Path | Fungsi | Guard |
+|---|---|---|
+| `POST /reprocess_ticket?ticket_id=<id>` | **Satu tiket** (tombol Reprocess kolom Action di menu Results). Job ber-`scope=ticket` berisi satu item, dikembalikan segera dengan status `running` | `admin.ticket.reprocess` |
+| `GET /reprocess_preview` | Daftar campaign + jumlah tiket & entry lama, serta job MASSAL yang masih berjalan | `admin.ticket.reprocess` |
+| `POST /reprocess_tickets` | Mulai job massal (body `{"campaigns": [...]}`); 409 bila masih ada job `running` (jenis apa pun) | `admin.ticket.reprocess` |
+| `GET /reprocess_jobs` | Job massal terakhir (tanpa daftar item); job satu-tiket tidak ikut | `admin.ticket.reprocess` |
+| `GET /reprocess_job/{job_id}` | Kemajuan job + status tiap ticket id — dipakai kedua pintu masuk untuk memantau | `admin.ticket.reprocess` |
+| `POST /reprocess_job/{job_id}/cancel` | Lewati tiket yang belum mulai (yang sedang jalan tetap diselesaikan) | `admin.ticket.reprocess` |
+
+Kode error `POST /reprocess_ticket`: **404** ticket id tidak ada · **422** tiket tanpa
+campaign · **403** campaign di luar cakupan pemanggil · **409** tiket itu sedang
+diproses ulang, atau ada job MASSAL yang berjalan. Dua job satu-tiket untuk tiket
+BERBEDA boleh jalan berbarengan.
+
+> Entry lama sebuah ticket id **hanya** dihapus setelah entry barunya berstatus
+> `done`. Tiket yang gagal ditinggalkan persis seperti semula dan entry barunya
+> dibuang. Banding error code, Manual Status, dan dokumen pendukung **tidak** ikut
+> pindah ke entry baru — sama seperti mode "Proses ulang (LLM)" di Upload Transcript.
+
+### Doc SLA Policy (24 Agustus 2026)
+Sakelar kebijakan tenggat **H+2** dokumen pendukung — 48 jam sejak
+`tms_cashline.submit_time`. Selama tenggat belum lewat dan dokumen yang diminta belum
+diunggah, tiket berstatus `PENDING`; setelah lewat tanpa unggah menjadi `FAIL` dan
+error code **B09** terbit.
+
+| Method & Path | Fungsi | Guard |
+|---|---|---|
+| `GET /doc_sla_policy` | Status kebijakan untuk **indikator** di menu Results | **Cukup login** — tanpa permission khusus |
+| `PUT /doc_sla_policy` | Hidupkan/matikan kebijakan (body `{"enabled": true\|false}`) | `admin.doc_sla.write` (**admin-only**) |
+
+Respons keduanya sama:
+```json
+{"enabled": true, "sla_hours": 48, "can_edit": true,
+ "updated_at": "2026-08-24T07:15:48", "updated_by_username": "gisele"}
+```
+
+Gerbangnya **sengaja berbeda**: MEMBACA tidak butuh capability karena status
+PENDING/FAIL yang dilihat semua peran memang bergantung pada sakelar ini —
+menyembunyikannya justru membuat angka di layar tampak tidak masuk akal. `can_edit`
+dikirim supaya layar tidak perlu menebak dari daftar permission: tombol hanya muncul
+bila `true`, indikator selalu muncul.
+
+> ⚠️ Sakelar dibaca saat **MEMBACA data**, bukan saat evaluasi tiket. Mengubahnya
+> menilai ulang **SELURUH tiket yang ada seketika** tanpa reproses — pada data uji,
+> 60 dari 99 tiket berpindah `FAIL` → `PENDING`. Itu memang perilaku konstanta lama
+> (`compliance/stats_aggregate.py: DOC_SLA_ENABLED`); yang berubah hanya cara
+> mengubahnya. Nilainya kini tersimpan di `app_settings.doc_sla_enabled`.
+
+> Snapshot Statistics ikut ditandai basi lewat `_stats_signature` (versi `v11`),
+> sehingga angka Statistics tidak bertentangan dengan status di menu Results.
 
 ### Health
 | Method & Path | Fungsi | Guard |

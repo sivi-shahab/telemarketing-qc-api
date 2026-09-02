@@ -1,8 +1,8 @@
 # Skema Data & Migrasi — Telemarketing QC System
 
 Referensi model database (PostgreSQL, SQLAlchemy) dan alur migrasi Alembic.
-Sumber: `db/models.py` (**18 tabel**), `alembic.ini`, `db/migrations/`.
-Revisi HEAD saat ini: **`0041_admin_only_data_menus`**.
+Sumber: `db/models.py` (**21 tabel**), `alembic.ini`, `db/migrations/`.
+Revisi HEAD saat ini: **`0044_doc_sla_toggle`**.
 
 > Catatan desain: **tidak ada `relationship()` SQLAlchemy** — semua keterkaitan berupa kolom
 > **foreign key** atau **join by string key**. Tidak ada tipe `Enum` DB — kolom berkode
@@ -10,7 +10,7 @@ Revisi HEAD saat ini: **`0041_admin_only_data_menus`**.
 
 ---
 
-## 1. Daftar Tabel (18)
+## 1. Daftar Tabel (21)
 
 ### Auth & Otorisasi
 
@@ -61,9 +61,44 @@ Revisi HEAD saat ini: **`0041_admin_only_data_menus`**.
 | `ascend_custp` | AscendCustp | Mirror export Card Holder (Ascend) | PK `id`; `cust_local_name` (`CUST_LOCAL_NAME`, key match) + ~115 kolom `Text` UPPERCASE |
 | `sales_databases` | SalesDatabase | Upload XLSX database sales (pola newest-active) | PK `id`; `object_path`, `is_active`, `uploaded_by_*` |
 | `qc_databases` | QcDatabase | Upload XLSX database QC | PK `id`; `object_path`, `is_active`, `uploaded_by_*` |
+| `reprocess_jobs` | ReprocessJob | Satu perintah reproses — massal maupun satu tiket | PK `id` **UUID**; `campaigns` JSONB, `scope` (`campaign`/`ticket`), `status` (`running`/`done`/`cancelled`), `total_tickets`, `created_by_username` |
+| `reprocess_job_items` | ReprocessJobItem | Satu unique ticket id di dalam job | PK `id`; `job_id`→`reprocess_jobs.id` (CASCADE, indexed); `ticket_id`, `old_result_ids` JSONB (**dibekukan** saat job dibuat), `source_result_id`, `new_result_id`, `status`, `deleted_old` |
 
 `tms_cashline.submit_time` juga menjadi **basis tenggat H+2** untuk AI Status `PENDING`
 (lihat [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) §7).
+
+> `reprocess_jobs.scope` membedakan dua pintu masuk yang memakai tabel & task yang sama:
+> `campaign` (menu **Reprocess All Ticket**, satu job = semua tiket campaign terpilih) dan
+> `ticket` (tombol **Reprocess** pada kolom Action di menu Results, satu job = satu tiket).
+> Pengaman "satu job massal pada satu waktu" melihat KEDUA jenis; sebaliknya layar massal
+> hanya menempel pada job ber-`scope = campaign`.
+
+> `reprocess_job_items.old_result_ids` sengaja **dibekukan** saat job dibuat, bukan dicari
+> ulang saat penghapusan: hanya baris yang memang sudah ada ketika perintah diberikan yang
+> boleh dihapus. Tanpa itu, upload yang masuk di tengah job (webhook, Upload Transcript)
+> ikut terhapus hanya karena ticket id-nya kebetulan sama. Baris lama juga baru dihapus
+> **setelah** baris barunya berstatus `done` — tiket yang gagal ditinggalkan apa adanya.
+
+### Konfigurasi Aplikasi
+
+| Tabel | Model | Fungsi | Kunci penting |
+|---|---|---|---|
+| `app_settings` | AppSetting | Kebijakan tingkat aplikasi yang bisa diubah operator **saat sistem berjalan** | PK `key` (String); `value` **Text**, `updated_at`, `updated_by_username` |
+
+Baris yang ada saat ini hanya satu: **`doc_sla_enabled`** (`"true"`/`"false"`) — sakelar
+kebijakan tenggat **H+2** dokumen pendukung, diubah dari menu Results oleh role `admin`
+(capability `admin.doc_sla.write`). Sebelum 24 Agustus 2026 nilainya adalah KONSTANTA
+`compliance/stats_aggregate.py: DOC_SLA_ENABLED`, sehingga mengubahnya berarti edit file
+plus restart container.
+
+> `value` sengaja **Text**, bukan Boolean: tabel ini generik supaya sakelar berikutnya
+> tidak perlu tabel baru. Pembacanya yang mengurus konversi
+> (`crud.get_doc_sla_enabled`).
+
+> Dibaca di **jalur panas** — setiap baris Results/Statistics memanggil `_doc_sla_expired`.
+> Karena itu nilainya di-cache: `crud.get_app_setting` ber-TTL 10 detik, dan
+> `get_db` menyegarkan cache modul `stats_aggregate` sekali per request sehingga
+> `_doc_sla_expired` tidak perlu memegang sesi DB.
 
 ---
 
@@ -147,7 +182,7 @@ Poin penting:
 - **URL DB**: `db/migrations/env.py::get_url()` menyusun URL **langsung dari env** (`POSTGRES_USER`,
   `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` default 5432, `POSTGRES_DB`) dan
   meng-override `sqlalchemy.url` di ini. `target_metadata = Base.metadata` dari `db.models`.
-- **Chain**: linear `0001 → … → 0041` (**41 revisi**, HEAD `0041_admin_only_data_menus`).
+- **Chain**: linear `0001 → … → 0044` (**44 revisi**, HEAD `0044_doc_sla_toggle`).
   `down_revision = None` di `0001`.
 - **Seed admin**: `0001_initial.py` menambah user admin bila belum ada, dari
   `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`ADMIN_EMAIL`.
@@ -164,6 +199,9 @@ Poin penting:
 | `0039_perm_export_verification` | Permission `results.export.verification` (export + `/get_nama_ibu_kandung`) |
 | `0040_user_campaigns_admin_only_administration` | Tabel `user_campaigns`; menu Administration jadi milik `admin` saja |
 | `0041_admin_only_data_menus` | Seluruh pengurusan data (Campaigns, Database Sales/QC, Upload Data, Delete Campaign) dicabut dari **semua role kecuali `admin`**; SPQ Head kehilangan `admin.ticket.delete` & `results.export.verification` dan mendapat `results.export.tickets`; Sales Agent kehilangan `results.document.view` |
+| `0042_reprocess_all_tickets` | Tabel `reprocess_jobs` + `reprocess_job_items`; capability `menu.reprocess_tickets` & `admin.ticket.reprocess` (keduanya admin-only) |
+| `0043_reprocess_single_ticket` | Kolom `reprocess_jobs.scope` (`campaign` \| `ticket`) — penanda job satu-tiket dari tombol **Reprocess** di menu Results, supaya layar "Reprocess All Ticket" tidak ikut menempel padanya. Tanpa capability baru |
+| `0044_doc_sla_toggle` | Tabel `app_settings` (baris awal `doc_sla_enabled = true`) + capability `admin.doc_sla.write` (admin-only) — sakelar kebijakan SLA H+2 di menu Results. Nilai awal menyamai perilaku konstanta lama, jadi upgrade tidak mengubah status tiket mana pun |
 
 ### Menjalankan migrasi
 
@@ -217,9 +255,16 @@ evaluasi yang sama; dokumen fisik hanya di MinIO (kolom `object_path` menunjuk k
 
 `stats_snapshots.payload` menyimpan `_signature` — sidik jari **data**, bukan versi kode.
 Snapshot dipakai ulang selama signature-nya cocok. Konsekuensinya: **mengubah logika
-perhitungan (mis. sakelar SLA H+2) tidak otomatis meng-invalidate cache.** Paksa hitung
-ulang lewat `POST /stats/refresh` atau `crud.get_or_build_stats_snapshot(db, force=True)`
+perhitungan tidak otomatis meng-invalidate cache.** Paksa hitung ulang lewat
+`POST /stats/refresh` atau `crud.get_or_build_stats_snapshot(db, force=True)`
 (lihat [`RUNBOOK.md`](./RUNBOOK.md) §11).
+
+**Pengecualian (24 Agustus 2026): sakelar SLA H+2 KINI ikut di dalam signature**
+(`_stats_signature` versi **`v11`**, ditutup `|sla0`/`|sla1`). Mematikan/menghidupkan
+kebijakan itu karena itu langsung membuat snapshot basi dan Statistics dihitung ulang
+sendiri. Tanpa ini angka Statistics akan bertentangan dengan status PENDING/FAIL yang
+tampil di menu Results sampai ada data baru masuk. Perubahan logika LAINNYA tetap butuh
+`force`.
 
 ---
 

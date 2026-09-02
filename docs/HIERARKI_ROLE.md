@@ -130,6 +130,7 @@ Manager · **TLS** Team Leader Sales · **SA** Sales Agent · **TLQ** Team Leade
 | `menu.get_result` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `menu.upload_sales_database` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `menu.upload_qc_database` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
+| `menu.reprocess_tickets` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `menu.delete_campaign` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `menu.manage_user` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `menu.manage_role` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
@@ -163,11 +164,13 @@ Manager · **TLS** Team Leader Sales · **SA** Sales Agent · **TLQ** Team Leade
 | `admin.sales_database.write` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `admin.qc_database.write` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `admin.ticket.delete` | — | ✅ | — | — | — | — | — | — | — | — |
+| `admin.ticket.reprocess` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
+| `admin.doc_sla.write` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `qc.assignment.write` | ✅ | ✅ | — | — | — | — | ✅ | — | — | — |
 | `transcript.upload` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 | `audio.upload` 🔒 | — | ✅ | — | — | — | — | — | — | — | — |
 
-**Jumlah permission:** Admin 40 · SPQ Head 24 · Team Leader QC 22 · QC 14 · Demo 9 ·
+**Jumlah permission:** Admin 43 · SPQ Head 24 · Team Leader QC 22 · QC 14 · Demo 9 ·
 QC Support 7 · Team Leader Sales 5 · Telesales Head / Area Manager 4 · Sales Agent 3.
 
 🔒 = **admin-only** (`ADMIN_ONLY_PERMISSIONS`, 14 Agustus 2026). Permission bertanda ini
@@ -181,7 +184,16 @@ API ke role selain `admin` — lihat §4.1.
 Lanjutan kebijakan §3. Kalau 10 Agustus memindahkan menu **Administration** ke Admin,
 14 Agustus memindahkan **seluruh pengurusan data**: Campaigns, Database Sales, Database QC,
 semua menu Upload Data, dan Delete Campaign — beserta capability tulisnya. 19 permission
-masuk `ADMIN_ONLY_PERMISSIONS` (`api/permissions.py`).
+masuk `ADMIN_ONLY_PERMISSIONS` (`api/permissions.py`); sejak 20 Agustus 2026 bertambah
+`menu.reprocess_tickets` & `admin.ticket.reprocess`, lalu 24 Agustus 2026 bertambah
+`admin.doc_sla.write` sehingga menjadi **22 dari 54 permission**.
+
+`admin.doc_sla.write` mengatur **sakelar kebijakan SLA H+2** di menu Results. Perhatikan
+pemisahannya: hanya MENGUBAH yang butuh capability ini — MEMBACA statusnya
+(`GET /doc_sla_policy`, yang menggerakkan indikator kebijakan) cukup login, karena status
+PENDING/FAIL yang dilihat semua peran memang bergantung padanya.
+`admin.ticket.reprocess` kini menggerakkan DUA permukaan: submenu **Reprocess All Ticket**
+dan tombol **Reprocess** pada kolom Action di menu Results (21 Agustus 2026).
 
 **Penegakannya dua lapis, bukan sekadar menyembunyikan menu:**
 

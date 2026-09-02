@@ -158,7 +158,7 @@ nilai yang mengandung `changeme*` sebelum production.
 ### Celery / Auth / Admin / Dashboard
 | Var | Default | Keterangan |
 |---|---|---|
-| `CELERY_CONCURRENCY` | `8` | Jumlah worker paralel (**production saat ini 24**) |
+| `CELERY_CONCURRENCY` | `8` | Jumlah task Celery paralel (**deployment ini: 16**, sejak 21 Agustus 2026) |
 | `API_KEY` | `changeme-...` | Header `X-API-Key` (legacy). **Ganti** |
 | `JWT_SECRET_KEY` | `changeme-jwt-secret-key` | **Wajib ganti** (rahasia token) |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `60` / `7` | |
@@ -228,9 +228,23 @@ docker compose up -d --build dashboard
 
 ```bash
 # via concurrency (di .env): CELERY_CONCURRENCY=16
+docker compose up -d worker      # WAJIB recreate, bukan `docker restart`
 # atau tambah instance worker:
 docker compose up -d --scale worker=3
 ```
+
+> ⚠️ **`docker restart worker` TIDAK memuat nilai baru.** `CELERY_CONCURRENCY` masuk ke
+> *command* container saat compose merender `--concurrency=${CELERY_CONCURRENCY:-8}`, jadi
+> container yang sudah ada tetap memakai angka lama sampai di-recreate dengan
+> `docker compose up -d worker`. Verifikasi hasilnya:
+>
+> ```bash
+> docker exec <worker> celery -A worker.celery_app inspect stats | grep max-concurrency
+> ```
+>
+> Batas nyatanya bukan CPU — task reprocess/evaluasi hampir sepanjang waktu menunggu
+> jawaban LLM — melainkan kuota/rate limit penyedia LLM. Patokan terukur: rerun 98 tiket
+> cashline pada 21 Agustus 2026 memakan **~30 menit** di concurrency 16 (~5 menit/tiket).
 
 ---
 
@@ -354,9 +368,26 @@ server {
   **hanya akun `admin`** sejak 14 Agustus 2026; login sebagai SPQ Head tidak akan menemukan
   menunya),
   isi nama campaign + unggah 3 file `.txt` (`prompt`, `knowledge_base`, `scorecard`) plus
-  RIPLAY PDF opsional. Versi aktif per 12 Agustus 2026 ada di `docs/` dan
-  `campaign_cashline/`: `prompt_cashline_mus_v54.txt`, `cashline_kb_v21.txt`,
+  RIPLAY PDF opsional. Versi aktif per 21 Agustus 2026 ada di `docs/` dan
+  `campaign_cashline/`: `prompt_cashline_mus_v74.txt`, `cashline_kb_v34.txt`,
   `cashline_scorecard_v3.txt`.
+
+  **Perubahan prompt SAJA: jangan pakai `upsert_campaign`.** Fungsi itu menerima
+  ketiga teks sekaligus dan men-default `kb_text_raw = kb_text`, sehingga mengirim
+  KB mentah kembali akan MENGHAPUS overlay RIPLAY (13 nilai) — kehilangan diam-diam
+  untuk perubahan yang bahkan tidak menyentuh KB. Set dua kolomnya langsung:
+
+  ```python
+  c = db.get(Campaign, 18)
+  c.prompt_text = open('/tmp/prompt_vNN.txt', encoding='utf-8').read()
+  c.prompt_filename = 'prompt_cashline_mus_vNN.txt'
+  db.commit()
+  ```
+
+  Verifikasi sesudahnya dengan md5: `prompt_text` di DB harus sama persis dengan
+  berkas lokal, dan `kb_text` / `kb_text_raw` / `scorecard_text` harus menghasilkan
+  hash yang SAMA seperti sebelum deploy. Backup prompt lama sebelum menimpa —
+  contoh: `campaign_cashline/backup_db/28agustus2026/prompt_SEBELUM_v70.txt`.
 - **Script utilitas** di `scripts/` (jalankan di dalam container `api`/`worker` untuk Docker,
   atau di dalam venv untuk bare-metal — semuanya butuh `.env` ter-export & `PYTHONPATH` root):
   - `scripts/load_reference_csv.py` — memuat data reference/TMS dari CSV.
