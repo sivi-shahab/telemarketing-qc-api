@@ -210,6 +210,41 @@ ADMIN_ONLY_PERMISSIONS = {
     TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
 }
 
+# --- Penyesuaian untuk login campaign COLLECTION (2 September 2026) ---
+#
+# Campaign penagihan tidak mengenal alur Assign Ticket -> Manual Check -> Pending
+# Check: tiketnya tidak dibagi ke QC perorangan dan tidak ada banding error code.
+# Sebaliknya sisi collection justru harus memasukkan bahannya sendiri, jadi Upload
+# Audio & Upload Transcript dikembalikan untuknya.
+#
+# Ini BUKAN role baru dan bukan pencabutan capability dari role. Role ``qc``,
+# ``spq_head`` dan ``team_leader_qc`` dipakai BERSAMA oleh login Cashline maupun
+# Collection (lihat tabel ``user_campaigns``); mencabutnya dari role akan
+# mematikan menu itu untuk Cashline juga. Yang membedakan adalah campaign efektif
+# si ORANG — penerapannya di ``api.rbac.collection_adjusted_permissions``, satu
+# tempat yang sekaligus menutup menu DAN endpoint-nya.
+COLLECTION_REMOVED_PERMISSIONS = frozenset({
+    MENU_ASSIGN_TICKET, MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
+    # Aksi di balik menu yang dicabut. Kalau ditinggal, halamannya tertutup tapi
+    # endpoint-nya masih bisa dipanggil langsung — gate yang bisa ditembus dengan
+    # mengetik URL, persis celah yang pernah ditutup di sisi /tickets-daily.
+    QC_ASSIGNMENT_WRITE, QC_MANUAL_CHECK_APPROVE,
+})
+
+# Keempatnya ada di ``ADMIN_ONLY_PERMISSIONS`` (kebijakan 14 Agustus 2026: seluruh
+# Upload Data milik Admin). Pemberian di sini SENGAJA menembus daftar itu: penjaga
+# ADMIN_ONLY berlaku saat role DISIMPAN lewat Manage Role, sedangkan yang ini
+# dihitung saat request — jadi capability-nya tidak pernah tersimpan di tabel
+# ``roles`` dan tidak bisa dipinjam role lain. Diminta eksplisit untuk campaign
+# Collection; kalau kebijakannya dikembalikan, yang dikosongkan adalah daftar ini.
+#
+# Dropdown campaign di halaman Upload sudah menyempit sendiri mengikuti campaign
+# efektif user (``campaignObjectsInScope``), jadi login Collection hanya bisa
+# mengunggah ke campaign Collection.
+COLLECTION_ADDED_PERMISSIONS = frozenset({
+    MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, AUDIO_UPLOAD, TRANSCRIPT_UPLOAD,
+})
+
 # Role yang BOLEH memegang ADMIN_ONLY_PERMISSIONS. Daftar ini yang dipakai
 # `api/routers/role.py`, bukan literal ``"admin"``, karena sejak 27 Agustus 2026
 # ``demo`` punya izin yang sama persis dengan Admin. Capability-nya tetap tidak

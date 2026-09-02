@@ -21,6 +21,7 @@ memanggil ``invalidate()`` supaya perubahan langsung terasa. TTL-nya tetap ada
 sebagai jaring pengaman kalau API dijalankan lebih dari satu proses — cache basi
 paling lama sepuluh detik.
 """
+import os
 import time
 from typing import Optional
 
@@ -29,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api import permissions as perms
+from compliance.campaign_kind import is_collection, parse_collection_campaigns
 
 _TTL_SECONDS = 10.0
 # key -> {"permissions": set, "data_scope": str, "campaigns": [str]}
@@ -94,8 +96,63 @@ def _role_def(db: Session, role_key: Optional[str]) -> dict:
     return {"permissions": set(), "data_scope": perms.SCOPE_ALL, "campaigns": []}
 
 
+def collection_campaigns_from_env() -> frozenset:
+    """Nama campaign penagihan dari env ``COLLECTION_CAMPAIGNS``, dibaca tiap kali.
+
+    Sengaja tidak di-cache, sama seperti ``api.campaign_context.context_map_from_env``:
+    isinya sekecil ini, dan mengubah env lalu me-restart proses harus langsung
+    terasa tanpa perlu mengingat ada cache di sini. Kosong = penyesuaian collection
+    mati total dan tidak ada perilaku lama yang berubah — itu pula bentuk rollback-nya.
+    """
+    return parse_collection_campaigns(os.getenv("COLLECTION_CAMPAIGNS", ""))
+
+
+def collection_adjusted_permissions(permissions, campaigns, collection_campaigns) -> set:
+    """Capability setelah disesuaikan untuk login yang HANYA memegang collection.
+
+    ``campaigns`` adalah hasil :func:`effective_campaigns_for`: ``None`` berarti
+    tidak dibatasi, list berarti dibatasi. Penyesuaian hanya berlaku bila daftarnya
+    TIDAK kosong dan SELURUH isinya campaign collection:
+
+    * ``None`` (Admin, SPQ Head pusat) tidak disentuh — mereka mengurus kedua sisi.
+    * list KOSONG berarti "dibatasi ke tidak ada campaign apa pun", bukan
+      "dibatasi ke collection"; membedakannya penting, sama seperti di
+      ``effective_campaigns_for``.
+    * campuran Collection + Cashline tidak disentuh: orangnya masih memegang tiket
+      Cashline, jadi alur Assign Ticket / Manual Check-nya masih dipakai.
+
+    Selalu mengembalikan set BARU. Set masukan milik cache role di ``_load_all``
+    dan dipakai bersama seluruh user ber-role sama — mengubahnya di tempat akan
+    menular ke semua orang sampai cache-nya kedaluwarsa.
+    """
+    if not collection_campaigns or not campaigns:
+        return set(permissions)
+    if not all(is_collection(name, collection_campaigns) for name in campaigns):
+        return set(permissions)
+    return (set(permissions) - perms.COLLECTION_REMOVED_PERMISSIONS) | set(
+        perms.COLLECTION_ADDED_PERMISSIONS
+    )
+
+
 def permissions_for(db: Session, user) -> set:
-    return _role_def(db, getattr(user, "role", None))["permissions"]
+    """Capability efektif user — sumber tunggal untuk menu (``/auth/me``) MAUPUN
+    gate endpoint (``require``).
+
+    Penyesuaian collection ditempel di sini, bukan di sidebar, justru karena satu
+    fungsi ini memberi makan keduanya: menunya hilang DAN endpoint-nya ikut
+    tertutup, sehingga tidak bisa ditembus dengan mengetik URL-nya langsung.
+
+    Harganya satu query berindeks tambahan per pemanggilan (``user_campaigns``
+    lewat ``effective_campaigns_for``) — dibayar karena campaign efektif adalah
+    properti ORANG, bukan properti role, sehingga tidak bisa ikut cache role.
+    """
+    base = _role_def(db, getattr(user, "role", None))["permissions"]
+    collection = collection_campaigns_from_env()
+    if not collection:
+        return base
+    return collection_adjusted_permissions(
+        base, effective_campaigns_for(db, user), collection
+    )
 
 
 def data_scope_for(db: Session, user) -> str:
