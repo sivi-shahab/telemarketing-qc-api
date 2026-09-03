@@ -4,7 +4,7 @@ celery[redis]
 sqlalchemy
 alembic
 psycopg2-binary
-minio
+boto3
 python-multipart
 pdfplumber
 pypdf

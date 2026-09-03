@@ -28,7 +28,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
-from minio.commonconfig import CopySource
+from services.s3_buckets import CopySource
 from sqlalchemy.orm import Session
 
 from pydantic import BaseModel

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from dotenv import load_dotenv
 
-from services.multi_bucket_minio import build_minio_client
+from services.s3_buckets import build_minio_client
 
 logger = logging.getLogger(__name__)
 
