@@ -131,3 +131,63 @@ def test_status_processing_saat_folder_sudah_bersih(tmp_path):
     from api.routers.transcript import recording_queue_state
 
     assert recording_queue_state(str(tmp_path), "a_1.wav") == "processing"
+
+
+# ---------------------------------------------------------------------------
+# Sinyal "selesai" = PDF di bucket, BUKAN baris Result
+# ---------------------------------------------------------------------------
+#
+# Regresi nyata: pipeline selesai (log VTT "Upload ke .../upload-pdf/<id> ->
+# HTTP 200, Selesai."), PDF-nya ADA di bucket transcripts, tapi
+# /audio_job_status tetap menjawab 'processing' selamanya.
+#
+# Sebabnya versi pertama memakai baris ``Result`` sebagai penanda selesai.
+# Baris itu dibuat /webhook/register_stt_result, yang TIDAK dipanggil pada jalur
+# antrian (consumer -> /speech/stt/save) — hanya pada jalur unggah langsung yang
+# lama. Terverifikasi di DWH: results = 0 baris sementara
+# '20260803092914_rec02.pdf' sudah ada di bucket.
+#
+# Penanda yang benar adalah PDF-nya sendiri: artefak yang sama persis diambil
+# tombol download (/api/downloads/<stem>), jadi status dan unduhan tidak bisa
+# saling bertentangan.
+
+
+class _FakeMinio:
+    def __init__(self, names): self._names = names
+    def list_objects(self, bucket, prefix=None, recursive=False):
+        class _O:
+            def __init__(self, n): self.object_name = n
+        return [_O(n) for n in self._names if not prefix or n.startswith(prefix)]
+
+
+def test_pdf_terdeteksi_di_bucket():
+    from api.routers.transcript import transcript_pdf_exists
+
+    c = _FakeMinio(["20260803092914_rec02.pdf", "lain.pdf"])
+    assert transcript_pdf_exists(c, "b", "20260803092914_rec02") is True
+
+
+def test_pdf_belum_ada():
+    from api.routers.transcript import transcript_pdf_exists
+
+    assert transcript_pdf_exists(_FakeMinio([]), "b", "20260803092914_rec02") is False
+
+
+def test_prefix_serupa_tidak_dianggap_selesai():
+    """'rec02x.pdf' berawalan sama dengan 'rec02' — list_objects memakai prefix,
+    jadi kecocokan harus dicek per nama, bukan sekadar ada isinya."""
+    from api.routers.transcript import transcript_pdf_exists
+
+    c = _FakeMinio(["20260803092914_rec02x.pdf"])
+    assert transcript_pdf_exists(c, "b", "20260803092914_rec02") is False
+
+
+def test_galat_storage_tidak_dianggap_selesai():
+    """Kalau bucket tak terjangkau, jangan mengaku selesai — lebih baik tetap
+    'processing' daripada memberi tombol download yang pasti gagal."""
+    from api.routers.transcript import transcript_pdf_exists
+
+    class _Rusak:
+        def list_objects(self, *a, **k): raise RuntimeError("bucket down")
+
+    assert transcript_pdf_exists(_Rusak(), "b", "x") is False

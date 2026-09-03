@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 from datetime import datetime
 from typing import Optional
@@ -69,6 +70,8 @@ from compliance.stats_aggregate import (
     doc_requirement_labels,
     wrong_document_types,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -249,6 +252,33 @@ def write_audio_to_recording_dir(directory: str, filename: str, data: bytes) -> 
 _QUEUE_MARKER_SUFFIX = ".queued"
 
 
+def transcript_pdf_exists(client, bucket: str, pdf_id: str) -> bool:
+    """True bila ``<pdf_id>.pdf`` sudah ada di bucket transkrip.
+
+    Inilah penanda "selesai" yang dipakai /audio_job_status — BUKAN keberadaan
+    baris ``Result``. Baris itu dibuat /webhook/register_stt_result, yang tidak
+    dipanggil pada jalur antrian (consumer -> /speech/stt/save), sehingga
+    memakainya membuat job yang sudah tuntas tampak 'processing' selamanya.
+
+    PDF ini juga persis artefak yang diambil tombol download
+    (/api/downloads/<pdf_id>), jadi status dan unduhan tidak bisa bertentangan.
+
+    Galat storage dianggap "belum ada": lebih baik tetap 'processing' daripada
+    mengaku selesai lalu memberi tombol download yang pasti gagal.
+    """
+    target = f"{pdf_id}.pdf"
+    try:
+        for obj in client.list_objects(bucket, prefix=pdf_id, recursive=True):
+            # Dicocokkan per nama, bukan sekadar "ada isinya": prefix ``rec02``
+            # juga menjaring ``rec02x.pdf``.
+            if os.path.basename(obj.object_name) == target:
+                return True
+    except Exception as exc:
+        logger.warning("[audio] Gagal memeriksa PDF '%s' di bucket '%s': %s",
+                       target, bucket, exc)
+    return False
+
+
 def recording_queue_state(directory: str, audio_name: str) -> str:
     """``queued`` bila berkas/marker masih di folder antrian, selain itu ``processing``.
 
@@ -374,24 +404,32 @@ def audio_job_status(
 
     # ``source_files`` JSONB berisi daftar nama berkas; containment cocok untuk
     # baris buatan register_stt_result (satu berkas) maupun unggahan banyak berkas.
+    settings = get_settings()
+
+    # Baris Result dipakai untuk MEMPERKAYA (result_id, pesan galat), bukan
+    # sebagai penanda selesai — pada jalur antrian ia memang tidak pernah dibuat.
     row = (
         db.query(Result)
         .filter(Result.source_files.contains([base]))
         .order_by(Result.uploaded_at.desc())
         .first()
     )
-    if row is not None:
+    if row is not None and row.status == "failed":
         return AudioJobStatusResponse(
-            audio_name=base,
-            status="failed" if row.status == "failed" else "completed",
-            result_id=str(row.id),
+            audio_name=base, status="failed", result_id=str(row.id),
+            pdf_id=pdf_id, error_message=row.error_message,
+        )
+
+    if transcript_pdf_exists(get_minio(), settings.minio_bucket_transcripts, pdf_id):
+        return AudioJobStatusResponse(
+            audio_name=base, status="completed",
+            result_id=str(row.id) if row is not None else None,
             pdf_id=pdf_id,
-            error_message=row.error_message,
         )
 
     return AudioJobStatusResponse(
         audio_name=base,
-        status=recording_queue_state(get_settings().audio_recording_dir, base),
+        status=recording_queue_state(settings.audio_recording_dir, base),
         pdf_id=pdf_id,
     )
 
