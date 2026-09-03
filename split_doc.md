@@ -277,11 +277,38 @@ atau `from core....` di mana pun, dan semua import pihak ketiga
 (`pdfplumber`, `openpyxl`, `requests`, `minio`) tercakup
 `core/requirements.txt` + `api/requirements.txt`.
 
-**Belum diverifikasi runtime.** Uji end-to-end masih perlu dijalankan di
-lingkungan yang punya akses ke DWH dan CDN:
+### Verifikasi di dalam image
+
+Image dibangun dan diuji di dalam container, **tanpa** `compose up`: `CMD` image
+menjalankan `alembic upgrade head`, sedangkan `.env` menunjuk DWH produksi
+`10.155.32.28` schema `dashboard` — migrasi tidak boleh jalan tak sengaja. Uji
+memakai `--network none` supaya tidak ada yang bisa menyentuh DWH maupun CDN.
 
 ```bash
-docker compose build api && docker compose up -d api
-docker compose logs -f api      # alembic upgrade head + uvicorn harus lolos
+docker build -f api/Dockerfile -t qc-api:verify .                       # lolos
+docker run --rm --network none --env-file .env --entrypoint python \
+    qc-api:verify -c "import api.main"                                  # lolos
+```
+
+| # | Cek | Hasil |
+|---|---|---|
+| 5 | `import api.main` di dalam image | lolos — inilah yang tadinya `ImportError` |
+| 6 | Jumlah endpoint di `app.openapi()` | **80** |
+| 7 | `ensure_buckets()` dijalankan sungguhan | selesai tanpa `AttributeError` — inilah bug #2 |
+
+Cek 7 dijalankan offline: setiap bucket gagal resolve DNS lalu ditangkap
+`try/except` dan dicatat `[minio] Lewati ensure bucket ...` — persis perilaku
+yang dirancang untuk kredensial CDN yang tidak punya hak `makeBucket`. Yang
+penting, akses atributnya sendiri lolos.
+
+Endpoint `qc_database` (`list/download/delete`) memang tidak ada di antara 80
+endpoint itu, sesuai `include_router` yang di-comment di `api/main.py`.
+
+**Yang masih tersisa:** uji end-to-end dengan koneksi nyata ke DWH dan CDN —
+`alembic upgrade head`, `/health`, dan satu alur upload — di lingkungan yang
+memang boleh menulis ke schema `dashboard`.
+
+```bash
+docker compose up -d api && docker compose logs -f api
 curl -f http://localhost:4000/health
 ```
