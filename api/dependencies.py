@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     minio_access_key_qc_database: str = os.getenv("MINIO_ACCESS_KEY_QC_DATABASE", "")
     minio_secret_key_qc_database: str = os.getenv("MINIO_SECRET_KEY_QC_DATABASE", "")
 
+    # Folder yang diawasi producer antrian STT
+    # (/data/script_antrian/producer_watch.py, WATCH_DIR). Audio yang diunggah
+    # lewat menu Upload Audio ditulis ke sini supaya benar-benar diproses —
+    # bucket S3 saja tidak memicu apa pun.
+    audio_recording_dir: str = os.getenv("AUDIO_RECORDING_DIR", "/data/recording")
+
     # ============================================
     # LLM Configuration
     # ============================================

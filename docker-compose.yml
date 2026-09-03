@@ -83,6 +83,12 @@ services:
     environment:
       PYTHONPATH: /app
       DWH_API_BASE_URL: ${DWH_API_BASE_URL:-http://host.docker.internal:8002}
+    # Folder antrian STT (WATCH_DIR di /data/script_antrian/producer_watch.py).
+    # Audio hasil Upload Audio ditulis ke sini supaya producer + consumer
+    # memprosesnya; tanpa mount ini container hanya menulis ke lapisan sementara
+    # miliknya sendiri dan tidak ada yang pernah membacanya.
+    volumes:
+      - ${AUDIO_RECORDING_DIR:-/data/recording}:${AUDIO_RECORDING_DIR:-/data/recording}
     # Supaya container bisa menjangkau service yang listen di host (App A / DWH).
     extra_hosts:
       - "host.docker.internal:host-gateway"

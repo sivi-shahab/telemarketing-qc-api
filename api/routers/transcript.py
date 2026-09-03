@@ -1,5 +1,6 @@
 import io
 import json
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -179,6 +180,66 @@ AUDIO_CONTENT_TYPES = {
     ".amr": "audio/amr",
 }
 
+# Ekstensi yang benar-benar diawasi producer antrian STT (AUDIO_EXTS di
+# /data/script_antrian/producer_watch.py). Sengaja LEBIH SEMPIT dari
+# AUDIO_CONTENT_TYPES di atas: format lain memang bisa diterima dan diarsipkan ke
+# S3, tapi kalau ditulis ke folder antrian ia hanya akan menumpuk tanpa pernah
+# diproses — jadi ditolak di depan dengan pesan yang jujur.
+VTT_SUPPORTED_AUDIO_EXTS = (".wav", ".wave", ".mp3")
+
+# Akhiran berkas sementara saat menulis ke folder antrian. WAJIB di luar
+# AUDIO_EXTS producer: ``on_created`` di sana tidak menunggu berkas selesai
+# ditulis, jadi nama sementara ber-ekstensi audio akan dipublish saat isinya baru
+# separuh. Setelah tuntas, berkas di-rename — dan rename itulah yang memicu
+# ``on_moved``, jalur yang memang dirancang untuk pola tulis-lalu-rename.
+_RECORDING_TMP_SUFFIX = ".part"
+
+
+def _ext_of(filename: str) -> str:
+    name = filename or ""
+    return ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+
+
+def ensure_vtt_supported_audio(filename: str) -> str:
+    """Pastikan ekstensi ada di daftar yang diawasi producer, atau lempar 422."""
+    ext = _ext_of(filename)
+    if ext not in VTT_SUPPORTED_AUDIO_EXTS:
+        didukung = ", ".join(VTT_SUPPORTED_AUDIO_EXTS)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"File '{filename}' berformat {ext or 'tanpa ekstensi'} — "
+                f"pemrosesan STT hanya mendukung {didukung}. Konversi dulu ke "
+                f"salah satu format itu."
+            ),
+        )
+    return ext
+
+
+def write_audio_to_recording_dir(directory: str, filename: str, data: bytes) -> str:
+    """Tulis audio ke folder antrian STT dengan pola tulis-lalu-rename.
+
+    Mengembalikan path akhir. Lihat ``_RECORDING_TMP_SUFFIX`` untuk alasan kenapa
+    penulisannya tidak boleh langsung ke nama akhir.
+    """
+    os.makedirs(directory, exist_ok=True)
+    final_path = os.path.join(directory, os.path.basename(filename))
+    tmp_path = final_path + _RECORDING_TMP_SUFFIX
+    try:
+        with open(tmp_path, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, final_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return final_path
+
+
 
 @router.post("/upload_audio", response_model=ResultCreateResponse)
 def upload_audio(
@@ -200,15 +261,11 @@ def upload_audio(
             detail="Minimal satu file audio diperlukan",
         )
 
-    # Validate every file is an accepted audio format before doing anything.
+    # Validasi SEBELUM apa pun ditulis. Dibatasi ke format yang diawasi producer
+    # antrian STT, bukan seluruh AUDIO_CONTENT_TYPES: file di luar itu tidak akan
+    # pernah diproses, jadi lebih baik ditolak terang-terangan.
     for f in files:
-        ext = "." + (f.filename or "").rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else ""
-        if ext not in AUDIO_CONTENT_TYPES:
-            allowed = ", ".join(sorted(AUDIO_CONTENT_TYPES))
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"File '{f.filename}' bukan audio — hanya {allowed} yang diterima",
-            )
+        ensure_vtt_supported_audio(f.filename)
 
     # Campaign must exist and be active.
     if crud.get_active_campaign(db, campaign) is None:
@@ -234,7 +291,7 @@ def upload_audio(
     client = get_minio()
     for f in files:
         data = f.file.read()
-        ext = "." + f.filename.rsplit(".", 1)[-1].lower()
+        ext = _ext_of(f.filename)
         object_name = f"{result_id}/{f.filename}"
         client.put_object(
             settings.minio_bucket_audio,
@@ -243,6 +300,23 @@ def upload_audio(
             length=len(data),
             content_type=AUDIO_CONTENT_TYPES.get(ext, "application/octet-stream"),
         )
+        # Bucket S3 adalah ARSIP; yang memicu pemrosesan adalah berkas di folder
+        # antrian. Nama dipakai apa adanya dan DATAR (tidak di-nest dalam
+        # {result_id}/) karena producer memindai WATCH_DIR secara non-rekursif dan
+        # hilirnya mengenali tiket dari pola <customer_id>_<timestamp>.
+        try:
+            write_audio_to_recording_dir(settings.audio_recording_dir, f.filename, data)
+        except Exception as exc:
+            # Sengaja TIDAK ditelan: kalau langkah ini gagal, audio hanya
+            # mengendap di S3 dan tidak akan pernah ditranskrip — kegagalan yang
+            # menyamar jadi sukses.
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    f"Audio '{f.filename}' tersimpan di storage tapi GAGAL ditulis "
+                    f"ke folder antrian STT ({settings.audio_recording_dir}): {exc}"
+                ),
+            ) from exc
 
     # Record the storage prefix.
     result.transcript_path = f"{result_id}/"
