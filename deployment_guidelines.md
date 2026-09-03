@@ -216,7 +216,147 @@ memanggil `/api-b/...` yang hanya dipetakan nginx depan, sehingga dibalas
 
 ---
 
-## 7. Masalah yang pernah terjadi
+## 7. Alur audio & pipeline STT
+
+Menu **Upload Audio** TIDAK memproses sendiri. Ia hanya menaruh berkas; yang
+mengerjakan adalah rangkaian di luar ketiga repo ini.
+
+```
+dashboard  --POST /api-b/upload_audio-->  API
+                                           |-- arsip ke bucket vtt-audio
+                                           `-- tulis ke /data/recording
+                                                    |
+                     /data/script_antrian/producer_watch.py   (inotify)
+                                                    |  publish + marker .queued
+                     /data/script_antrian/consumer_worker.py
+                                                    |  tunggu berkas stabil
+                                                    |  POST ke STT, seimbang 2 GPU
+                                     :8000 (GPU0)  /  \  :8001 (GPU1)
+                                                    |
+                                        PDF -> bucket voice-to-text-dm
+                                                    |
+                          :8010 /api/downloads/<stem>  <- tombol Download PDF
+```
+
+**Ketergantungan operasional.** Kalau producer atau consumer mati, unggahan
+tetap "berhasil" tapi tidak pernah diproses — berkasnya menumpuk di
+`/data/recording`. Periksa keduanya hidup:
+
+```bash
+ps aux | grep -E "producer_watch|consumer_worker" | grep -v grep
+ls -la /data/recording/         # menumpuk = consumer tidak jalan
+```
+
+Keduanya berjalan sebagai **root**, sama seperti container API, jadi tidak ada
+masalah kepemilikan berkas.
+
+**Kontrak penulisan berkas.** API menulis ke `<nama>.part` lalu `os.replace()`
+ke nama akhir. Ini wajib: `on_created` di producer tidak menunggu berkas selesai
+ditulis, jadi menulis langsung ke `nama.wav` bisa dipublish saat isinya baru
+separuh. Akhiran `.part` berada di luar `AUDIO_EXTS` sehingga diabaikan, dan
+rename-nya memicu `on_moved` — jalur yang memang dirancang untuk pola itu.
+
+**Ekstensi.** Endpoint hanya menerima `.wav`, `.wave`, `.mp3` — yakni
+`AUDIO_EXTS` producer. Format lain ditolak 422 di depan; kalau diterima, ia
+hanya akan menumpuk di folder tanpa pernah diproses.
+
+**Diarization & bahasa mengikuti setelan global.** Producer mem-publish dengan
+`DEFAULT_LANGUAGE` + `ENABLE_DIARIZATION` dari env-nya sendiri, bukan pilihan
+per-unggahan — itulah sebabnya dropdown-nya dihapus dari dashboard.
+
+**Status.** `GET /audio_job_status?audio_name=<nama>` mengembalikan:
+
+| Status | Arti |
+|---|---|
+| `queued` | berkas atau marker `.queued` masih di `/data/recording` |
+| `processing` | sudah diambil consumer, PDF belum terbit |
+| `completed` | `<stem>.pdf` sudah ada di bucket transkrip |
+| `failed` | ada baris `Result` berstatus failed |
+
+Penanda selesai adalah **PDF di bucket**, bukan baris `Result`. Baris itu dibuat
+`/webhook/register_stt_result`, yang tidak dipanggil pada jalur antrian — dulu
+memakainya membuat job yang sudah tuntas tampak `processing` selamanya. PDF juga
+artefak yang sama diambil tombol download, jadi status dan unduhan tidak bisa
+bertentangan.
+
+> **Keterbatasan yang diketahui.** Kegagalan di tengah antrian (sebelum PDF
+> terbit) tidak terdeteksi — job tampak `processing` terus, bukan `failed`.
+> Kalau sebuah job diam terlalu lama, periksa log consumer dan isi
+> `/data/recording`.
+
+Port 8000 **tidak bisa** dipakai sebagai sumber status: endpoint per-job-nya
+butuh `job_id` yang baru terbit di dalam consumer, endpoint agregatnya hanya
+memberi cacahan tanpa nama berkas, dan `job_storage`-nya terpisah antara :8000
+dan :8001 sekaligus kadaluarsa (`max_pending_jobs`).
+
+---
+
+## 8. Role & capability
+
+Semua gate memakai **capability**, bukan nama role. Menu di dashboard pun
+digerakkan capability (`permissions.js`), jadi mengubah izin **tidak perlu**
+build ulang dashboard — cukup logout/login.
+
+Dua cara mengubahnya:
+
+- **Menu Manage Role** untuk penyesuaian operasional. Tidak menyentuh kode.
+- **Migrasi Alembic** kalau perubahannya harus ikut ke semua lingkungan. Ikuti
+  pola `0032`/`0049`/`0052`: pembaruan JSONB, bukan menimpa seluruh baris, agar
+  role yang sudah disesuaikan operator tidak hilang.
+
+Perhatikan bahwa satu fitur sering butuh **dua** capability: satu untuk menu,
+satu untuk gate endpoint. Contoh pada `0052` (Upload Database Sales untuk Team
+Leader QC): tanpa `admin.sales_database.write`, menunya muncul tapi setiap
+permintaan dibalas 403 — kegagalan yang menyesatkan.
+
+Memeriksa izin sebuah role:
+
+```bash
+docker compose exec -T api python -c "
+from sqlalchemy.orm import sessionmaker
+from api.dependencies import get_settings,_make_engine
+from api.rbac import has_perm
+db = sessionmaker(bind=_make_engine(get_settings()))()
+class U: pass
+u = U(); u.role = 'team_leader_qc'; u.username = 'x'
+print(has_perm(db, u, 'menu.upload_sales_database'))
+"
+```
+
+### Akun admin pertama (ayam-telur)
+
+`POST /auth/create_user` butuh `admin.user.write`, dan **hanya role `admin`**
+yang memilikinya. Kalau di DB belum ada user ber-role `admin` — misalnya user
+seed bawaan ber-role `spq_head` — tidak ada jalan lewat API sama sekali.
+
+Bootstrap lewat model dan fungsi hash aplikasi sendiri, jangan SQL mentah, agar
+barisnya identik dengan buatan endpoint:
+
+```bash
+docker compose exec -T -e U=<nip> -e P='<password>' api python -c "
+import os
+from sqlalchemy.orm import sessionmaker
+from api.dependencies import get_settings, _make_engine
+from api.auth import hash_password
+from db.models import User, Role
+db = sessionmaker(bind=_make_engine(get_settings()))()
+assert db.query(Role).filter(Role.key=='admin').first(), 'role admin belum ada'
+assert not db.query(User).filter(User.username==os.environ['U']).first(), 'username terpakai'
+db.add(User(username=os.environ['U'], name='Administrator',
+            email='<email>', hashed_password=hash_password(os.environ['P']),
+            role='admin', is_active=True))
+db.commit(); print('dibuat')
+"
+```
+
+Menonaktifkan akun (bukan menghapus): set `is_active = False`. Endpoint yang
+tersedia hanya `DELETE /auth/users/{id}` yang menghapus permanen — untuk
+menonaktifkan, ubah kolomnya langsung. Login akan dibalas 401 "Akun tidak
+aktif".
+
+---
+
+## 9. Masalah yang pernah terjadi
 
 | Gejala | Sebab & penanganan |
 |---|---|
