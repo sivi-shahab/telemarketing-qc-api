@@ -11,7 +11,22 @@ ENV PYTHONPATH=/app \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Sertifikat cdn.bankmega.local. Server hanya mengirim leaf-nya tanpa CA
+# penerbit ("Bank Mega Local Authority"), jadi leaf itu sendiri yang dipercaya
+# --- sama seperti trust store host. Tanpa ini SETIAP operasi MinIO gagal
+# CERTIFICATE_VERIFY_FAILED, bukan cuma ensure_buckets() saat startup.
+COPY certs/bankmegalocal.crt /usr/local/share/ca-certificates/bankmegalocal.crt
+RUN update-ca-certificates
+
+# minio 7.2.20 memakai `ca_certs=os.environ.get("SSL_CERT_FILE") or certifi.where()`,
+# dan certifi TIDAK ikut membaca trust store sistem -- jadi SSL_CERT_FILE wajib
+# ditunjuk eksplisit ke bundle hasil update-ca-certificates. REQUESTS_CA_BUNDLE
+# menyamakan perilaku untuk `requests` (DWH API, TMS, view streams).
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Dependensi core lebih dulu, baru milik API — dua layer cache terpisah.
 COPY core/requirements.txt /tmp/core-requirements.txt
