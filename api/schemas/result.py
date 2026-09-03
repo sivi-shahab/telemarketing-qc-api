@@ -285,3 +285,19 @@ class NamaIbuKandungItem(BaseModel):
 class NamaIbuKandungResponse(BaseModel):
     total: int
     rows: list[NamaIbuKandungItem]
+
+class AudioUploadResponse(BaseModel):
+    """Balasan /upload_audio. TIDAK memuat ``result_id``: baris ``Result``
+    baru dibuat /webhook/register_stt_result saat pipeline STT selesai."""
+    audio_names: list[str]
+    status: str = "queued"
+
+
+class AudioJobStatusResponse(BaseModel):
+    """Status satu audio, dikunci pada NAMA BERKAS — kunci yang sama dipakai
+    tombol download (pdf id = nama tanpa ekstensi)."""
+    audio_name: str
+    status: str          # queued | processing | completed | failed
+    result_id: Optional[str] = None
+    pdf_id: Optional[str] = None
+    error_message: Optional[str] = None

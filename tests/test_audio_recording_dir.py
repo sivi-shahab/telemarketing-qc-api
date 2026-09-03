@@ -79,3 +79,55 @@ def test_ekstensi_di_luar_producer_ditolak():
         ensure_vtt_supported_audio("rekaman.m4a")
     pesan = str(getattr(exc.value, "detail", exc.value)).lower()
     assert "m4a" in pesan or "wav" in pesan
+
+
+# ---------------------------------------------------------------------------
+# Alur setelah dashboard dialihkan ke /upload_audio
+# ---------------------------------------------------------------------------
+
+def test_upload_audio_tidak_membuat_result_row():
+    """Baris ``Result`` dibuat SEKALI oleh /webhook/register_stt_result saat
+    pipeline selesai, bukan oleh /upload_audio.
+
+    Kalau /upload_audio ikut membuatnya, satu audio menghasilkan DUA baris:
+    ``register_stt_result`` hanya idempoten terhadap ``payload.result_id``
+    miliknya sendiri, yang tidak akan pernah sama dengan id buatan
+    /upload_audio — jadi baris pertama tertinggal selamanya 'pending'.
+    """
+    import inspect
+
+    from api.routers import transcript as t
+
+    src = inspect.getsource(t.upload_audio)
+    assert "create_result" not in src, (
+        "upload_audio masih membuat baris Result — akan bentrok dengan "
+        "register_stt_result dan meninggalkan baris pending yatim"
+    )
+
+
+def test_audio_job_status_ada_dan_menerima_audio_name():
+    from api.routers import transcript as t
+
+    assert hasattr(t, "audio_job_status")
+    params = __import__("inspect").signature(t.audio_job_status).parameters
+    assert "audio_name" in params
+
+
+def test_status_queued_saat_berkas_masih_di_folder(tmp_path):
+    """Berkas (atau marker .queued) masih ada = belum diambil consumer."""
+    from api.routers.transcript import recording_queue_state
+
+    (tmp_path / "a_1.wav").write_bytes(b"x")
+    assert recording_queue_state(str(tmp_path), "a_1.wav") == "queued"
+
+    (tmp_path / "a_1.wav").unlink()
+    (tmp_path / "a_1.wav.queued").write_bytes(b"")
+    assert recording_queue_state(str(tmp_path), "a_1.wav") == "queued"
+
+
+def test_status_processing_saat_folder_sudah_bersih(tmp_path):
+    """Berkas sudah diambil consumer dan sedang diproses VTT — belum ada
+    Result, jadi bukan 'completed' dan bukan lagi 'queued'."""
+    from api.routers.transcript import recording_queue_state
+
+    assert recording_queue_state(str(tmp_path), "a_1.wav") == "processing"
