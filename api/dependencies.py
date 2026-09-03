@@ -24,15 +24,15 @@ class Settings(BaseSettings):
     # PostgreSQL Configuration
     # ============================================
     postgres_host: str = "postgres"
-    postgres_host: str = os.getenv("POSTGRES_HOST", "postgres")
+    postgres_host: str = os.getenv("POSTGRES_HOST", "")
     postgres_port: int = 5432
     postgres_port: int = int(os.getenv("POSTGRES_PORT", "5432"))
     postgres_db: str = "bankqa"
-    postgres_db: str = os.getenv("POSTGRES_DB", "bankqc")
+    postgres_db: str = os.getenv("POSTGRES_DB", "")
     postgres_user: str = "bankqa"
-    postgres_user: str = os.getenv("POSTGRES_USER", "bankqc")
+    postgres_user: str = os.getenv("POSTGRES_USER", "")
     postgres_password: str = "changeme"
-    postgres_password: str = os.getenv("POSTGRES_PASSWORD", "changeme")
+    postgres_password: str = os.getenv("POSTGRES_PASSWORD", "")
     # Schema tujuan semua tabel aplikasi. Kosong = 'public' (DB lokal).
     postgres_schema: str = os.getenv("POSTGRES_SCHEMA", "")
     
