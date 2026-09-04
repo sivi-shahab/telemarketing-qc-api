@@ -4,9 +4,14 @@ Dua fungsi murni yang memutuskan segalanya diuji di sini: mana tiket yang berhak
 ikut dibagi, dan siapa mendapat apa. Sisanya di router hanyalah membaca DB dan
 menulis hasilnya, jadi yang benar-benar bisa salah ada di dua fungsi ini.
 
-Aturan pembagiannya ditetapkan bersama pemintanya: N Ticket ID dibagi rata ke K
-QC aktif, `floor(N/K)` per orang, dan SISA-nya (`N mod K`) diberikan ke QC
-TERAKHIR — bukan disebar satu-satu seperti round-robin biasa.
+Aturan pembagiannya: N Ticket ID dibagi rata ke K QC aktif, `floor(N/K)` per
+orang, dan SISA-nya (`N mod K`) disebar satu-satu ke QC pertama — jadi selisih
+beban antar-QC tidak pernah lebih dari satu ticket.
+
+Aturan pertamanya menumpuk seluruh sisa ke QC terakhir. Itu diganti setelah
+pembagian sungguhan pertama: dengan 281 ticket dan 11 QC, satu orang menerima 31
+sementara yang lain 25 — dan karena urutan QC tetap, orang yang sama menanggung
+kelebihan itu setiap hari.
 """
 from api.routers.qc_assignment import eligible_tickets, split_evenly
 
@@ -29,17 +34,26 @@ def test_habis_dibagi_setiap_qc_dapat_sama_banyak():
     assert _by_qc(pairs) == {"a": ["t1", "t2"], "b": ["t3", "t4"], "c": ["t5", "t6"]}
 
 
-def test_sisa_jatuh_ke_qc_terakhir():
-    """7 tiket / 3 QC = 2 per orang, sisa 1 ke QC terakhir — bukan ke QC pertama."""
+def test_sisa_disebar_satu_satu_ke_qc_pertama():
+    """7 tiket / 3 QC = 2 per orang, sisa 1 ke QC PERTAMA — bukan ditumpuk di ujung."""
     pairs = split_evenly(["t1", "t2", "t3", "t4", "t5", "t6", "t7"], ["a", "b", "c"])
 
-    assert _by_qc(pairs) == {"a": ["t1", "t2"], "b": ["t3", "t4"], "c": ["t5", "t6", "t7"]}
+    assert _by_qc(pairs) == {"a": ["t1", "t2", "t3"], "b": ["t4", "t5"], "c": ["t6", "t7"]}
 
 
-def test_sisa_lebih_dari_satu_tetap_utuh_ke_qc_terakhir():
+def test_sisa_lebih_dari_satu_disebar_ke_beberapa_qc_pertama():
+    """11 tiket / 4 QC: sisa 3 jatuh ke tiga QC pertama, masing-masing satu."""
     pairs = split_evenly([f"t{i}" for i in range(1, 12)], ["a", "b", "c", "d"])
 
-    assert [len(v) for v in _by_qc(pairs).values()] == [2, 2, 2, 5]
+    assert [len(v) for v in _by_qc(pairs).values()] == [3, 3, 3, 2]
+
+
+def test_selisih_beban_tidak_pernah_lebih_dari_satu():
+    """Inti dari aturan barunya, diuji pada banyak bentuk sekaligus."""
+    for n in range(1, 60):
+        for k in range(1, 13):
+            counts = [len(v) for v in _by_qc(split_evenly([f"t{i}" for i in range(n)], [f"q{j}" for j in range(k)])).values()]
+            assert max(counts) - min(counts) <= 1, (n, k, counts)
 
 
 def test_potongannya_berurutan_bukan_selang_seling():
@@ -50,8 +64,8 @@ def test_potongannya_berurutan_bukan_selang_seling():
 
 
 def test_tiket_lebih_sedikit_daripada_qc_dibagi_satu_satu():
-    """`floor` = 0 di sini. Kalau aturan sisa diikuti mentah-mentah, ketiga tiket
-    menumpuk ke satu orang — kebalikan dari maksud tombolnya."""
+    """`floor` = 0, jadi seluruhnya sisa — dan sisa yang disebar satu-satu berarti
+    tiga QC pertama masing-masing dapat satu, tanpa perlu aturan khusus."""
     pairs = split_evenly(["t1", "t2", "t3"], ["a", "b", "c", "d", "e"])
 
     assert pairs == [("t1", "a"), ("t2", "b"), ("t3", "c")]

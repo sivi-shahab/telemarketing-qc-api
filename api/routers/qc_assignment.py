@@ -126,27 +126,28 @@ def eligible_tickets(requested, allowed, already_assigned) -> list:
 def split_evenly(ticket_ids, qc_usernames) -> list:
     """Bagi ``ticket_ids`` ke ``qc_usernames``: [(ticket_id, qc_username), ...].
 
-    ``floor(N/K)`` tiket per QC dan SISANYA (``N mod K``) ke QC TERAKHIR — bukan
-    disebar satu-satu ala round-robin. Aturan itu diminta begitu, dan potongannya
-    dibuat berurutan supaya urutan tabel tetap terbaca: QC pertama memegang tiket
-    teratas.
+    ``floor(N/K)`` tiket per QC, dan SISANYA (``N mod K``) disebar satu-satu ke QC
+    pertama — sehingga selisih beban antar-QC tidak pernah lebih dari satu ticket.
+    Potongannya berurutan supaya urutan tabel tetap terbaca: QC pertama memegang
+    tiket teratas.
 
-    Kekecualian saat tiket LEBIH SEDIKIT daripada QC: di situ ``floor`` = 0, dan
-    mengikuti aturan sisa mentah-mentah akan menumpuk semuanya ke satu orang —
-    kebalikan dari maksud tombol ini. Kasus itu dibagikan satu-satu dari QC
-    pertama.
+    Aturan pertamanya menumpuk seluruh sisa ke QC TERAKHIR. Itu diganti setelah
+    pembagian sungguhan pertama: 281 ticket ke 11 QC membuat satu orang menerima
+    31 sementara yang lain 25 — dan karena urutan QC tetap, orang yang sama
+    menanggung kelebihannya setiap hari.
+
+    Saat tiket lebih sedikit daripada QC, ``base`` = 0 dan semuanya jadi sisa,
+    jadi QC sebanyak jumlah tiket dapat satu-satu dan sisanya tidak kebagian —
+    tanpa perlu aturan khusus.
     """
     n, k = len(ticket_ids), len(qc_usernames)
     if not n or not k:
         return []
 
     base, rem = divmod(n, k)
-    if base == 0:
-        return list(zip(ticket_ids, qc_usernames))
-
     pairs, cut = [], 0
     for pos, qc in enumerate(qc_usernames):
-        take = base + (rem if pos == k - 1 else 0)
+        take = base + (1 if pos < rem else 0)
         pairs.extend((tid, qc) for tid in ticket_ids[cut:cut + take])
         cut += take
     return pairs
