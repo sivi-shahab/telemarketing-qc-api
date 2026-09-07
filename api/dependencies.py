@@ -219,11 +219,16 @@ _minio_client = None
 
 
 def get_minio():
-    """Client MinIO milik API (lazy, satu instance per proses).
+    """Client object storage milik API (lazy, satu instance per proses).
 
-    Bisa berupa ``Minio`` biasa (mode admin key global) atau
-    ``MultiBucketMinioClient`` (mode kredensial per-bucket / CDN) — API-nya sama
-    sehingga semua pemanggil di routers tidak perlu berubah.
+    Selalu ``MultiBucketS3Client`` (boto3, satu client per bucket dengan
+    kredensial masing-masing). Mode admin key global sudah dihapus sejak migrasi
+    dari SDK ``minio``; permukaan API-nya tetap meniru ``Minio`` lama sehingga
+    semua pemanggil di routers tidak perlu berubah.
+
+    Dibangun saat pertama dipakai, BUKAN saat startup — jadi baris log
+    ``[s3] Bucket ...`` memang tidak muncul di log start. Lihat
+    ``docs/ARSITEKTUR.md`` bab 7.
     """
     global _minio_client
     if _minio_client is None:
