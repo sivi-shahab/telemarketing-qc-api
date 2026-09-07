@@ -211,6 +211,9 @@ Indeks paket dokumentasi untuk serah-terima sistem. Mulai dari atas.
 >
 > Sesudah deploy: `POST /stats/refresh`.
 
+## Arsitektur (mulai dari sini)
+- [`ARSITEKTUR.md`](./ARSITEKTUR.md) — **dokumen arsitektur lintas-repo**: empat repositori dan kenapa `core` ada di dua tempat, topologi runtime + daftar port, pembagian compose, alur data (transkrip/OCR/reprocess), kepemilikan skema DB, integrasi eksternal (App A, App C, object storage S3, LLM), frontend + jebakan prefix `/api-b`, build/deploy Jenkins, urutan rilis wajib, dan langkah compose lengkap dari nol. Berlaku untuk **keempat** repo, bukan hanya `api`.
+
 ## Setup & Operasi
 - [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploy dari GitHub ke server (Docker & non-Docker) + production hardening.
 - [`RUNBOOK.md`](./RUNBOOK.md) — operasi harian: monitoring, restart, scaling, backup/restore, sakelar SLA H+2, refresh snapshot Statistics, insiden.
@@ -267,4 +270,5 @@ Indeks paket dokumentasi untuk serah-terima sistem. Mulai dari atas.
 - **Backup data**: `./data/{postgres,minio}`.
 - **Checklist rotasi secret**: `JWT_SECRET_KEY`, `API_KEY`, password DB/MinIO/admin.
 
-> README utama proyek (Docker quick-start, arsitektur) ada di [`../README.md`](../README.md).
+> Arsitektur sistem ada di [`ARSITEKTUR.md`](./ARSITEKTUR.md) (lihat bagian teratas),
+> bukan di `../README.md` — README repo hanya memuat quick-start singkat.

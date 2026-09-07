@@ -112,7 +112,7 @@ build — perbaikannya rebuild dashboard, bukan restart.
 | `failed to compute cache key: "/core/db"` | `core/` kosong — ulangi langkah 1 |
 | `port is already allocated` | Stack monorepo masih jalan |
 | `ModuleNotFoundError: compliance` di worker | `docker compose build --no-cache worker` |
-| `[minio] Belum ada kredensial per-bucket` | `MINIO_*_KEY_<BUCKET>` tidak terbaca — cek `.env` |
+| `ValueError: [s3] Bucket '<X>' tidak punya kredensial` | `MINIO_*_KEY_<BUCKET>` tidak terbaca — cek `.env` |
 | Login 422 | Rebuild dashboard, jangan cuma restart |
 
 ---
@@ -430,7 +430,7 @@ konstanta kode; `roles.permissions` adalah array JSONB yang ditambah lewat
 | App A — STT/audio | `:8000` via `/api-a/` | dashboard | `UploadAudioView.vue` |
 | App C — tickets-daily | `host.docker.internal:8008` | api, worker | `core/services/tickets_daily.py` |
 | App C — view-streams/PDF | `host.docker.internal:8010` | api, worker | `core/services/view_streams.py` |
-| MinIO CDN | `cdn.bankmega.local:443` | api, worker, core | `core/services/multi_bucket_minio.py` |
+| Object storage (MinIO di balik CDN) | `cdn.bankmega.local:443` | api, worker, core | `core/services/s3_buckets.py` |
 | LLM | Azure AI Foundry, `gpt-5.4-mini` | worker (dan api untuk RIPLAY) | `worker/tasks/process_transcript.py` |
 
 `host.docker.internal` dipetakan lewat `extra_hosts: ["host.docker.internal:host-gateway"]`
@@ -439,28 +439,117 @@ di compose api dan worker.
 `view_streams.py:54` memakai `VIEW_STREAM_API_KEY`, dan jika kosong jatuh ke
 `TMS_API_KEY`.
 
-### Dua mode MinIO
+### Akses S3 lewat boto3 (`core/services/s3_buckets.py`)
 
-`build_minio_client()` memilih mode secara otomatis:
+Sejak 2026-09-03 (`66cc4c7` di api, `0a6525a` di worker) SDK `minio` **dilepas
+sepenuhnya** dan diganti boto3. `requirements.txt` keempat service hanya memuat
+`boto3`; paket `minio` sudah tidak dipasang di image mana pun.
+
+`build_s3_client()` membangun **satu client boto3 per bucket**, masing-masing
+dengan access key/secret miliknya sendiri:
 
 ```
-ada MINIO_ACCESS_KEY_<BUCKET> + secret-nya yang terisi?
-   ya  -> MultiBucketMinioClient   (satu client Minio per bucket)
-   tidak -> Minio tunggal pakai MINIO_ACCESS_KEY / MINIO_SECRET_KEY
+untuk tiap (bucket, MINIO_ACCESS_KEY_<B>, MINIO_SECRET_KEY_<B>):
+    bucket kosong          -> lewati diam-diam (memang tidak dipakai app ini)
+    kredensial kosong      -> lewati + logger.warning
+    lengkap                -> boto3.client("s3", ...) disimpan di dict[bucket]
 ```
 
-`MultiBucketMinioClient` sengaja meniru API `Minio` persis — setiap method
+> **Tidak ada lagi mode fallback.** Versi lama jatuh ke `MINIO_ACCESS_KEY` /
+> `MINIO_SECRET_KEY` global kalau kredensial per-bucket kosong. Perilaku itu
+> **sudah dihapus** — bucket tanpa kredensial per-bucket tidak dibangun sama
+> sekali, dan pemakaiannya gagal dengan `ValueError` yang menyebut daftar bucket
+> yang terdaftar (`_client_for()`). Dua field global di Settings hanya tersisa
+> sebagai default yang tidak terpakai.
+
+`MultiBucketS3Client` sengaja meniru API `Minio` lama persis — tiap method
 menerima `bucket_name` sebagai argumen pertama lalu me-*route* ke client yang
-benar. Karena itu seluruh kode pemanggil (`put_object`, `get_object`, …) tidak
-perlu diubah sama sekali saat berpindah mode.
+benar, dan hasil `list_objects`/`stat_object`/`get_object` dibungkus objek tiruan
+yang punya `.object_name`, `.read()`, bahkan `.release_conn()` (no-op). Karena itu
+seluruh kode pemanggil di routers dan worker **tidak diubah sama sekali** saat
+migrasi; yang berganti hanya mesin di baliknya. Nama lama `build_minio_client`
+dipertahankan sebagai alias di ujung berkas.
 
-Bucket yang kredensialnya kosong **dilewati dengan warning**, bukan menggagalkan
-startup — supaya migrasi bertahap mungkin. Pemakaian bucket itu nanti gagal
-dengan pesan jelas dari `_client_for()`, bukan diam-diam memakai kredensial salah.
+#### Tiga penyetelan yang wajib dan tidak boleh dicabut
 
-Bucket: `transcripts`, `results`, `campaigns`, `documents`, `audio`,
-`sales-database`. Bucket `qc-database` sengaja dinonaktifkan — field
-`minio_bucket_qc_database` di-comment di `api/dependencies.py:58`.
+Ketiganya terlihat seperti hack kalau dibaca sepintas, padahal masing-masing
+menahan kegagalan nyata yang sudah terverifikasi:
+
+| Penyetelan | Kenapa ada | Kalau dicabut |
+|---|---|---|
+| `ssl.VERIFY_X509_PARTIAL_CHAIN` ditambahkan dengan membungkus `botocore.httpsession.create_urllib3_context` | `cdn.bankmega.local` hanya mengirim sertifikat **leaf**-nya; CA penerbit ("Bank Mega Local Authority") tidak dikirim server dan tidak tersedia di host mana pun. Yang dipercaya adalah leaf itu langsung (`certs/bankmegalocal.crt`, dipasang Dockerfile). OpenSSL bawaan Python menolak leaf tanpa issuer; curl di host lolos karena memakai partial chain. botocore membangun `SSLContext` sendiri dan tidak menyediakan cara resmi mengatur `verify_flags`. | semua panggilan gagal `SSLError` |
+| `s3={"addressing_style": "path"}` | bucket harus jadi **prefix path**, bukan subdomain — `voice-to-text-dm.cdn.bankmega.local` tidak ada di DNS | `EndpointConnectionError` / NXDOMAIN |
+| `s3={"payload_signing_enabled": False}` (UNSIGNED-PAYLOAD) | nginx di depan CDN meneruskan body apa adanya; signature streaming membuat hash tidak cocok di sisi MinIO | upload ditolak `SignatureDoesNotMatch` |
+
+Perlu ditegaskan: verifikasi TLS **tidak** dimatikan. `CERT_REQUIRED` dan
+pemeriksaan hostname tetap menyala — efeknya sertifikat yang di-*pin*, bukan
+`verify=False`.
+
+`region_name` juga wajib terisi (default `us-east-1`). MinIO di balik nginx
+menolak `GetBucketLocation` (`GET /<bucket>?location=`) dengan HTML 403, sehingga
+SDK yang mencoba menebak region gagal di situ sebelum operasi sebenarnya jalan.
+
+#### Bucket produksi
+
+Enam bucket, dengan **nama produksi yang berbeda dari nama generik di
+`.env.example`**:
+
+| Field Settings | Nama bucket produksi | Access key |
+|---|---|---|
+| `minio_bucket_transcripts` | `voice-to-text-dm` | `voicetotextdm` |
+| `minio_bucket_results` | `vtt-results` | `vtt-results` |
+| `minio_bucket_campaigns` | `vtt-campaigns` | `vtt-campaigns` |
+| `minio_bucket_documents` | `vtt-documents` | `vtt-documents` |
+| `minio_bucket_audio` | `vtt-audio` | `vtt-audio` |
+| `minio_bucket_sales_database` | `vtt-sales-db` | `vtt-sales-db` |
+
+Bucket `qc-database` sengaja dinonaktifkan — field `minio_bucket_qc_database`
+di-comment di `api/dependencies.py:58`.
+
+Prefix sumber ingestion dipisah dari nama bucket:
+`MINIO_TRANSCRIPTS_SOURCE_PREFIX=inbox/` dan `MINIO_DOCUMENTS_SOURCE_PREFIX=inbox/`.
+Apa pun yang ditulis ke `inbox/` akan ter-scan pipeline; tulis di root bucket
+kalau hanya ingin menguji koneksi.
+
+#### Client dibangun *lazy* — baris log tidak muncul saat startup
+
+`get_minio()` (`api/dependencies.py:221`) baru memanggil `build_s3_client()`
+**saat pertama kali dipakai**, bukan saat start. Jadi log startup api yang bersih
+memang **tidak memuat** baris bucket apa pun; itu bukan tanda kegagalan.
+
+Setelah ada request yang menyentuh object storage, barisnya berbentuk:
+
+```
+[s3] Bucket 'voice-to-text-dm' -> access_key='voicetotextdm' @ https://cdn.bankmega.local
+```
+
+Prefiksnya `[s3]`. Dokumen versi lama menyebut `[multi-bucket-minio]` dan
+`[minio] Belum ada kredensial per-bucket` — **kedua string itu sudah tidak ada di
+kode**; jangan dicari di log.
+
+Cara memastikan koneksi tanpa menunggu request masuk — bangun client-nya langsung
+di dalam container:
+
+```bash
+docker compose exec api python -c "
+import logging, sys; sys.path.insert(0,'/app')
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+from api.dependencies import Settings
+from services.s3_buckets import build_s3_client
+c = build_s3_client(Settings())
+print('ter-wire:', sorted(c._clients))
+for b in sorted(c._clients):
+    print(b, sum(1 for _ in c.list_objects(b, recursive=True)), 'objek')
+"
+```
+
+Di worker, tukar `api.dependencies.Settings` dengan `worker.config.WorkerSettings`.
+`list_objects` yang balik 200 sudah membuktikan signature v4 diterima MinIO —
+bucket kosong tetap terhitung sehat, karena kredensial salah dijawab
+`AccessDenied`/`SignatureDoesNotMatch`, bukan daftar kosong.
+
+Status per 2026-09-07: keenam bucket lolos baca **dan** tulis
+(`put` → `stat` → `get` → `delete`) dari container api maupun worker.
 
 ---
 
@@ -836,24 +925,28 @@ Yang harus terlihat, berurutan:
 INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
 INFO  [alembic.runtime.migration] Running upgrade 0025 -> 0026, ...
 ...
-INFO  [alembic.runtime.migration] Running upgrade 0050 -> 0051, ...
-[multi-bucket-minio] Bucket 'transcripts' -> access_key='vtt-<bucket>' @ cdn.bankmega.local (secure=True)
+INFO  [alembic.runtime.migration] Running upgrade 0051 -> 0052, ...
 INFO:     Uvicorn running on http://0.0.0.0:4000
 ```
 
-> Kalau yang muncul `[minio] Belum ada kredensial per-bucket — pakai satu client
-> global`, berarti `MINIO_ACCESS_KEY_*` tidak terbaca dan aplikasi mencoba
-> memakai admin key yang tidak ada di `.env` produksi. Periksa `.env`.
+> **Tidak ada baris bucket di log startup, dan itu normal.** Client S3 dibangun
+> *lazy* saat pertama dipakai (`api/dependencies.py:221`), bukan saat start.
+> Baris `[s3] Bucket '<nama>' -> access_key='<key>' @ https://cdn.bankmega.local`
+> baru muncul setelah ada request yang menyentuh object storage. Untuk
+> memverifikasi lebih awal, pakai snippet di [bab 7](#akses-s3-lewat-boto3-coreservicess3_bucketspy).
+>
+> Prefiks `[multi-bucket-minio]` dan pesan `[minio] Belum ada kredensial
+> per-bucket` dari versi lama **sudah tidak ada di kode** sejak migrasi boto3.
 
 Verifikasi:
 
 ```bash
 curl -sf http://localhost:4000/health && echo " <- api sehat"
-docker compose exec api alembic current          # harus 0051 (head)
+docker compose exec api alembic current          # harus 0052 (head)
 curl -s http://localhost:4000/docs -o /dev/null -w "docs: %{http_code}\n"
 ```
 
-**Jangan lanjut ke worker sebelum `alembic current` menunjukkan `0051 (head)`.**
+**Jangan lanjut ke worker sebelum `alembic current` menunjukkan `0052 (head)`.**
 Worker memakai model yang mengasumsikan skema terbaru.
 
 ---
@@ -1040,7 +1133,7 @@ docker compose --profile local-infra up -d
 | `port is already allocated` | Stack monorepo masih jalan | Langkah 12.5 |
 | API restart terus, log Alembic error | Migrasi gagal di tengah | Cek log; **jangan** paksa restart — periksa `alembic current` dulu |
 | `MINIO_ACCESS_KEY variable is not set` | Wajar di mode CDN | Abaikan; hanya relevan untuk profile `local-infra` |
-| Log `[minio] Belum ada kredensial per-bucket` | `MINIO_*_KEY_<BUCKET>` tidak terbaca | Periksa `.env` api/worker |
+| `ValueError: [s3] Bucket '<X>' tidak punya kredensial di Settings` | `MINIO_*_KEY_<BUCKET>` tidak terbaca | Periksa `.env` api/worker |
 | Login dijawab 422 | `VITE_API_URL` tanpa `/api-b` | Rebuild dashboard dengan build-arg benar |
 | Semua request API 404 | Trailing slash `proxy_pass` hilang | Periksa vhost nginx |
 | Worker diam, task menumpuk | Worker tidak tersambung broker | `celery ... inspect ping`; cek `REDIS_URL` |
@@ -1805,11 +1898,16 @@ kubectl -n $NS exec deploy/qc-api -- curl -sf http://localhost:4000/health
 kubectl -n $NS exec deploy/qc-worker -- \
   celery -A worker.celery_app inspect registered
 
-# MinIO memilih mode yang benar — cari baris ini di log api:
-#   [multi-bucket-minio] Bucket 'transcripts' -> access_key='vtt-<bucket>' @ cdn.bankmega.local
-# Kalau yang muncul "[minio] Belum ada kredensial per-bucket", Secret
-# MINIO_ACCESS_KEY_* tidak terbaca.
-kubectl -n $NS logs deploy/qc-api | grep -i minio | head
+# Object storage. Client dibangun lazy, jadi log startup memang kosong dari
+# baris bucket — bangun langsung untuk menguji Secret MINIO_ACCESS_KEY_*:
+kubectl -n $NS exec deploy/qc-api -- python -c "
+import sys; sys.path.insert(0,'/app')
+from api.dependencies import Settings
+from services.s3_buckets import build_s3_client
+c = build_s3_client(Settings()); print('ter-wire:', sorted(c._clients))
+"
+# Enam bucket harus terdaftar. Kurang dari itu = Secret per-bucket tidak terbaca.
+kubectl -n $NS logs deploy/qc-api | grep '\[s3\]' | head
 
 # Revisi Alembic yang aktif
 kubectl -n $NS exec deploy/qc-api -- alembic current
@@ -1877,7 +1975,9 @@ cd /data/scorecard_v2/telemarketing-qc-api && docker compose up -d
 | App B menjawab **404** untuk semua request | Slash di ujung `proxy_pass http://localhost:4000/` terhapus |
 | Bundle lama terus dipakai setelah deploy | `index.html` di-cache browser — dicegah `no-store` |
 | Module worker pdf.js ditolak browser | `.mjs` disajikan sebagai `application/octet-stream` |
-| MinIO error "tidak ada kredensial untuk bucket X" | Bucket belum punya `MINIO_ACCESS_KEY_<X>` |
+| `ValueError: [s3] Bucket 'X' tidak punya kredensial di Settings` | Bucket belum punya `MINIO_ACCESS_KEY_<X>` + secret-nya. Tidak ada fallback ke key global sejak migrasi boto3 |
+| Semua panggilan S3 gagal `SSLError` | `certs/bankmegalocal.crt` tidak ikut ter-COPY, atau patch `VERIFY_X509_PARTIAL_CHAIN` di `s3_buckets.py` dicabut |
+| Upload S3 ditolak `SignatureDoesNotMatch` | `payload_signing_enabled: False` dicabut — nginx di depan CDN tidak cocok dengan signature streaming |
 | Alembic gagal total saat start | Password URL-encoded tanpa escape `%` → `%%` |
 | Ekstraksi RIPLAY 502 | `riplay_*` tidak dideklarasikan di Settings → `AttributeError` di dalam `try` |
 | `git submodule update` gagal di server | Pointer di-push sebelum commit core di-push |
@@ -1893,6 +1993,6 @@ cd /data/scorecard_v2/telemarketing-qc-api && docker compose up -d
 | Layout image api | `api/api/Dockerfile` |
 | Layout image worker | `worker/worker/Dockerfile` |
 | Definisi Settings | `api/api/dependencies.py`, `worker/worker/config.py`, `core/core_config.py` |
-| Pemilihan mode MinIO | `core/services/multi_bucket_minio.py` |
+| Akses S3 / kredensial per-bucket | `core/services/s3_buckets.py` |
 | Skema tabel | `core/db/models.py` |
 | Migrasi | `api/db/migrations/versions/` |

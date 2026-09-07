@@ -14,6 +14,18 @@ Repo ini adalah **satu-satunya pemilik skema database** — hanya di sini
 | `telemarketing-qc-worker` | Celery worker + Flower |
 | `telemarketing-qc-dashboard` | Frontend Vue 3 |
 
+## Dokumentasi arsitektur
+
+Dokumen arsitektur sistem berlaku untuk **keempat repo** dan tinggal di repo
+`telemarketing-qc-api`:
+
+| Berkas | Isi |
+|---|---|
+| `telemarketing-qc-api/docs/ARSITEKTUR.md` | Topologi runtime, pembagian compose, alur data, kepemilikan skema DB, integrasi eksternal (App A/App C/object storage S3/LLM), build & deploy, urutan rilis wajib, langkah menjalankan dari nol |
+| `telemarketing-qc-api/docs/README.md` | Indeks seluruh paket dokumentasi (deployment, runbook, data model, API reference, role, scoring) |
+
+Baca `ARSITEKTUR.md` lebih dulu sebelum mengubah apa pun yang menyentuh repo lain.
+
 ## Setup
 
 ```bash
