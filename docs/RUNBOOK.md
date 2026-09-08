@@ -6,7 +6,7 @@
 > API, dan keberadaan Postgres/MinIO sebagai container lokal.
 > Untuk arsitektur dan prosedur yang berlaku sekarang, lihat
 > [`ARSITEKTUR.md`](./ARSITEKTUR.md) — khususnya bagian 12 (menjalankan
-> aplikasi) dan bagian 2 (submodule `core`).
+> aplikasi) dan bagian 2 (core sebagai paket pip `qc_core`).
 
 Panduan operasional harian (day-2 ops): monitoring, restart, scaling, backup/restore,
 memproses ulang tiket, dan penanganan insiden. Ditujukan untuk tim yang menjaga sistem

@@ -6,7 +6,7 @@
 > API, dan keberadaan Postgres/MinIO sebagai container lokal.
 > Untuk arsitektur dan prosedur yang berlaku sekarang, lihat
 > [`ARSITEKTUR.md`](./ARSITEKTUR.md) — khususnya bagian 12 (menjalankan
-> aplikasi) dan bagian 2 (submodule `core`).
+> aplikasi) dan bagian 2 (core sebagai paket pip `qc_core`).
 
 Panduan lengkap men-deploy sistem dari **GitHub hingga jalan di server**, mencakup **dua jalur**:
 
