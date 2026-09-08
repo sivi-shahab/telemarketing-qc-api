@@ -40,10 +40,14 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 
 # --no-index: seluruh isi terpasang dari wheel hasil stage builder, tidak ada
 # satu pun yang ditarik diam-diam dari jaringan saat stage ini berjalan.
+#
+# /wheels di-bind-mount, BUKAN di-COPY: COPY selalu membuat layer sendiri, dan
+# `rm -rf /wheels` sesudahnya tidak bisa merebut kembali ~64 MB itu -- wheel-nya
+# ikut terbawa selamanya di image akhir. Bind mount hanya ada selama RUN.
 COPY api/requirements.txt /tmp/requirements.txt
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r /tmp/requirements.txt \
-    && rm -rf /wheels /tmp/requirements.txt
+RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels \
+    pip install --no-cache-dir --no-index --find-links=/wheels -r /tmp/requirements.txt \
+    && rm -rf /tmp/requirements.txt
 
 COPY api           /app/api
 COPY alembic.ini   /app/alembic.ini
