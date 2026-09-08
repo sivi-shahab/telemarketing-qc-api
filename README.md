@@ -10,7 +10,7 @@ Repo ini adalah **satu-satunya pemilik skema database** — hanya di sini
 
 | Repo | Isi |
 |---|---|
-| `telemarketing-qc-core` | Kode bersama (`db`, `compliance`, `services`, `prompt`, `sales_lookup`) — dipasang sebagai submodule di `core/` |
+| `telemarketing-qc-core` | Kode bersama (`qc_core.db`, `qc_core.compliance`, `qc_core.services`, `qc_core.prompt`, `qc_core.sales_lookup`) — dependensi pip, dipin di `api/requirements.txt` |
 | `telemarketing-qc-worker` | Celery worker + Flower |
 | `telemarketing-qc-dashboard` | Frontend Vue 3 |
 
@@ -30,7 +30,6 @@ Baca `ARSITEKTUR.md` lebih dulu sebelum mengubah apa pun yang menyentuh repo lai
 
 ```bash
 git clone <URL-repo-ini> && cd telemarketing-qc-api
-git submodule update --init --recursive     # WAJIB — mengisi core/
 cp .env.example .env                        # lalu isi nilainya
 docker network create qc-net                # sekali per host
 docker compose up -d --build
@@ -38,20 +37,21 @@ docker compose up -d --build
 
 API di `http://localhost:4000`, dokumentasi OpenAPI di `/docs`.
 
-Kalau `core/` kosong, semua import `db`/`compliance` akan gagal dan build
-Docker berhenti di stage `COPY core/...`.
-
 ## Menjalankan tanpa Docker
 
-`core/` bukan paket bernama `core` — isinya di-`COPY` datar ke `/app` saat build,
-jadi di luar Docker cukup taruh `core` di `PYTHONPATH`:
+Core bukan lagi folder di repo ini melainkan paket `qc_core` yang ter-install dari
+`api/requirements.txt` (butuh `git` di mesin, karena dipasang dari `git+https`):
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r core/requirements.txt -r api/requirements.txt pytest
-PYTHONPATH=.:core pytest tests -q
-PYTHONPATH=.:core uvicorn api.main:app --reload --port 4000
+pip install -r api/requirements.txt pytest
+PYTHONPATH=. pytest tests -q
+PYTHONPATH=. uvicorn api.main:app --reload --port 4000
 ```
+
+Versi core yang dipakai terbaca di satu tempat saja, baris `telemarketing-qc-core @
+git+...@vX.Y.Z` di `api/requirements.txt`. Baris itu di-bump otomatis oleh
+`.github/workflows/bump-core.yml` setiap kali repo core merilis tag baru.
 
 ## Batas dengan worker
 
@@ -63,9 +63,9 @@ from api.celery_client import celery_app
 celery_app.send_task("worker.tasks.process_transcript.process_transcript", args=[result_id])
 ```
 
-Yang dibutuhkan hanya broker URL (`REDIS_URL`), bukan kode task-nya. Jenkinsfile
-punya stage `No Worker Import` yang menggagalkan build kalau ada `from worker ...`
-yang lolos masuk.
+Yang dibutuhkan hanya broker URL (`REDIS_URL`), bukan kode task-nya.
+`.github/workflows/ci.yml` punya job `no-worker-import` yang menggagalkan CI kalau
+ada `from worker ...` yang lolos masuk.
 
 Dua script maintenance yang memang butuh runtime worker
 (`backfill_generated_at.py`, `backfill_reference_cashline_ids.py`) tinggal di repo
@@ -75,11 +75,10 @@ worker, bukan di sini.
 
 ```
 api/            FastAPI: main, routers, schemas, auth, dependencies, celery_client
-db/migrations/  Alembic (env.py + 25 versi) — model-nya ada di core
+db/migrations/  Alembic (env.py + 25 versi) — model-nya di paket qc_core.db
 alembic.ini
 scripts/        load_reference_csv.py, seed_cashline_users.py
 tests/          pytest
-core/           submodule -> telemarketing-qc-core
 ```
 
 ## Migrasi
