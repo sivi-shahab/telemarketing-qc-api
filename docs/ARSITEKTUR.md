@@ -2,7 +2,9 @@
 
 > Dokumen ini menggambarkan sistem sebagaimana kode dan konfigurasinya berada
 > pada **2 September 2026**, commit sinkronisasi `fa2c268` (branch `main` di
-> keempat repo hasil split).
+> keempat repo hasil split), **diperbarui 8 September 2026** untuk perpindahan
+> kode bersama dari folder `core/` yang disalin menjadi paket pip
+> `telemarketing-qc-core` (bab 2, 5, 10, 12, 13, 14).
 >
 > Semua angka, nama berkas, dan nomor baris di bawah diverifikasi langsung dari
 > repositori — bukan dari ingatan atau dokumentasi lama.
@@ -14,8 +16,9 @@
 Empat langkah, satu per aplikasi. Versi lengkap dengan penjelasan tiap perintah
 dan penanganan kegagalan ada di **bagian 12**.
 
-> `core` "dijalankan" dengan cara **disiapkan sebelum build**, bukan dinyalakan
-> jadi container. Dia tetap langkah 1 — hanya perintahnya bukan `docker compose up`.
+> `core` tidak pernah menjadi container, dan sejak ia menjadi paket pip tidak
+> lagi punya langkah persiapan: `docker build` yang memasangnya. Yang tersisa di
+> langkah 1 hanyalah memastikan versi yang akan terpasang memang ada.
 
 ### Persiapan (sekali saja per host)
 
@@ -28,14 +31,20 @@ cd /data/scorecard_v2/telemarketing-qc-system && docker compose down
 
 ### Langkah 1 — CORE
 
-```bash
-git -C /data/scorecard_v2/telemarketing-qc-api    submodule update --init --recursive
-git -C /data/scorecard_v2/telemarketing-qc-worker submodule update --init --recursive
+Tidak ada yang perlu disiapkan; cukup pastikan versi core yang dipin kedua repo
+sama, dan tag-nya benar-benar ada di remote:
 
-# Harus ada isinya — kalau kosong, langkah 2 dan 3 pasti gagal
-ls /data/scorecard_v2/telemarketing-qc-api/core/compliance
-ls /data/scorecard_v2/telemarketing-qc-worker/core/compliance
+```bash
+grep -h 'telemarketing-qc-core @' \
+  /data/scorecard_v2/telemarketing-qc-api/api/requirements.txt \
+  /data/scorecard_v2/telemarketing-qc-worker/worker/requirements.txt
+
+# Tag yang dipin di atas harus muncul di daftar ini
+git ls-remote --tags https://github.com/sivi-shahab/telemarketing-qc-core.git
 ```
+
+Kalau tag-nya tidak ada, langkah 2 dan 3 gagal **saat build** (bukan saat start)
+dengan `git checkout -q <tag> did not run successfully`.
 
 ### Langkah 2 — API
 
@@ -109,9 +118,9 @@ build — perbaikannya rebuild dashboard, bukan restart.
 | Gejala | Tindakan |
 |---|---|
 | `network qc-net ... could not be found` | Persiapan terlewat |
-| `failed to compute cache key: "/core/db"` | `core/` kosong — ulangi langkah 1 |
+| `git checkout -q v1.0.0 did not run successfully` | Tag core belum ada di remote — ulangi langkah 1 |
 | `port is already allocated` | Stack monorepo masih jalan |
-| `ModuleNotFoundError: compliance` di worker | `docker compose build --no-cache worker` |
+| `ModuleNotFoundError: qc_core...` di worker | Image lama masih terpakai — `docker compose build --no-cache worker` |
 | `ValueError: [s3] Bucket '<X>' tidak punya kredensial` | `MINIO_*_KEY_<BUCKET>` tidak terbaca — cek `.env` |
 | Login 422 | Rebuild dashboard, jangan cuma restart |
 
@@ -144,72 +153,61 @@ commit.
 
 ---
 
-## 2. Kenapa `core` Ada di Dua Tempat
+## 2. Kenapa `core` Repo Tersendiri
 
 Ini bagian yang paling sering disalahpahami, jadi ditaruh di depan.
 
-`compliance/`, `services/`, `db/`, dan `prompt/` dipakai **api maupun worker**:
+`qc_core.compliance`, `qc_core.services`, `qc_core.db`, dan `qc_core.prompt`
+dipakai **api maupun worker**:
 
 ```
 telemarketing-qc-api/api/routers/webhook.py:40
-    from compliance.pdf_parser import ticket_id_from_filename
+    from qc_core.compliance.pdf_parser import ticket_id_from_filename
 
 telemarketing-qc-worker/worker/tasks/process_transcript.py:30
-    from compliance.call_ownership import filter_calls_by_agent
+    from qc_core.compliance.call_ownership import filter_calls_by_agent
 ```
 
 Kalau kode itu di-copy ke dua repo, setiap perbaikan bug harus dikerjakan dua
 kali — dan begitu satu terlewat, api dan worker diam-diam berperilaku berbeda.
-Karena itu kode bersama tinggal di satu repo (`telemarketing-qc-core`), lalu api
-dan worker memasangnya sebagai **git submodule** di folder `core/`.
+Karena itu kode bersama tinggal di satu repo (`telemarketing-qc-core`) dan
+didistribusikan sebagai **paket pip ter-versi**, bukan disalin.
 
 ### Yang sebenarnya disimpan git
 
-Repo api **tidak** menyimpan satu pun berkas `.py` milik core. Yang tercatat
-hanya satu baris:
+Repo api dan worker **tidak** menyimpan satu pun berkas `.py` milik core, dan
+tidak punya folder `core/`. Yang tercatat hanya satu baris di `requirements.txt`:
 
 ```
-$ git -C telemarketing-qc-api ls-files -s core
-160000 4856ee5027d5c5aca08d029933b29f6337ed3de0 0	core
+telemarketing-qc-core @ git+https://github.com/sivi-shahab/telemarketing-qc-core.git@v1.0.0
 ```
 
-Mode `160000` adalah penanda submodule. Isinya: *"di posisi `core` ada repo
-lain, versi `4856ee5`"*. Folder `core/` juga punya `.git`-nya sendiri:
+**Konsekuensi:** tidak ada langkah checkout yang bisa terlupa. Kalau tag itu
+tidak ada di remote, `docker build` gagal **di stage builder** dengan
+`git checkout -q v1.0.0 did not run successfully` — kegagalannya di build, bukan
+saat container start. Repo core bersifat publik, jadi tidak ada kredensial yang
+perlu ditanam di CI maupun di Dockerfile.
 
-```
-$ cat telemarketing-qc-api/core/.git
-gitdir: ../.git/modules/core
-```
+Versi core yang dipin naik sendiri: setiap repo core merilis tag baru,
+`.github/workflows/release.yml` mengirim `repository_dispatch` ke repo api dan
+worker, dan `bump-core.yml` di sana membuka PR yang mengganti nomor versinya.
+CI pada PR itulah yang memutuskan apakah versi core baru aman.
 
-**Konsekuensi:** `git clone` biasa menghasilkan `core/` yang **kosong**, dan
-`docker build` akan berhenti di baris `COPY core/db /app/db`. Karena itu setiap
-Jenkinsfile punya baris ini tepat setelah checkout:
+### Namespace `qc_core`
 
-```groovy
-// Wajib: tanpa ini folder core/ kosong dan build pasti gagal.
-sh 'git submodule update --init --recursive'
-```
+Di dalam image, core ada di `site-packages` sebagai paket bernama `qc_core` —
+bukan disalin datar ke `/app` seperti sebelumnya. Impornya
+`from qc_core.db import crud`.
 
-### Nama `core` lenyap saat runtime
+Namespace itu dipilih justru karena nama datarnya berbahaya: `db`, `prompt`, dan
+`services` akan merebut nama top-level di `site-packages` dan bertabrakan dengan
+dependensi pihak ketiga — tabrakan yang muncul sebagai `ImportError` yang sangat
+sulit dilacak. `PYTHONPATH=/app` di kedua image kini hanya melayani kode api dan
+worker sendiri.
 
-Di dalam image, isi `core/` di-`COPY` **datar** ke `/app` — bukan sebagai paket
-bernama `core` (lihat `api/Dockerfile`):
-
-```dockerfile
-COPY core/db              /app/db
-COPY core/compliance      /app/compliance
-COPY core/services        /app/services
-COPY core/prompt          /app/prompt
-COPY core/sales_lookup.py /app/sales_lookup.py
-COPY core/core_config.py  /app/core_config.py
-```
-
-`core/db` menjadi `/app/db`, bukan `/app/core/db`. Karena itu impornya
-`from db import crud`, **bukan** `from core.db import crud`. Di luar Docker,
-efek yang sama dicapai dengan `PYTHONPATH=.:core`.
-
-Nama berkas `core_config.py` (bukan `config.py`) juga disengaja: karena isinya
-mendarat di root `/app`, nama `config.py` terlalu umum dan berisiko bentrok.
+Nama berkas `core_config.py` (bukan `config.py`) dipertahankan dari masa
+copy-datar, meski di dalam namespace `qc_core` nama `config.py` sebenarnya sudah
+aman.
 
 ### Aturan ketergantungan
 
@@ -226,16 +224,19 @@ mendarat di root `/app`, nama `config.py` terlalu umum dan berisiko bentrok.
 ```
 
 Sebelum split, `sales_lookup` mengambil Settings dan MinIO client dari
-`api.dependencies`, yang membuat core (dan lewat `compliance.stats_aggregate`
+`api.dependencies`, yang membuat core (dan lewat `qc_core.compliance.stats_aggregate`
 juga worker) tidak bisa jalan tanpa folder `api/`. Penggantinya adalah
-`core/core_config.py` — `CoreSettings` minimal yang hanya berisi field MinIO
-yang benar-benar dipakai kode bersama.
+`qc_core/core_config.py` — `CoreSettings` minimal yang hanya berisi field MinIO
+yang benar-benar dipakai kode bersama. Di repo core, CI menegakkan arah
+ketergantungan ini dengan cek yang setara: `src/` tidak boleh memuat satu pun
+`from api` atau `from worker`.
 
-Batasan ini ditegakkan CI, bukan sekadar konvensi:
+Batasan ini ditegakkan CI, bukan sekadar konvensi. Sejak pindah ke GitHub
+Actions, penjaganya adalah job — bukan lagi stage Jenkins:
 
-```groovy
-// Jenkinsfile api — stage 'No Worker Import'
-sh '! grep -rn --include=*.py -E "^[[:space:]]*(from|import)[[:space:]]+worker\b" api scripts tests'
+```yaml
+# .github/workflows/ci.yml repo api — job 'no-worker-import'
+grep -rnE '^\s*(from|import)\s+worker\b' --include='*.py' api scripts tests
 
 // Jenkinsfile worker — stage 'No API Import'
 sh '! grep -rn --include=*.py -E "^[[:space:]]*(from|import)[[:space:]]+api\b" worker'
@@ -352,13 +353,16 @@ Penggantinya `restart: unless-stopped` — worker mencoba lagi sampai infra siap
 prompt secara dinamis:
 
 ```python
-importlib.import_module("prompt.ocr_ktp")
+importlib.import_module("qc_core.prompt.ocr_ktp")
 ```
 
-Karena resolusinya dinamis, `prompt/` **wajib** ikut di image worker — kalau
-tidak, kegagalannya baru muncul saat runtime OCR, bukan saat build. Itulah
-sebabnya `COPY core/prompt /app/prompt` ada di `worker/Dockerfile` walaupun
-tidak ada `import prompt` yang terlihat secara statis.
+Karena resolusinya dinamis, tidak ada `import qc_core.prompt` yang terlihat
+secara statis, dan kegagalannya muncul saat runtime OCR — bukan saat build.
+Sejak core menjadi paket, modul prompt ikut otomatis (tidak ada lagi
+`COPY core/prompt` yang bisa terlupa), tetapi nama modulnya berupa **string**,
+jadi ia tidak ikut terbawa rewrite impor otomatis. Karena itu keempatnya diuji
+eksplisit lewat `load_prompt_module()` di test repo core dan di verifikasi
+image saat cutover.
 
 Prompt yang tersedia: `ocr_ktp`, `ocr_kk`, `ocr_npwp`,
 `ocr_cover_buku_tabungan`.
@@ -426,11 +430,11 @@ konstanta kode; `roles.permissions` adalah array JSONB yang ditambah lewat
 
 | Sistem | Alamat | Dipakai oleh | Berkas |
 |---|---|---|---|
-| App A — DWH | `host.docker.internal:8002` | api, worker | `core/services/data_dwh.py` |
+| App A — DWH | `host.docker.internal:8002` | api, worker | `qc_core/services/data_dwh.py` |
 | App A — STT/audio | `:8000` via `/api-a/` | dashboard | `UploadAudioView.vue` |
-| App C — tickets-daily | `host.docker.internal:8008` | api, worker | `core/services/tickets_daily.py` |
-| App C — view-streams/PDF | `host.docker.internal:8010` | api, worker | `core/services/view_streams.py` |
-| Object storage (MinIO di balik CDN) | `cdn.bankmega.local:443` | api, worker, core | `core/services/s3_buckets.py` |
+| App C — tickets-daily | `host.docker.internal:8008` | api, worker | `qc_core/services/tickets_daily.py` |
+| App C — view-streams/PDF | `host.docker.internal:8010` | api, worker | `qc_core/services/view_streams.py` |
+| Object storage (MinIO di balik CDN) | `cdn.bankmega.local:443` | api, worker, core | `qc_core/services/s3_buckets.py` |
 | LLM | Azure AI Foundry, `gpt-5.4-mini` | worker (dan api untuk RIPLAY) | `worker/tasks/process_transcript.py` |
 
 `host.docker.internal` dipetakan lewat `extra_hosts: ["host.docker.internal:host-gateway"]`
@@ -439,7 +443,7 @@ di compose api dan worker.
 `view_streams.py:54` memakai `VIEW_STREAM_API_KEY`, dan jika kosong jatuh ke
 `TMS_API_KEY`.
 
-### Akses S3 lewat boto3 (`core/services/s3_buckets.py`)
+### Akses S3 lewat boto3 (`qc_core/services/s3_buckets.py`)
 
 Sejak 2026-09-03 (`66cc4c7` di api, `0a6525a` di worker) SDK `minio` **dilepas
 sepenuhnya** dan diganti boto3. `requirements.txt` keempat service hanya memuat
@@ -555,8 +559,8 @@ Status per 2026-09-07: keenam bucket lolos baca **dan** tulis
 
 ## 8. Frontend
 
-Vue 3 + Vite + Pinia + vue-router. Repo ini **mandiri penuh** — tidak punya
-submodule.
+Vue 3 + Vite + Pinia + vue-router. Repo ini **mandiri penuh** — tidak memakai
+kode bersama sama sekali; ia bicara ke api hanya lewat HTTP.
 
 ```
 src/
@@ -659,7 +663,7 @@ Tiga kelas Settings, masing-masing subset dari yang sama:
 |---|---|---|
 | `Settings` | `api/dependencies.py` | paling lengkap |
 | `WorkerSettings` | `worker/config.py` | tanpa JWT/admin; plus `llm_api_version`, `ocr_*` |
-| `CoreSettings` | `core/core_config.py` | hanya MinIO yang dipakai kode bersama |
+| `CoreSettings` | `qc_core/core_config.py` | hanya MinIO yang dipakai kode bersama |
 
 Ketiganya membaca `.env` yang sama, sehingga nilainya identik tanpa perlu saling
 impor.
@@ -679,32 +683,57 @@ docker build -f api/Dockerfile    -t qc-api    .
 docker build -f worker/Dockerfile -t qc-worker .
 ```
 
-Dependensi core diinstal lebih dulu, baru milik aplikasi — dua layer cache
-terpisah, sehingga perubahan kode aplikasi tidak membatalkan cache instalasi core.
+### Dua stage, dan kenapa `git` tidak ada di image akhir
 
-### Pipeline Jenkins
+Kedua Dockerfile multi-stage. `pip install git+https://...` memerlukan binary
+`git`; ia dipasang **hanya di stage builder**, yang tugasnya satu: mengubah
+`git+https` menjadi wheel.
+
+```dockerfile
+FROM python:3.11-slim AS builder
+RUN apt-get install -y --no-install-recommends git gcc
+RUN pip wheel --wheel-dir /wheels -r /tmp/requirements.txt
+
+FROM python:3.11-slim
+RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels \
+    pip install --no-index --find-links=/wheels -r /tmp/requirements.txt
+```
+
+`--no-index` memastikan stage runtime tidak menarik apa pun dari jaringan: semua
+berasal dari wheel hasil builder. Wheel-nya **di-bind-mount, bukan di-COPY** —
+`COPY` membuat layer sendiri, dan `rm -rf /wheels` sesudahnya tidak bisa merebut
+kembali ~64 MB yang telanjur masuk layer itu (terukur: image api 689 MB dengan
+`COPY`, 563 MB dengan bind mount).
+
+### Pipeline GitHub Actions
+
+Jenkinsfile ketiga repo sudah dihapus — yang di repo api bahkan menyesatkan,
+karena masih memanggil `git submodule update --init` dan `PYTHONPATH=.:core`
+yang sudah lama tidak berlaku.
 
 ```
-Checkout  ──►  git submodule update --init --recursive
-Test      ──►  api    : PYTHONPATH=.:core pytest tests -q
-               worker : import seluruh task (tidak punya test suite sendiri)
-Guard     ──►  No Worker Import / No API Import
-Build     ──►  docker build -f <app>/Dockerfile .
-Push      ──►  registry
-Deploy    ──►  docker compose up -d --no-deps <service>   (branch main saja)
+core   ci.yml       ──►  pytest terhadap paket ter-install + cek core tidak mengimpor api/worker
+core   release.yml  ──►  tag v*: pytest, build wheel, GitHub Release,
+                         repository_dispatch ke api dan worker
+api    ci.yml       ──►  pytest, no-worker-import, docker build
+api    bump-core.yml──►  terima dispatch, ganti versi di requirements.txt, buka PR
+worker ci.yml       ──►  pytest (kontrak nama task), docker build
+worker bump-core.yml──►  sama seperti api
 ```
 
 ### Urutan rilis yang wajib
 
 ```
-1. core    commit + push        (pointer submodule menunjuk commit ini)
-2. api     bump pointer, deploy (menjalankan alembic upgrade head)
-3. worker  bump pointer, deploy
-4. dashboard                    (rebuild kalau VITE_* berubah)
+1. core    commit + push + tag vX.Y.Z   (rilis ini yang memicu dispatch)
+2. api     merge PR bump, deploy        (menjalankan alembic upgrade head)
+3. worker  merge PR bump, deploy
+4. dashboard                            (rebuild kalau VITE_* berubah)
 ```
 
-Membalik langkah 1 dan 2 membuat `git submodule update` gagal di server, karena
-pointer menunjuk commit yang belum ada di remote.
+Membalik langkah 1 dan 2 membuat `docker build` gagal di stage builder, karena
+tag yang dipin `requirements.txt` belum ada di remote. Langkah 2 mendahului 3
+karena api pemilik migrasi; api dan worker juga **wajib memakai versi core yang
+sama** — beda versi tidak menimbulkan error, hanya perbedaan perilaku diam-diam.
 
 ---
 
@@ -780,10 +809,11 @@ satunya.
 | `telemarketing-qc-core` | **tidak** | — |
 
 `core` tidak punya `docker-compose.yml`, tidak punya `Dockerfile`, dan tidak
-pernah menjadi container. Perannya habis saat **build**: isinya di-`COPY` datar
-ke `/app` di image api dan worker (lihat bagian 2). Yang perlu dilakukan
-terhadap `core` hanyalah memastikan folder `core/` terisi sebelum
-`docker build` — dan itu langkah pertama di bawah.
+pernah menjadi container. Perannya habis saat **build**: `pip` memasangnya ke
+`site-packages` image api dan worker sebagai paket `qc_core` (lihat bagian 2).
+Sejak itu tidak ada lagi langkah persiapan yang bisa terlupa — yang tersisa
+hanya memastikan versi yang dipin memang ada di remote, dan itu langkah pertama
+di bawah.
 
 Container yang dihasilkan:
 
@@ -825,40 +855,37 @@ Jumlah yang diharapkan setelah cutover: api **58**, worker **59**, dashboard **5
 
 ---
 
-### 12.3 Langkah 1 — Isi submodule `core`
+### 12.3 Langkah 1 — Pastikan versi core
 
-**Ini langkah yang paling sering terlewat, dan akibatnya paling membingungkan.**
+Sejak core menjadi paket pip, **tidak ada lagi langkah persiapan yang bisa
+terlewat** — inilah dulu kesalahan yang paling sering terjadi dan paling
+membingungkan akibatnya. Yang tersisa hanya memastikan versinya benar.
 
-```bash
-cd /data/scorecard_v2/telemarketing-qc-api
-git submodule update --init --recursive
-
-cd ../telemarketing-qc-worker
-git submodule update --init --recursive
-```
-
-Verifikasi — folder harus berisi, bukan kosong:
+Kedua repo harus memin versi yang sama:
 
 ```bash
-for r in api worker; do
-  d=/data/scorecard_v2/telemarketing-qc-$r/core
-  n=$(ls "$d" 2>/dev/null | wc -l)
-  echo "$r/core: $n entri $([ "$n" -gt 0 ] && echo OK || echo '<-- KOSONG, build akan gagal')"
-done
+grep -h 'telemarketing-qc-core @' \
+  /data/scorecard_v2/telemarketing-qc-api/api/requirements.txt \
+  /data/scorecard_v2/telemarketing-qc-worker/worker/requirements.txt
 ```
 
-Pastikan pointer submodule sama di api dan worker (harus commit yang sama):
+Dan tag itu harus benar-benar ada di remote:
 
 ```bash
-for r in api worker; do
-  echo "$r: $(git -C /data/scorecard_v2/telemarketing-qc-$r submodule status)"
-done
+git ls-remote --tags https://github.com/sivi-shahab/telemarketing-qc-core.git
 ```
 
-Kalau `core/` kosong, `docker build` berhenti dengan pesan seperti:
+Kalau tidak, `docker build` berhenti di stage builder dengan:
 
 ```
-ERROR: failed to compute cache key: "/core/db": not found
+error: subprocess-exited-with-error
+× git checkout -q v1.0.0 did not run successfully.
+```
+
+Setelah container jalan, versi yang benar-benar terpasang bisa dibaca langsung:
+
+```bash
+docker compose exec -T api python -c "import qc_core; print(qc_core.__version__)"
 ```
 
 ---
@@ -975,8 +1002,9 @@ worker.tasks.process_document.process_document
 worker.tasks.reprocess_ticket.reprocess_ticket
 ```
 
-Kalau log berisi `ModuleNotFoundError: No module named 'compliance'`, submodule
-`core` kosong saat build — ulangi langkah 12.3 lalu `docker compose build --no-cache worker`.
+Kalau log berisi `ModuleNotFoundError: No module named 'qc_core'` atau masih
+`'compliance'` (nama datar dari sebelum de-vendoring), container memakai image
+lama — `docker compose build --no-cache worker`, lalu `up -d`.
 
 Flower:
 
@@ -1063,11 +1091,12 @@ Untuk disalin saat sudah paham tiap langkahnya:
 set -e
 BASE=/data/scorecard_v2
 
-# 1. submodule core
-for r in api worker; do
-  git -C $BASE/telemarketing-qc-$r submodule update --init --recursive
-  [ -d "$BASE/telemarketing-qc-$r/core/compliance" ] || { echo "core kosong di $r"; exit 1; }
-done
+# 1. versi core: kedua repo harus memin tag yang sama, dan tag itu harus ada
+TAG=$(grep -oP 'telemarketing-qc-core\.git@\K\S+' $BASE/telemarketing-qc-api/api/requirements.txt)
+grep -q "@$TAG\$" $BASE/telemarketing-qc-worker/worker/requirements.txt \
+  || { echo "versi core api vs worker berbeda"; exit 1; }
+git ls-remote --tags https://github.com/sivi-shahab/telemarketing-qc-core.git \
+  | grep -q "refs/tags/$TAG\$" || { echo "tag core $TAG belum ada di remote"; exit 1; }
 
 # 2. network
 docker network ls | grep -q qc-net || docker network create qc-net
@@ -1128,8 +1157,8 @@ docker compose --profile local-infra up -d
 | Gejala | Sebab | Tindakan |
 |---|---|---|
 | `network qc-net ... could not be found` | Network belum dibuat | `docker network create qc-net` |
-| `failed to compute cache key: "/core/db"` | Submodule kosong | Langkah 12.3, lalu build ulang |
-| `ModuleNotFoundError: compliance` di log worker | Image dibangun saat `core/` kosong | `docker compose build --no-cache worker` |
+| `git checkout -q v1.0.0 did not run successfully` | Tag core belum ada di remote | Langkah 12.3, push tag core, lalu build ulang |
+| `ModuleNotFoundError: qc_core` di log worker | Container memakai image lama | `docker compose build --no-cache worker`, lalu `up -d` |
 | `port is already allocated` | Stack monorepo masih jalan | Langkah 12.5 |
 | API restart terus, log Alembic error | Migrasi gagal di tengah | Cek log; **jangan** paksa restart — periksa `alembic current` dulu |
 | `MINIO_ACCESS_KEY variable is not set` | Wajar di mode CDN | Abaikan; hanya relevan untuk profile `local-infra` |
@@ -1225,11 +1254,13 @@ termasuk perilaku strip-prefix-nya — `/api-b` sudah terkunci di dalam bundle.
 Ketiga compose berbagi network eksternal `qc-net`; di Kubernetes cukup satu
 namespace, dan service saling memanggil lewat DNS internal.
 
-**7. Submodule `core` tidak berubah sama sekali.**
-`core` adalah urusan **build**, bukan runtime. CI tetap wajib menjalankan
-`git submodule update --init --recursive` sebelum `docker build`. Kubernetes
-tidak pernah melihat folder `core/` — yang ia terima hanya image yang isinya
-sudah datar di `/app`.
+**7. Paket `core` tidak berubah sama sekali.**
+`core` adalah urusan **build**, bukan runtime: berbagi kode selesai saat
+`docker build`. Kubernetes tidak pernah melihat repo core — yang ia terima hanya
+image `qc-api` dan `qc-worker` yang di dalamnya `qc_core` sudah ter-install di
+`site-packages`. Yang perlu dicatat justru sebaliknya: karena versi core
+tercantum di `requirements.txt` dan ikut ke image, rollback core secara mandiri
+berarti rollback image — bukan mengubah sesuatu di cluster.
 
 ---
 
@@ -1969,8 +2000,9 @@ cd /data/scorecard_v2/telemarketing-qc-api && docker compose up -d
 
 | Gejala | Sebab |
 |---|---|
-| `docker build` berhenti di `COPY core/...` | Clone tanpa `--recurse-submodules`; `core/` kosong |
-| `ModuleNotFoundError: compliance` di luar Docker | Lupa `PYTHONPATH=.:core` |
+| `docker build` berhenti di stage builder, `git checkout -q v1.0.0` gagal | Tag core belum di-push ke remote; pin di `requirements.txt` mendahului rilisnya |
+| `ModuleNotFoundError: qc_core` di luar Docker | `pip install -r <app>/requirements.txt` belum dijalankan di venv yang aktif |
+| Image akhir ~64 MB lebih besar dari perkiraan | `COPY --from=builder /wheels` dipakai lagi; `rm -rf` sesudahnya tidak merebut layer-nya |
 | Login dashboard dijawab **422** | `VITE_API_URL` tanpa prefix `/api-b` → nyasar ke App C :8008 |
 | App B menjawab **404** untuk semua request | Slash di ujung `proxy_pass http://localhost:4000/` terhapus |
 | Bundle lama terus dipakai setelah deploy | `index.html` di-cache browser — dicegah `no-store` |
@@ -1980,7 +2012,8 @@ cd /data/scorecard_v2/telemarketing-qc-api && docker compose up -d
 | Upload S3 ditolak `SignatureDoesNotMatch` | `payload_signing_enabled: False` dicabut — nginx di depan CDN tidak cocok dengan signature streaming |
 | Alembic gagal total saat start | Password URL-encoded tanpa escape `%` → `%%` |
 | Ekstraksi RIPLAY 502 | `riplay_*` tidak dideklarasikan di Settings → `AttributeError` di dalam `try` |
-| `git submodule update` gagal di server | Pointer di-push sebelum commit core di-push |
+| OCR gagal `ModuleNotFoundError: prompt.ocr_ktp` | String `prompt_module` di `DOCUMENT_TYPES` tidak ikut di-namespace-kan; ia string, jadi luput dari rewrite impor otomatis |
+| api dan worker berperilaku beda tanpa error | Versi core di kedua `requirements.txt` tidak sama — tidak ada yang mengeluh, hasilnya saja yang berbeda |
 
 ---
 
@@ -1992,7 +2025,10 @@ cd /data/scorecard_v2/telemarketing-qc-api && docker compose up -d
 | Salinan vhost produksi | `dashboard/deploy/nginx/call-qc.bankmega.local.conf` |
 | Layout image api | `api/api/Dockerfile` |
 | Layout image worker | `worker/worker/Dockerfile` |
-| Definisi Settings | `api/api/dependencies.py`, `worker/worker/config.py`, `core/core_config.py` |
-| Akses S3 / kredensial per-bucket | `core/services/s3_buckets.py` |
-| Skema tabel | `core/db/models.py` |
+| Definisi Settings | `api/api/dependencies.py`, `worker/worker/config.py`, `core/src/qc_core/core_config.py` |
+| Akses S3 / kredensial per-bucket | `core/src/qc_core/services/s3_buckets.py` |
+| Skema tabel | `core/src/qc_core/db/models.py` |
+| Versi core yang dipakai tiap aplikasi | `api/api/requirements.txt`, `worker/worker/requirements.txt` (satu baris `git+https://...@vX.Y.Z`) |
+| Prosedur cutover core-jadi-paket | `api/docs/RUNBOOK_CUTOVER_CORE_PAKET.md` |
+| Desain & rencana core sebagai paket | `core/docs/superpowers/` |
 | Migrasi | `api/db/migrations/versions/` |
