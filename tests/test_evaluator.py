@@ -122,7 +122,11 @@ def test_evaluate_direct_json():
     out = E.evaluate("PROMPT", MESSAGES, "KB", "SC", llm, "model-x")
     assert out == {"ai_summary": "ok", "call_id": "x"}
     assert llm.chat.completions.calls == 1
-    assert llm.chat.completions.seen[0]["temperature"] == 0.0
+    # 1.0 adalah default yang disengaja di evaluate() dan di seluruh pemanggilnya
+    # (worker/config.py llm_temperature, api/dependencies.py LLM_TEMPERATURE).
+    # Angka 0.0 di sini adalah sisa port dari origin/main (commit c514efc) yang
+    # tidak pernah cocok dengan kode di repo ini.
+    assert llm.chat.completions.seen[0]["temperature"] == 1.0
     assert llm.chat.completions.seen[0]["model"] == "model-x"
 
 
