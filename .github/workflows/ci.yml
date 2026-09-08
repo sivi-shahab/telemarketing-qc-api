@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r api/requirements.txt pytest
+      - run: pytest tests -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  no-worker-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # API mengirim task by name lewat send_task(); ia tidak boleh mengimpor
+      # worker, yang memang tidak ada di image API. Dipertahankan dari Jenkinsfile.
+      - run: |
+          if grep -rnE '^\s*(from|import)\s+worker\b' --include='*.py' api scripts tests; then
+            echo "::error::api mengimpor worker -- kirim task by name, jangan impor"
+            exit 1
+          fi
+          echo "bersih"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f api/Dockerfile -t qc-api:${{ github.sha }} .

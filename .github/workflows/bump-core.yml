@@ -1,0 +1,48 @@
+name: Bump core
+
+# Dikirim oleh workflow Release di telemarketing-qc-core setiap ada tag v*.
+on:
+  repository_dispatch:
+    types: [core-released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versi core, tanpa awalan v (mis. 1.0.1)"
+        required: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        run: |
+          V="${{ github.event.client_payload.version || inputs.version }}"
+          if [ -z "$V" ]; then echo "::error::versi kosong"; exit 1; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Ganti nomor versi di api/requirements.txt
+        run: |
+          sed -i -E \
+            "s|(telemarketing-qc-core @ git\+https://github.com/sivi-shahab/telemarketing-qc-core\.git@v).*|\1${{ steps.v.outputs.version }}|" \
+            api/requirements.txt
+          grep 'telemarketing-qc-core' api/requirements.txt
+          # Kalau tidak ada yang berubah, tidak perlu PR.
+          git diff --quiet && echo "nochange=1" >> "$GITHUB_ENV" || true
+
+      - if: env.nochange != '1'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: bump-core-${{ steps.v.outputs.version }}
+          title: "build: bump qc-core ke v${{ steps.v.outputs.version }}"
+          commit-message: "build: bump qc-core ke v${{ steps.v.outputs.version }}"
+          body: |
+            Bump otomatis dari rilis `telemarketing-qc-core` `v${{ steps.v.outputs.version }}`.
+
+            Changelog: https://github.com/sivi-shahab/telemarketing-qc-core/releases/tag/v${{ steps.v.outputs.version }}
+
+            CI pada PR ini yang memutuskan apakah versi core baru aman untuk repo api.
