@@ -1,8 +1,18 @@
-# Image API — self-contained: seluruh kode ikut di-COPY, TIDAK mengandalkan
-# bind-mount `.:/app` seperti compose monorepo dulu. Build context = root repo
-# (submodule `core/` harus sudah ter-checkout).
+# Image API — self-contained. Core BUKAN lagi folder di repo ini melainkan
+# dependensi pip (telemarketing-qc-core, dipin di api/requirements.txt).
 #
 #   docker build -f api/Dockerfile -t qc-api .
+
+# --- Stage builder: satu-satunya tempat `git` dibutuhkan -------------------
+# pip harus meng-clone core dari git+https. Dengan mengubahnya jadi wheel di
+# sini, image akhir tidak perlu memasang git sama sekali.
+FROM python:3.11-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends git gcc \
+    && rm -rf /var/lib/apt/lists/*
+COPY api/requirements.txt /tmp/requirements.txt
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r /tmp/requirements.txt
+
+# --- Stage runtime --------------------------------------------------------
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -28,19 +38,12 @@ RUN update-ca-certificates
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
-# Dependensi core lebih dulu, baru milik API — dua layer cache terpisah.
-COPY core/requirements.txt /tmp/core-requirements.txt
-COPY api/requirements.txt  /tmp/api-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/core-requirements.txt -r /tmp/api-requirements.txt
-
-# Isi core di-COPY DATAR ke /app supaya import tetap `from db import crud`
-# (bukan `from core.db import crud`), sama seperti saat masih monorepo.
-COPY core/db              /app/db
-COPY core/compliance      /app/compliance
-COPY core/services        /app/services
-COPY core/prompt          /app/prompt
-COPY core/sales_lookup.py /app/sales_lookup.py
-COPY core/core_config.py  /app/core_config.py
+# --no-index: seluruh isi terpasang dari wheel hasil stage builder, tidak ada
+# satu pun yang ditarik diam-diam dari jaringan saat stage ini berjalan.
+COPY api/requirements.txt /tmp/requirements.txt
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r /tmp/requirements.txt \
+    && rm -rf /wheels /tmp/requirements.txt
 
 COPY api           /app/api
 COPY alembic.ini   /app/alembic.ini

@@ -26,7 +26,7 @@ config.set_main_option("sqlalchemy.url", get_url().replace("%", "%%"))
 # tim lain, supaya migrasi TIDAK menulis ke public.
 SCHEMA = os.environ.get("POSTGRES_SCHEMA", "").strip()
 
-from db.models import Base
+from qc_core.db.models import Base
 target_metadata = Base.metadata
 
 
