@@ -28,7 +28,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
-from services.s3_buckets import CopySource
+from qc_core.services.s3_buckets import CopySource
 from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
@@ -37,8 +37,8 @@ from pydantic import BaseModel
 
 from api.dependencies import get_db, get_minio, get_settings
 from api.schemas.result import WebhookProcessResponse
-from compliance.pdf_parser import ticket_id_from_filename
-from db import crud
+from qc_core.compliance.pdf_parser import ticket_id_from_filename
+from qc_core.db import crud
 
 
 

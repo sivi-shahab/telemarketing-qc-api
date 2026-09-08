@@ -35,8 +35,8 @@ import sys
 
 from api.auth import hash_password
 from api.dependencies import get_db
-from sales_lookup import active_sales_map, _norm
-from db.models import User
+from qc_core.sales_lookup import active_sales_map, _norm
+from qc_core.db.models import User
 
 DEFAULT_PASSWORD = os.environ.get("SEED_PASSWORD", "Cashline2026!")
 EMAIL_DOMAIN = "bank.local"

@@ -58,7 +58,7 @@ def admin_user(db):
     ``get_current_user`` mengembalikan row ``db.models.User``, jadi route bisa
     dipanggil sebagai fungsi Python biasa dengan row ini.
     """
-    from db.models import User
+    from qc_core.db.models import User
 
     user = db.query(User).filter(User.role == "admin").first()
     if user is None:

@@ -39,8 +39,8 @@ from sqlalchemy.orm import Session
 from api.dependencies import get_current_user, get_db
 from api.permissions import ADMIN_DOC_SLA_WRITE
 from api.rbac import permissions_for, require
-from compliance.stats_aggregate import SLA_HOURS, refresh_doc_sla_cache
-from db import crud
+from qc_core.compliance.stats_aggregate import SLA_HOURS, refresh_doc_sla_cache
+from qc_core.db import crud
 
 router = APIRouter()
 

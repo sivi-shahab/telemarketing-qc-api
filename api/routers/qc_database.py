@@ -21,7 +21,7 @@ from api.schemas.qc_database import (
     QcDatabaseListResponse,
     QcDatabaseUploadResponse,
 )
-from db import crud
+from qc_core.db import crud
 from api.permissions import ADMIN_QC_DATABASE_WRITE
 from api.rbac import require
 

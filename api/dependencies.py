@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from dotenv import load_dotenv
 
-from services.s3_buckets import build_minio_client
+from qc_core.services.s3_buckets import build_minio_client
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ def get_db() -> Generator[Session, None, None]:
         # fungsi yang tidak memegang sesi DB. crud-nya sendiri ber-TTL 10 detik,
         # jadi ini tidak menambah query di setiap permintaan.
         try:
-            from compliance.stats_aggregate import refresh_doc_sla_cache
+            from qc_core.compliance.stats_aggregate import refresh_doc_sla_cache
 
             refresh_doc_sla_cache(db)
         except Exception:
@@ -203,7 +203,7 @@ def get_db() -> Generator[Session, None, None]:
         # sama: penyaringnya dipanggil dari crud & agregator yang tidak semuanya
         # memegang sesi DB. Lihat compliance.stats_aggregate.hidden_ticket_ids.
         try:
-            from compliance.stats_aggregate import refresh_hidden_tickets_cache
+            from qc_core.compliance.stats_aggregate import refresh_hidden_tickets_cache
 
             refresh_hidden_tickets_cache(db)
         except Exception:
@@ -314,7 +314,7 @@ async def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
 ) -> "SystemUser | db_User":
-    from db.models import User as db_User
+    from qc_core.db.models import User as db_User
     from api.auth import decode_token
     from jose import JWTError
 

@@ -39,7 +39,7 @@ from api.schemas.reprocess import (
     ReprocessPreviewResponse,
     ReprocessStartRequest,
 )
-from db import crud
+from qc_core.db import crud
 
 router = APIRouter(dependencies=[Depends(require(ADMIN_TICKET_REPROCESS))])
 

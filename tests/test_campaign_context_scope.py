@@ -142,7 +142,7 @@ def test_filter_matches_context_case_insensitively():
 # --------------------------------------------------------------------------
 
 from api.routers import tickets_daily as td  # noqa: E402
-from services import tickets_daily as tms  # noqa: E402
+from qc_core.services import tickets_daily as tms  # noqa: E402
 
 
 UPSTREAM = {

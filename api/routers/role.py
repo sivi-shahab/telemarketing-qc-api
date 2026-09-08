@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from api import permissions as P
 from api.dependencies import get_db
 from api.rbac import invalidate, require
-from sales_lookup import roster_campaign_index
+from qc_core.sales_lookup import roster_campaign_index
 from api.schemas.role import (
     RoleCreate,
     UserCampaignItem,
@@ -34,7 +34,7 @@ from api.schemas.role import (
     RosterPerson,
     RosterTag,
 )
-from db.models import Campaign, Role, RoleCampaign, User, UserCampaign
+from qc_core.db.models import Campaign, Role, RoleCampaign, User, UserCampaign
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 

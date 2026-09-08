@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from api.dependencies import get_current_user, get_db
 from api.qc_scope import ensure_can_view_result, ensure_qc_assigned_to_result
 from api.schemas.result import QcManualCheckInfo
-from db import crud
+from qc_core.db import crud
 from api.permissions import QC_MANUAL_CHECK_APPROVE
 from api.rbac import require
 

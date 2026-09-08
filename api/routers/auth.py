@@ -21,7 +21,7 @@ from api.schemas.auth import (
     UserCreate,
     UserResponse,
 )
-from db.models import User
+from qc_core.db.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -81,7 +81,7 @@ def create_user(
     db: Session = Depends(get_db),
     current_user=Depends(require(ADMIN_USER_WRITE)),
 ):
-    from db.models import Role
+    from qc_core.db.models import Role
 
     if db.query(Role).filter(Role.key == body.role).first() is None:
         raise HTTPException(

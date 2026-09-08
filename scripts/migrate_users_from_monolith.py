@@ -180,7 +180,7 @@ def fetch_source(dsn: str):
 
 
 def fetch_target(session):
-    from db.models import Role, User
+    from qc_core.db.models import Role, User
 
     users = [
         {"id": u.id, "username": u.username, "email": u.email, "role": u.role}
@@ -191,7 +191,7 @@ def fetch_target(session):
 
 def apply_plan(session, plan: Plan) -> None:
     """Tulis rencana dalam SATU transaksi: gagal di tengah = tidak ada yang masuk."""
-    from db.models import User, UserCampaign
+    from qc_core.db.models import User, UserCampaign
 
     for row in plan.inserts:
         campaigns = row["campaigns"]

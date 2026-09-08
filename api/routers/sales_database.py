@@ -24,7 +24,7 @@ from api.schemas.sales_database import (
     SalesDatabaseListResponse,
     SalesDatabaseUploadResponse,
 )
-from db import crud
+from qc_core.db import crud
 from api.permissions import ADMIN_SALES_DATABASE_WRITE
 from api.rbac import require
 
@@ -101,8 +101,8 @@ def sales_database_roster(db: Session = Depends(get_db)):
     ``has_account`` menandai NIP yang sudah punya akun login, sehingga terlihat siapa
     saja di roster yang belum bisa masuk ke dashboard.
     """
-    from sales_lookup import active_sales_map
-    from db.models import User
+    from qc_core.sales_lookup import active_sales_map
+    from qc_core.db.models import User
 
     row = crud.get_active_sales_database(db)
     mapping = active_sales_map(db)

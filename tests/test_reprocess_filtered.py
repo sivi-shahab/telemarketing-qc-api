@@ -59,7 +59,7 @@ def _tickets_from_rows(rows):
 
 
 def _some_campaign(db):
-    from db.models import Result
+    from qc_core.db.models import Result
 
     row = db.query(Result).filter(Result.campaign.isnot(None)).first()
     if row is None:
@@ -121,7 +121,7 @@ def test_filter_campaign_di_luar_cakupan_role_menghasilkan_kosong(db, admin_user
 # --------------------------------------------------------------------------
 
 def _existing_ticket_ids(db, n=3):
-    from db.models import Result
+    from qc_core.db.models import Result
 
     seen = []
     for row in db.query(Result).limit(50).all():
@@ -136,7 +136,7 @@ def _existing_ticket_ids(db, n=3):
 
 
 def test_rencana_dibuat_untuk_setiap_ticket_id_yang_ada(db):
-    from db import crud
+    from qc_core.db import crud
 
     tids = _existing_ticket_ids(db, 3)
     plan = crud.reprocess_plan_for_tickets(db, tids)
@@ -145,7 +145,7 @@ def test_rencana_dibuat_untuk_setiap_ticket_id_yang_ada(db):
 
 def test_rencana_membawa_seluruh_row_lama_tiket(db):
     """``old_result_ids`` dibekukan saat job dibuat; harus memuat SEMUA row tiket itu."""
-    from db import crud
+    from qc_core.db import crud
 
     tid = _existing_ticket_ids(db, 1)[0]
     plan = crud.reprocess_plan_for_tickets(db, [tid])
@@ -155,13 +155,13 @@ def test_rencana_membawa_seluruh_row_lama_tiket(db):
 
 
 def test_ticket_id_tak_dikenal_dilewati_tanpa_error(db):
-    from db import crud
+    from qc_core.db import crud
 
     assert crud.reprocess_plan_for_tickets(db, ["TIDAKADA123"]) == []
 
 
 def test_daftar_kosong_menghasilkan_rencana_kosong(db):
-    from db import crud
+    from qc_core.db import crud
 
     assert crud.reprocess_plan_for_tickets(db, []) == []
 
@@ -177,7 +177,7 @@ def _clear_running_jobs(db):
     berjalan, jadi tiket mana pun yang dipungut dari tabel berpeluang besar sudah
     ditandai sibuk oleh dunia luar. Perubahannya ikut ter-rollback.
     """
-    from db.models import ReprocessJob
+    from qc_core.db.models import ReprocessJob
 
     db.query(ReprocessJob).filter(ReprocessJob.status == "running").update(
         {"status": "done"}, synchronize_session=False)
@@ -186,7 +186,7 @@ def _clear_running_jobs(db):
 
 def _queue_ticket(db, ticket_id):
     """Tandai sebuah tiket sedang direproses, di dalam transaksi test."""
-    from db.models import ReprocessJob, ReprocessJobItem
+    from qc_core.db.models import ReprocessJob, ReprocessJobItem
 
     job = ReprocessJob(id=uuid.uuid4(), campaigns=["Cashline"], scope="ticket",
                        status="running", total_tickets=1, created_by_username="pytest")
@@ -296,7 +296,7 @@ def test_preview_mengikuti_filter_campaign(db, admin_user):
 def test_preview_tidak_membuat_job(db, admin_user):
     """Membuka modal konfirmasi tidak boleh mengeluarkan biaya apa pun."""
     from api.routers import reprocess
-    from db.models import ReprocessJob
+    from qc_core.db.models import ReprocessJob
 
     sebelum = db.query(ReprocessJob).count()
     reprocess.reprocess_filter_preview(body=_filter_body(), db=db, current_user=admin_user)
@@ -330,7 +330,7 @@ def test_post_menolak_kalau_job_massal_berjalan(db, admin_user, no_celery):
     from fastapi import HTTPException
 
     from api.routers import reprocess
-    from db.models import ReprocessJob
+    from qc_core.db.models import ReprocessJob
 
     _clear_running_jobs(db)
     db.add(ReprocessJob(id=_uuid.uuid4(), campaigns=["Cashline"], scope="campaign",

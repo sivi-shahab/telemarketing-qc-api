@@ -16,14 +16,14 @@ from api.dependencies import (
 from api.qc_scope import ensure_can_view_result
 from api.permissions import DOCUMENT_VERIFICATION_TABLE
 from api.rbac import has_perm
-from compliance.documents import (
+from qc_core.compliance.documents import (
     DOCUMENT_TYPES,
     card_holder_bands_apply,
     card_holder_doc_types,
 )
-from compliance.reference_data import get_credit_limit, npwp_required_by_limit
-from compliance.stats_aggregate import _normalized_json
-from db import crud
+from qc_core.compliance.reference_data import get_credit_limit, npwp_required_by_limit
+from qc_core.compliance.stats_aggregate import _normalized_json
+from qc_core.db import crud
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 

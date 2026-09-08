@@ -7,9 +7,9 @@ from api.dependencies import (
 )
 from api.qc_scope import ensure_can_view_result
 from api.schemas.result import ErrorCodeAppealInfo
-from compliance.error_codes import effective_appeal_status, is_cashline_code
-from compliance.error_reasons import ERROR_REASONS
-from db import crud
+from qc_core.compliance.error_codes import effective_appeal_status, is_cashline_code
+from qc_core.compliance.error_reasons import ERROR_REASONS
+from qc_core.db import crud
 from api.permissions import (
     ERROR_CODE_APPEAL,
     ERROR_CODE_DIRECT_EDIT,

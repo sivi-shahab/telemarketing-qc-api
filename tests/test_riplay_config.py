@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from api.dependencies import Settings
 from api.routers import campaign as campaign_router
-from compliance import riplay as riplay_lib
+from qc_core.compliance import riplay as riplay_lib
 
 
 # --------------------------------------------------------------------------

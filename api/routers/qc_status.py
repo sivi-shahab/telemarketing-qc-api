@@ -8,14 +8,14 @@ from api.dependencies import (
 )
 from api.qc_scope import ensure_can_view_result
 from api.schemas.result import QcStatusEventListResponse, QcStatusRequestInfo
-from db import crud
+from qc_core.db import crud
 from api.permissions import (
     MANUAL_STATUS_DIRECT,
     MANUAL_STATUS_REVIEW_SPQ,
     MANUAL_STATUS_REVIEW_TL,
 )
 from api.rbac import has_perm, require
-from compliance.stats_aggregate import ai_status_for_result, manual_status_of
+from qc_core.compliance.stats_aggregate import ai_status_for_result, manual_status_of
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 

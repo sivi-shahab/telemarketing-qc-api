@@ -7,7 +7,7 @@ gated by their own role dependencies and pass through untouched.
 """
 from fastapi import HTTPException, status
 
-from db import crud
+from qc_core.db import crud
 
 
 def ticket_id_for_result(result) -> str | None:
@@ -65,7 +65,7 @@ def scoped_customer_ids(db, current_user):
     """
     from api.rbac import data_scope_for, effective_campaigns_for
     from api import permissions as P
-    from sales_lookup import (
+    from qc_core.sales_lookup import (
         agent_ids_for_agent,
         agent_ids_for_am,
         agent_ids_for_tl,
@@ -145,7 +145,7 @@ def ensure_can_view_result(db, current_user, result) -> None:
     """
     from api.rbac import data_scope_for, effective_campaigns_for
     from api import permissions as P
-    from compliance.stats_aggregate import is_hidden_ticket
+    from qc_core.compliance.stats_aggregate import is_hidden_ticket
 
     # Tiket yang DISEMBUNYIKAN ditolak lebih dulu, sebelum aturan campaign & cakupan.
     # Ini gerbang tunggal seluruh permukaan per-tiket — detail transkrip, PDF, unduhan,
@@ -186,7 +186,7 @@ def ensure_can_view_result(db, current_user, result) -> None:
         return
 
     # Sisi sales: dipersempit ke agent di bawah login ini.
-    from sales_lookup import (
+    from qc_core.sales_lookup import (
         agent_ids_for_agent,
         agent_ids_for_am,
         agent_ids_for_tl,

@@ -58,7 +58,7 @@ def test_result_list_item_punya_field_reprocess_active():
 def _job_with_item(db, *, job_status: str, item_status: str, ticket_id: str,
                    scope: str = "ticket"):
     """Satu job + satu item, tersimpan di dalam transaksi test."""
-    from db.models import ReprocessJob, ReprocessJobItem
+    from qc_core.db.models import ReprocessJob, ReprocessJobItem
 
     job = ReprocessJob(id=uuid.uuid4(), campaigns=["Cashline"], scope=scope,
                        status=job_status, total_tickets=1,
@@ -78,7 +78,7 @@ def _tid(suffix: str) -> str:
 
 
 def test_item_pending_menandai_tiket_sedang_direproses(db):
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("A")
     _job_with_item(db, job_status="running", item_status="pending", ticket_id=tid)
@@ -86,7 +86,7 @@ def test_item_pending_menandai_tiket_sedang_direproses(db):
 
 
 def test_item_processing_menandai_tiket_sedang_direproses(db):
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("B")
     _job_with_item(db, job_status="running", item_status="processing", ticket_id=tid)
@@ -95,7 +95,7 @@ def test_item_processing_menandai_tiket_sedang_direproses(db):
 
 def test_item_selesai_tidak_lagi_menahan_tombol(db):
     """Inti bug-nya: tombol harus kembali ENABLE begitu reproses selesai."""
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("C")
     _job_with_item(db, job_status="running", item_status="done", ticket_id=tid)
@@ -104,7 +104,7 @@ def test_item_selesai_tidak_lagi_menahan_tombol(db):
 
 def test_item_gagal_tidak_menahan_tombol(db):
     """Item ``failed`` boleh dicoba lagi — row lamanya sengaja dipertahankan."""
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("D")
     _job_with_item(db, job_status="running", item_status="failed", ticket_id=tid)
@@ -113,7 +113,7 @@ def test_item_gagal_tidak_menahan_tombol(db):
 
 def test_job_dibatalkan_tidak_menahan_tombol(db):
     """Sama seperti pengaman 409: item pada job ``cancelled`` tidak akan dikerjakan."""
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("E")
     _job_with_item(db, job_status="cancelled", item_status="pending", ticket_id=tid)
@@ -123,7 +123,7 @@ def test_job_dibatalkan_tidak_menahan_tombol(db):
 def test_job_massal_juga_menahan_tombol(db):
     """Job scope ``campaign`` membekukan row tiket ini juga, jadi tombolnya ikut
     ditahan — ``reprocess_single_ticket`` memang menolaknya dengan 409."""
-    from db import crud
+    from qc_core.db import crud
 
     tid = _tid("F")
     _job_with_item(db, job_status="running", item_status="pending", ticket_id=tid,
@@ -134,7 +134,7 @@ def test_job_massal_juga_menahan_tombol(db):
 def test_hanya_tiket_yang_diminta_yang_dikembalikan(db):
     """Dipanggil per halaman (<= 100 baris), jadi hasilnya harus tersaring —
     bukan seluruh antrean. Saat ini ada ratusan job berjalan sekaligus."""
-    from db import crud
+    from qc_core.db import crud
 
     diminta, lain = _tid("G"), _tid("H")
     _job_with_item(db, job_status="running", item_status="pending", ticket_id=diminta)
@@ -144,7 +144,7 @@ def test_hanya_tiket_yang_diminta_yang_dikembalikan(db):
 
 def test_daftar_tiket_kosong_tidak_menyentuh_db(db):
     """Halaman tanpa baris tidak boleh memicu query apa pun."""
-    from db import crud
+    from qc_core.db import crud
 
     assert crud.active_reprocess_ticket_ids(db, []) == set()
 
@@ -155,7 +155,7 @@ def test_aturan_sama_dengan_pengaman_409(db):
     ``active_reprocess_item_for_ticket`` adalah yang menolak POST /reprocess_ticket.
     Kalau kedua aturan ini menyimpang, tombolnya kembali berbohong.
     """
-    from db import crud
+    from qc_core.db import crud
 
     for job_status, item_status in [
         ("running", "pending"), ("running", "processing"),

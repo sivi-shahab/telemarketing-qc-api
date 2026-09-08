@@ -32,9 +32,9 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_db, get_agent_error_summary_user
 from api.qc_scope import ensure_can_view_result
-from sales_lookup import active_sales_map, new_joiner_info
-from compliance.badwords import badword_rows
-from compliance.error_codes import (
+from qc_core.sales_lookup import active_sales_map, new_joiner_info
+from qc_core.compliance.badwords import badword_rows
+from qc_core.compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
     apply_added_score_appeals,
@@ -51,7 +51,7 @@ from compliance.error_codes import (
     merge_dynamic_verification_rows,
     relabel_error_table,
 )
-from db import crud
+from qc_core.db import crud
 
 router = APIRouter(dependencies=[Depends(get_agent_error_summary_user)])
 

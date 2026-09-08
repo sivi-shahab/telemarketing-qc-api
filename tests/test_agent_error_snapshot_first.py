@@ -59,7 +59,7 @@ def summary(monkeypatch):
         monkeypatch.setattr(ae.crud, "error_code_appeals_for_result", lambda db, rid: [])
         sales = {"rizqi801": {"name": "Rizqi", "join_date": join_date}} if join_date else {}
         monkeypatch.setattr(ae, "active_sales_map", lambda db: sales)
-        monkeypatch.setattr("sales_lookup.active_sales_map", lambda db: sales)
+        monkeypatch.setattr("qc_core.sales_lookup.active_sales_map", lambda db: sales)
         out = ae.agent_error_summary("11111111-1111-1111-1111-111111111111", db=None)
         return out, calls["dwh"]
 

@@ -24,8 +24,8 @@ from api.schemas.campaign import (
     CampaignUploadResponse,
     RiplayKbChange,
 )
-from compliance import riplay as riplay_lib
-from db import crud
+from qc_core.compliance import riplay as riplay_lib
+from qc_core.db import crud
 from api.permissions import ADMIN_CAMPAIGN_WRITE
 from api.rbac import require
 
@@ -350,8 +350,8 @@ def campaign_readiness(db: Session = Depends(get_db)):
     tiket bisa berbagi customer id yang sama, jadi membandingkan cacah baris TMS
     dengan cacah tiket akan menyesatkan.
     """
-    from sales_lookup import active_sales_map
-    from db.models import Result, TmsCashline, User
+    from qc_core.sales_lookup import active_sales_map
+    from qc_core.db.models import Result, TmsCashline, User
 
     sales_map = active_sales_map(db)
     active_usernames = {

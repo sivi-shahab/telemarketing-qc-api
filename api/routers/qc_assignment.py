@@ -13,8 +13,8 @@ from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE
 from api.qc_scope import scoped_customer_ids
 from api.rbac import require
-from db import crud
-from db.models import QcAssignment, User
+from qc_core.db import crud
+from qc_core.db.models import QcAssignment, User
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 

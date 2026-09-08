@@ -29,8 +29,8 @@ from sqlalchemy.orm import Session
 from api import campaign_context as cc
 from api.dependencies import get_current_user, get_db
 from api.rbac import effective_campaigns_for
-from services import tickets_daily as tms
-from services import view_streams as vs
+from qc_core.services import tickets_daily as tms
+from qc_core.services import view_streams as vs
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 

@@ -109,7 +109,7 @@ def collection_env(monkeypatch):
 
 def _user_with_campaign(db, campaign):
     """User baru dengan role ``qc`` dan satu batas campaign. Ikut rollback fixture."""
-    from db.models import User, UserCampaign
+    from qc_core.db.models import User, UserCampaign
 
     suffix = f"{campaign.lower()}-rbac-test"
     user = User(

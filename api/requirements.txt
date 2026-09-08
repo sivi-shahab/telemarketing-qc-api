@@ -1,18 +1,17 @@
+# Kode bersama. Dependensi core (sqlalchemy, psycopg2-binary, boto3, openpyxl,
+# pdfplumber, requests, pydantic-settings, pypdfium2) ikut ter-install dari sini
+# dan SENGAJA tidak diulang di bawah -- satu sumber kebenaran versi.
+# Baris ini di-bump otomatis oleh .github/workflows/bump-core.yml.
+telemarketing-qc-core @ git+https://github.com/sivi-shahab/telemarketing-qc-core.git@v1.0.0
+
 fastapi
 uvicorn[standard]
 celery[redis]
-sqlalchemy
 alembic
-psycopg2-binary
-boto3
 python-multipart
-pdfplumber
 pypdf
 openai
-pydantic-settings
 redis
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==3.2.2
-openpyxl
-requests>=2.31

@@ -26,9 +26,9 @@ from api.schemas.result import (
 from api.permissions import MENU_TRANSCRIPTS, SCOPE_QC_SUPPORT_OWN
 from api.rbac import data_scope_for, has_perm
 from api.qc_scope import ensure_can_view_result, scoped_customer_ids
-from db import crud
-from sales_lookup import new_joiner_info
-from compliance.error_codes import (
+from qc_core.db import crud
+from qc_core.sales_lookup import new_joiner_info
+from qc_core.compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
     annotate_critical_compliance_reasons,
@@ -54,7 +54,7 @@ from compliance.error_codes import (
     override_risk_base_for_new_joiner,
     relabel_error_table,
 )
-from compliance.scoring import (
+from qc_core.compliance.scoring import (
     _to_num,
     base_ai_status,
     has_blocking_intolerable_item,
@@ -63,7 +63,7 @@ from compliance.scoring import (
     score_bomb_items,
     scorecard_score,
 )
-from compliance.stats_aggregate import (
+from qc_core.compliance.stats_aggregate import (
     document_status_map,
     _doc_sla_expired,
     _missing_docs_map,
@@ -392,7 +392,7 @@ def audio_job_status(
       queued     — berkas atau marker ``.queued`` masih di folder antrian
       processing — sudah diambil consumer, hasilnya belum kembali
     """
-    from db.models import Result
+    from qc_core.db.models import Result
 
     base = os.path.basename(audio_name or "")
     if not base:

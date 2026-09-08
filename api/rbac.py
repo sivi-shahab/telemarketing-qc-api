@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api import permissions as perms
-from compliance.campaign_kind import is_collection, parse_collection_campaigns
+from qc_core.compliance.campaign_kind import is_collection, parse_collection_campaigns
 
 _TTL_SECONDS = 10.0
 # key -> {"permissions": set, "data_scope": str, "campaigns": [str]}
@@ -51,7 +51,7 @@ def _load_all(db: Session) -> dict:
     if _cache and (now - _cache_at) < _TTL_SECONDS:
         return _cache
 
-    from db.models import Role, RoleCampaign
+    from qc_core.db.models import Role, RoleCampaign
 
     out = {}
     by_id = {}
@@ -170,7 +170,7 @@ def user_campaigns_for(db: Session, user) -> list:
 
     Sengaja TIDAK ikut cache role: ini milik user, bukan role, dan jumlahnya kecil
     (satu query berindeks per pemanggilan)."""
-    from db.models import UserCampaign
+    from qc_core.db.models import UserCampaign
 
     uid = getattr(user, "id", None)
     if uid is None:
@@ -195,7 +195,7 @@ def effective_campaigns_for(db: Session, user):
     bukan properti role. Karena itu tidak perlu ada role terpisah per campaign:
     ``sales_agent`` yang sama melayani agent Cashline maupun NTB, dan cakupannya
     dibedakan oleh baris roster masing-masing. Lihat
-    ``sales_lookup.roster_campaigns_for`` untuk alasan berbasis datanya.
+    ``qc_core.sales_lookup.roster_campaigns_for`` untuk alasan berbasis datanya.
     Pembatasan roster SELALU berlaku untuk cakupan sales — orang yang tidak ada di
     roster mendapat list kosong, artinya tidak melihat apa pun.
 
@@ -227,7 +227,7 @@ def effective_campaigns_for(db: Session, user):
     if not perms.is_sales_scope(scope):
         return _narrow(declared or None)
 
-    from sales_lookup import roster_campaigns_for
+    from qc_core.sales_lookup import roster_campaigns_for
 
     roster = roster_campaigns_for(db, getattr(user, "username", "") or "", scope)
     if not declared:

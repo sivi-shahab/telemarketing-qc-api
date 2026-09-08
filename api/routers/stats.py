@@ -13,7 +13,7 @@ from api.dependencies import (
     get_evaluation_detail_user,
     get_db,
 )
-from sales_lookup import (
+from qc_core.sales_lookup import (
     agent_ids_for_agent,
     agent_ids_for_am,
     agent_ids_for_hierarchy_filter,
@@ -50,9 +50,9 @@ from api.permissions import (
 )
 from api.rbac import data_scope_for, effective_campaigns_for, has_perm, require
 from api.qc_scope import ensure_can_view_result, scoped_customer_ids
-from db import crud
-from compliance.badwords import badword_fail_reason, badword_rows, has_badword
-from compliance.error_codes import (
+from qc_core.db import crud
+from qc_core.compliance.badwords import badword_fail_reason, badword_rows, has_badword
+from qc_core.compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
     apply_added_score_appeals,
@@ -78,21 +78,21 @@ from compliance.error_codes import (
     normalize_static_verification,
     static_consistency_failures,
 )
-from compliance.documents import (
+from qc_core.compliance.documents import (
     DOCUMENT_TYPES,
     card_holder_bands_apply,
     required_doc_requirements,
     format_similarity,
 )
-from compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
-from compliance.scoring import (
+from qc_core.compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
+from qc_core.compliance.scoring import (
     max_score,
     no_product_interest,
     phase3_score,
     score_bomb_items,
     scorecard_score,
 )
-from compliance.stats_aggregate import (
+from qc_core.compliance.stats_aggregate import (
     data_gap_map,
     data_gap_reasons,
     doc_sla_enabled,
@@ -1117,7 +1117,7 @@ def stats_hierarchy(
         if (key or "").strip().casefold() == want:
             return _scoped_hierarchy(db, current_user, tree)
     # Campaign aktif yang belum punya tiket: pohon kosong, bukan pohon global.
-    from compliance.stats_aggregate import empty_hierarchy
+    from qc_core.compliance.stats_aggregate import empty_hierarchy
 
     return empty_hierarchy()
 
@@ -1127,7 +1127,7 @@ def stats_role_counts(db: Session = Depends(get_db), current_user=Depends(get_cu
     """User counts per role, split into the Sales and QC divisions — for the
     "Jumlah Sales" / "Jumlah QC" tables under the Overview donut."""
     from sqlalchemy import func as _f
-    from db.models import User
+    from qc_core.db.models import User
     rows = dict(
         db.query(User.role, _f.count()).filter(User.is_active == True).group_by(User.role).all()  # noqa: E712
     )
@@ -1146,7 +1146,7 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
     carries its ``team_leader`` so the Area Manager roster can group by TL. For an
     Area Manager the response also carries ``hierarchy`` — a scoped Team Leader ->
     Agent tree for the "Hierarki Failure Rate" tab (no Area Manager level)."""
-    from compliance.stats_aggregate import (
+    from qc_core.compliance.stats_aggregate import (
         compute_scoped_hierarchy,
         compute_scoped_overview,
         compute_team_agents,
@@ -1176,7 +1176,7 @@ def stats_failure_reasons(
     SPQ Head & Admin (tab "Failure Reason" di menu Stats)."""
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
-    from compliance.stats_aggregate import compute_failure_reasons
+    from qc_core.compliance.stats_aggregate import compute_failure_reasons
     return compute_failure_reasons(db, campaign, effective_campaigns_for(db, current_user))
 
 
@@ -1191,7 +1191,7 @@ def stats_failure_reasons_hierarchy(
     Reason; hak aksesnya sama dengan agregatnya."""
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
-    from compliance.stats_aggregate import compute_failure_reasons_hierarchy
+    from qc_core.compliance.stats_aggregate import compute_failure_reasons_hierarchy
     return compute_failure_reasons_hierarchy(db, campaign,
                                              effective_campaigns_for(db, current_user))
 
@@ -1659,7 +1659,7 @@ def export_verification_xlsx(
     yang dibawa keluar sistem, jadi ia tidak boleh lebih longgar daripada tabel
     Results yang sudah dibatasi.
     """
-    from compliance.stats_aggregate import (
+    from qc_core.compliance.stats_aggregate import (
         VERIFICATION_EXPORT_CATEGORIES,
         compute_verification_export,
     )
@@ -1727,7 +1727,7 @@ def export_tickets_xlsx(
     supaya isi file cocok dengan yang terlihat di layar. Yang TIDAK ditiru:
     paginasi — export selalu mengambil seluruh rentang.
     """
-    from compliance.stats_aggregate import compute_ticket_export
+    from qc_core.compliance.stats_aggregate import compute_ticket_export
 
     d_start = _parse_ymd(date_start)
     d_end = _parse_ymd(date_end)
@@ -1830,7 +1830,7 @@ def get_nama_ibu_kandung(
     Dibatasi ke campaign yang menjadi cakupan pemanggil, sama seperti
     ``/export_verification_xlsx``.
     """
-    from compliance.stats_aggregate import compute_nama_ibu_kandung_rows
+    from qc_core.compliance.stats_aggregate import compute_nama_ibu_kandung_rows
 
     rows = compute_nama_ibu_kandung_rows(db, effective_campaigns_for(db, current_user))
     return {"total": len(rows), "rows": rows}
