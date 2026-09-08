@@ -23,26 +23,29 @@ docker network create qc-net
 Tanpa ini `docker compose up` langsung gagal: ketiga compose file mendeklarasikan
 `external: true`, jadi Compose tidak akan membuatkannya.
 
-### Submodule `core`
+### Paket `telemarketing-qc-core`
 
-Kode bersama (`db/`, `compliance/`, `services/`, `prompt/`, `sales_lookup.py`)
-ada di submodule `core/`, bukan di repo ini.
+Kode bersama (`qc_core.db`, `qc_core.compliance`, `qc_core.services`,
+`qc_core.prompt`, `qc_core.sales_lookup`) **bukan folder di repo ini** dan bukan
+submodule: ia paket pip yang dipasang saat build. Versinya ada di satu baris:
 
 ```bash
-git submodule update --init --recursive
-git submodule status          # pastikan tidak ada awalan '-' atau '+'
+grep telemarketing-qc-core api/requirements.txt
+# telemarketing-qc-core @ git+https://github.com/sivi-shahab/telemarketing-qc-core.git@v1.0.0
 ```
 
-Awalan `-` berarti belum ter-checkout, `+` berarti commit-nya beda dari yang
-dicatat repo induk. **Build akan sukses tapi container mati saat start** dengan
-`ModuleNotFoundError: No module named 'services.s3_buckets'` — kesalahan yang
-menyesatkan karena build-nya sendiri tidak mengeluh.
+Tidak ada langkah checkout yang bisa terlupa: kalau tag itu tidak ada, `docker
+build` **gagal di stage builder** dengan `git checkout -q v1.0.0 did not run
+successfully` — berhenti saat build, bukan saat container start.
 
-Setelah menarik perubahan core:
+Menaikkan versi core cukup mengubah nomor di baris itu lalu rebuild. Biasanya
+tidak perlu manual: `.github/workflows/bump-core.yml` membuka PR-nya otomatis
+setiap repo core merilis tag baru.
+
+Versi yang benar-benar terpasang di image bisa dibaca kapan saja:
 
 ```bash
-git -C core fetch origin <branch> && git -C core merge --ff-only FETCH_HEAD
-git add core && git commit -m "bump core"
+docker compose exec -T api python -c "import qc_core; print(qc_core.__version__)"
 ```
 
 ### Berkas `.env`
@@ -76,7 +79,7 @@ Dua hal yang gampang salah:
 image. Server `cdn.bankmega.local` hanya mengirim sertifikat leaf-nya tanpa CA
 penerbit, jadi leaf itu sendiri yang dipercaya — sama seperti trust store host.
 Verifikasi TLS **tetap menyala**; yang memungkinkannya adalah
-`VERIFY_X509_PARTIAL_CHAIN` di `core/services/s3_buckets.py`.
+`VERIFY_X509_PARTIAL_CHAIN` di `qc_core/services/s3_buckets.py`.
 
 Jangan mengganti pendekatan ini dengan `verify=False`.
 
@@ -156,7 +159,7 @@ Cek koneksi S3 keenam bucket:
 ```bash
 docker compose exec -T api python -c "
 from api.dependencies import get_minio, get_settings
-from services.s3_buckets import _BUCKET_CREDENTIAL_FIELDS
+from qc_core.services.s3_buckets import _BUCKET_CREDENTIAL_FIELDS
 s, c = get_settings(), get_minio()
 for bf, akf, _ in _BUCKET_CREDENTIAL_FIELDS:
     b = getattr(s, bf, '')

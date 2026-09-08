@@ -217,6 +217,7 @@ Indeks paket dokumentasi untuk serah-terima sistem. Mulai dari atas.
 ## Setup & Operasi
 - [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deploy dari GitHub ke server (Docker & non-Docker) + production hardening.
 - [`RUNBOOK.md`](./RUNBOOK.md) — operasi harian: monitoring, restart, scaling, backup/restore, sakelar SLA H+2, refresh snapshot Statistics, insiden.
+- [`RUNBOOK_CUTOVER_CORE_PAKET.md`](./RUNBOOK_CUTOVER_CORE_PAKET.md) — cutover sekali-pakai: build + deploy image api dan worker setelah core menjadi paket pip, berikut titik rollback-nya.
 
 ## Logika QC (pengetahuan inti)
 - [`CAMPAIGN_SCORING.md`](./CAMPAIGN_SCORING.md) — konfigurasi campaign (prompt/KB/scorecard/RIPLAY), model scoring, dan precedence status PASS/FAIL/PENDING.
