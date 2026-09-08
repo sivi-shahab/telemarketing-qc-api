@@ -57,7 +57,7 @@ docker compose logs -f api
 Tunggu di log sampai muncul:
 
 ```
-Running upgrade 0050 -> 0051, ...
+Running upgrade 0051 -> 0052, ...
 INFO:     Uvicorn running on http://0.0.0.0:4000
 ```
 
@@ -65,10 +65,10 @@ Lalu `Ctrl+C` dan pastikan:
 
 ```bash
 curl -sf http://localhost:4000/health && echo " OK"
-docker compose exec api alembic current      # harus: 0051 (head)
+docker compose exec api alembic current      # harus: 0052 (head)
 ```
 
-**Berhenti di sini kalau belum `0051 (head)`** — jangan lanjut ke worker.
+**Berhenti di sini kalau belum `0052 (head)`** — jangan lanjut ke worker.
 
 Naik: container `api` + `redis`.
 
@@ -758,6 +758,8 @@ ini masih stack monorepo** (`telemarketing-qc-system-*`), bukan repo split.
 
 ### Selisih migrasi
 
+Potret **2 September 2026**, saat analisis cutover ditulis:
+
 ```
 alembic heads   -> 0051 (head)
 alembic current -> 0025      (schema `dashboard` di 10.155.32.28)
@@ -773,6 +775,10 @@ alembic current -> 0025      (schema `dashboard` di 10.155.32.28)
   yang masih `NULL` (0027), mengisi kolom `provisi`/`penalti` yang baru
   ditambahkan (0028), `INSERT … ON CONFLICT DO NOTHING` plus penambahan JSONB
   bergerbang `NOT (permissions @> …)` (0044).
+
+Selisih itu **sudah terbayar**. Per 8 September 2026 produksi berada di
+`0052 (head)` — migrasi terakhir `0052_perm_tl_qc_upload_sales_database`, dan
+tidak ada revisi tertunda. De-vendoring core tidak menambah migrasi apa pun.
 
 Isinya sebagian besar penambahan capability RBAC dan menu.
 
@@ -1068,7 +1074,7 @@ Daftar periksa:
 |---|---|---|---|
 | 1 | Lima container hidup | `docker ps` | `api`, `redis`, `worker`, `flower`, `dashboard` |
 | 2 | API sehat | `curl -sf localhost:4000/health` | 200 |
-| 3 | Skema mutakhir | `docker compose exec api alembic current` | `0051 (head)` |
+| 3 | Skema mutakhir | `docker compose exec api alembic current` | `0052 (head)` |
 | 4 | Mode MinIO benar | `docker compose logs api \| grep multi-bucket` | ada baris per bucket |
 | 5 | Task ter-register | `celery ... inspect registered` | 3 task |
 | 6 | Worker menjawab | `celery ... inspect ping` | `pong` |
