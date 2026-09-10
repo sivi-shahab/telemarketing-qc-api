@@ -435,6 +435,174 @@ def audio_job_status(
     )
 
 
+def _appeal_history_entry(a):
+    """Serialize an appeal ORM row into a plain dict for the Error Code table."""
+    return {
+        "id": a.id,
+        "approval_status": a.approval_status,
+        "qc_reason": a.qc_reason,
+        "qc_evidence": a.qc_evidence,
+        "qc_ticket_id": a.qc_ticket_id,
+        "qc_reference_value": a.qc_reference_value,
+        "qc_extracted_value": a.qc_extracted_value,
+        "qc_new_error_code": getattr(a, "qc_new_error_code", None),
+        "appeal_kind": getattr(a, "appeal_kind", "remove"),
+        "add_source": getattr(a, "add_source", None),
+        "origin": getattr(a, "origin", "qc"),
+        "ai_sumber": a.ai_sumber,
+        "ai_risk_base": a.ai_risk_base,
+        "ai_details_error": a.ai_details_error,
+        "ai_reason": a.ai_reason,
+        "ai_evidence": a.ai_evidence,
+        "ai_ticket_id": a.ai_ticket_id,
+        "requested_by_username": a.requested_by_username,
+        "requested_at": a.requested_at.isoformat() if a.requested_at else None,
+        "tl_qc_status": getattr(a, "tl_qc_status", "pending"),
+        "tl_qc_username": getattr(a, "tl_qc_username", None),
+        "tl_qc_reviewed_at": a.tl_qc_reviewed_at.isoformat() if getattr(a, "tl_qc_reviewed_at", None) else None,
+        "tl_qc_comment": getattr(a, "tl_qc_comment", None),
+        "reviewed_by_username": a.reviewed_by_username,
+        "reviewed_at": a.reviewed_at.isoformat() if a.reviewed_at else None,
+        "review_comment": getattr(a, "review_comment", None),
+    }
+
+
+def _with_error_code_table(result_json, is_new_joiner: bool = False, appeals=None,
+                           doc_overdue: bool = False, documents=(), doc_status=None):
+    """Return a shallow copy of result_json with evaluation.error_code_table
+    computed by the shared single-source-of-truth builder (so the dashboard
+    renders the same grouped table the XLSX export uses).
+
+    For a new-joiner submission, each row's Risk Base ``L``/``M`` is softened to
+    ``N`` (the qc / SPQ Head Error Code table reads ``risk_base``).
+
+    ``appeals`` (Error Code banding rows for this result) drive two things:
+    approved appeals are applied to the evaluation first (flipping the linked
+    scorecard item to SESUAI, so the appealed error row disappears and the score
+    lifts), and each remaining row is annotated with its latest appeal status +
+    full history for the QC "Manual Check" / SPQ Head "Review Banding" columns.
+
+    ``doc_overdue`` — dokumen pendukung yang diminta belum diunggah DAN tenggat H+2
+    sudah lewat: menambahkan baris B09 ke tabel. ``documents``
+    (``[(doc_type, ocr_json), ...]``) menambahkan C03 untuk slot yang isinya jenis
+    dokumen keliru. Keduanya meniru agregasi statistik
+    (``compliance.stats_aggregate._error_code_rows``) dan harus sepakat dengannya,
+    karena QC membaca tabel ini untuk menjelaskan angka di Stats."""
+    if not isinstance(result_json, dict):
+        return result_json
+    evaluation = result_json.get("evaluation")
+    if not isinstance(evaluation, dict):
+        return result_json
+    appeals = appeals or []
+    approved = approved_appeals_only(appeals)
+    # 'change' bandings to a deduction-bearing code keep their deduction (relabel
+    # only); every other approved remove/change banding flips the item/field to lift
+    # the score. 'add' bandings are handled separately (they lower the score).
+    flip = [a for a in appeals_that_flip(approved) if _appeal_kind(a) != "add"]
+    # Zona abu-abu ditegakkan di kode, sebelum banding & skor dihitung.
+    evaluation = normalize_static_verification(evaluation)
+    # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip kosong)
+    # turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
+    evaluation = normalize_dynamic_verification(evaluation)
+    # Status dokumennya menyusul: PENDING selama tenggat H+2 berjalan, MISMATCH bila
+    # terlewat tanpa unggah (lihat ``error_codes.apply_static_document_status``).
+    if doc_status is not None:
+        evaluation = apply_static_document_status(evaluation, doc_status[0], doc_status[1])
+        # Sisi cashline menyusul: baris yang menunggu cover buku tabungan menjadi
+        # PENDING selama tenggat H+2, agar jalur dokumennya tidak terpotong.
+        evaluation = apply_cashline_document_status(evaluation, doc_status[0], doc_status[1])
+    evaluation = apply_approved_appeals(evaluation, flip)
+    evaluation = apply_approved_card_holder_appeals(evaluation, flip)
+    evaluation = apply_approved_cashline_appeals(evaluation, flip)
+    evaluation = apply_approved_critical_compliance_appeals(evaluation, flip)
+    # 'add' bandings: attach a NEW error to an existing item/field and LOWER the score
+    # (source 'others' is display-only, injected into the table below).
+    added = added_appeals_only(appeals)
+    evaluation = apply_added_score_appeals(evaluation, added)
+    # Recompute the aggregate score fields from the appeal-adjusted evaluation so the
+    # detail response is self-consistent (the apply_* helpers only lift the frozen
+    # verification/critical penalties; ai_score_phase_2/phase_3/ai_status stay at the
+    # original LLM values otherwise). Mirrors api/routers/stats.py::list_results.
+    phase2 = scorecard_score(evaluation)
+    if phase2 is not None:
+        # Rumus phase3 hidup di SATU tempat (termasuk iris 10% non-tolerable) —
+        # lihat compliance.scoring.phase3_score.
+        phase3 = phase3_score(evaluation)
+        status_val = base_ai_status(evaluation)
+        if status_val == "PASS" and has_blocking_intolerable_item(evaluation):
+            status_val = "FAIL"
+        evaluation = {
+            **evaluation,
+            # Daftar SEMUA item yang mengebom skor — kritis (25%) DAN non-tolerable
+            # lain (10%) — supaya panel Critical Compliance Check / kolom SCOREBOMB
+            # menampilkan seluruh potongan, bukan hanya yang kritis.
+            "score_bomb_items": score_bomb_items(evaluation),
+            "ai_score_non_tolerable": non_tolerable_bomb(evaluation),
+            "ai_score_phase_2": phase2,
+            "ai_score_phase_3": int(phase3) if phase3 == int(phase3) else phase3,
+            "ai_status": status_val,
+        }
+    # Tampilan: B16 & B17-dinamis yang berulang dilebur jadi satu baris beralasan
+    # gabungan (31 Agustus 2026). Dilakukan di sini, bukan di dalam builder, supaya
+    # hitungan risk base tidak ikut mengecil — lihat merge_dynamic_verification_rows.
+    table = merge_dynamic_verification_rows(build_error_code_table(evaluation))
+    doc_rows = document_error_code_rows(
+        missing=bool(doc_overdue),
+        missing_labels=doc_requirement_labels(result_json) if doc_overdue else (),
+        wrong_type=wrong_document_types(documents),
+    )
+    if doc_rows:
+        table = table + doc_rows
+    # Inject display rows for 'add' bandings (pending awaiting review + approved),
+    # keyed by their master code so the annotation below attaches their review state.
+    table = inject_added_rows(table, added_appeals_visible(appeals))
+    if is_new_joiner:
+        table = override_risk_base_for_new_joiner(table)
+    table = _annotate_appeals(table, appeals)
+    # Relabel/inject/drop rows for approved 'change'/'remove' bandings (after
+    # annotation so each row keeps its appeal metadata under the original code).
+    table = relabel_error_table(table, [a for a in approved if _appeal_kind(a) != "add"])
+    evaluation = {**evaluation, "error_code_table": table}
+    # One sentence per failed critical item, computed here so every surface renders
+    # the same wording (and the static verification items say WHY they failed).
+    evaluation = annotate_critical_compliance_reasons(evaluation)
+    # Ringkasan Kategori is derived from the scorecard rather than trusted from the
+    # LLM's own block, which can contradict it (see derive_category_summary).
+    evaluation = derive_category_summary(evaluation)
+    return {**result_json, "evaluation": evaluation}
+
+
+def _annotate_appeals(table, appeals):
+    """Attach appeal state to each Error Code row. Every row is manual-checkable
+    (banding may REMOVE or CHANGE the code); ``appeal`` carries latest status +
+    history for the QC Manual Check / TL QC / SPQ Head columns."""
+    # Group appeals by (error_code, item_code), oldest-first (input order).
+    by_row = {}
+    for a in appeals:
+        by_row.setdefault((a.error_code, a.item_code), []).append(a)
+    annotated = []
+    for row in table:
+        item_code = row.get("item_code") or ""
+        # Every Error Code row can be manual-checked now.
+        row = {**row, "appealable": True}
+        matched = by_row.get((row.get("error_code"), item_code))
+        if matched:
+            latest = matched[-1]
+            row["appeal"] = {
+                "latest_id": latest.id,
+                "latest_status": latest.approval_status,
+                "tl_qc_status": getattr(latest, "tl_qc_status", "pending"),
+                "tl_qc_username": getattr(latest, "tl_qc_username", None),
+                "effective_status": effective_appeal_status(latest),
+                "requested_by_username": latest.requested_by_username,
+                "history": [_appeal_history_entry(a) for a in matched],
+            }
+        else:
+            row["appeal"] = None
+        annotated.append(row)
+    return annotated
+
+
 @router.get("/result/{result_id}", response_model=ResultResponse)
 def get_result(
     result_id: str,
