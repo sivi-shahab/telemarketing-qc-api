@@ -26,6 +26,7 @@ from api.schemas.result import (
 from api.permissions import MENU_TRANSCRIPTS, SCOPE_QC_SUPPORT_OWN
 from api.rbac import data_scope_for, has_perm
 from api.qc_scope import ensure_can_view_result, scoped_customer_ids
+from api.routers.stats import _customer_id_from_files
 from db import crud
 from sales_lookup import new_joiner_info
 from compliance.error_codes import (
