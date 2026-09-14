@@ -216,6 +216,98 @@ def test_aturan_umur_juga_berlaku_pada_pengaman_409(db):
     assert crud.active_reprocess_item_for_ticket(db, tid) is None
 
 
+def _netralkan_job_berjalan(db):
+    """Netralkan job `running` milik data NYATA, di dalam transaksi test.
+
+    ``running_reprocess_job`` menanyai SELURUH tabel, bukan ticket tertentu, jadi
+    tanpa ini hasilnya bergantung pada apa yang kebetulan berjalan di dunia luar.
+    Perubahannya ikut ter-rollback.
+    """
+    from db.models import ReprocessJob
+
+    db.query(ReprocessJob).filter(ReprocessJob.status == "running").update(
+        {"status": "done"}, synchronize_session=False)
+    db.flush()
+
+
+def test_job_dengan_item_pending_baru_terlihat_berjalan(db):
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    _job_with_item(db, job_status="running", item_status="pending",
+                   ticket_id=_tid("R1"), scope="campaign")
+    assert crud.running_reprocess_job(db, scope="campaign") is not None
+
+
+def test_job_massal_tersangkut_tidak_lagi_memblokir_reprocess_all(db):
+    """Pengaman 409 "masih ada job massal berjalan" memakai fungsi ini. Job yang
+    tersangkut karena itu memblokir Reprocess All SELAMANYA — jebakan yang sama
+    dengan yang mengunci tombol Delete, hanya satu tingkat di atasnya."""
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    umur = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 1
+    _job_with_item(db, job_status="running", item_status="pending",
+                   ticket_id=_tid("R2"), scope="campaign", age_hours=umur)
+    assert crud.running_reprocess_job(db, scope="campaign") is None
+
+
+def test_job_dengan_item_processing_tua_tetap_terlihat_berjalan(db):
+    """Alasannya sama dengan pada tombol per-ticket: ada worker yang memegangnya."""
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    _job_with_item(db, job_status="running", item_status="processing",
+                   ticket_id=_tid("R3"), scope="campaign",
+                   age_hours=crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 48)
+    assert crud.running_reprocess_job(db, scope="campaign") is not None
+
+
+def test_job_yang_seluruh_itemnya_selesai_tidak_terlihat_berjalan(db):
+    """``finish_reprocess_job_if_complete`` dipanggil worker setiap satu item
+    selesai; kalau worker mati tepat sebelum item terakhir, statusnya tidak pernah
+    berpindah. Job seperti itu tidak punya pekerjaan tersisa, jadi tidak boleh
+    memblokir apa pun."""
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    _job_with_item(db, job_status="running", item_status="done",
+                   ticket_id=_tid("R4"), scope="campaign")
+    assert crud.running_reprocess_job(db, scope="campaign") is None
+
+
+def test_job_tersangkut_tetap_lepas_walau_ada_job_lain_yang_baru(db):
+    """Umur yang dibaca harus umur JOB ITU, bukan sembarang job di tabel.
+
+    Klausanya menyebut ``ReprocessJob.created_at`` dari dalam subquery EXISTS. Kalau
+    korelasinya lepas — subquery membawa ``FROM reprocess_jobs`` sendiri — syarat
+    umurnya berubah makna menjadi "ada job baru di mana pun", dan job tersangkut
+    kembali memblokir begitu ada satu job baru mana pun. Test tersangkut yang polos
+    tidak akan menangkapnya karena di sana tabelnya hanya berisi job tua itu.
+    """
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    umur = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 1
+    _job_with_item(db, job_status="running", item_status="pending",
+                   ticket_id=_tid("R6"), scope="campaign", age_hours=umur)
+    _job_with_item(db, job_status="running", item_status="pending",
+                   ticket_id=_tid("R7"), scope="ticket")   # baru, scope lain
+    assert crud.running_reprocess_job(db, scope="campaign") is None
+
+
+def test_scope_tetap_menyaring_jenis_job(db):
+    """Aturan umur tidak boleh diam-diam melonggarkan penyaringan scope."""
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    _job_with_item(db, job_status="running", item_status="pending",
+                   ticket_id=_tid("R5"), scope="ticket")
+    assert crud.running_reprocess_job(db, scope="campaign") is None
+    assert crud.running_reprocess_job(db, scope="ticket") is not None
+    assert crud.running_reprocess_job(db) is not None
+
+
 def test_aturan_sama_dengan_pengaman_409(db):
     """Penanda tombol dan penolakan 409 harus tidak pernah berbeda pendapat.
 

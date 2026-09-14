@@ -332,14 +332,55 @@ def test_post_menolak_kalau_job_massal_berjalan(db, admin_user, no_celery):
     from api.routers import reprocess
     from db.models import ReprocessJob
 
+    from db.models import ReprocessJobItem
+
     _clear_running_jobs(db)
-    db.add(ReprocessJob(id=_uuid.uuid4(), campaigns=["Cashline"], scope="campaign",
-                        status="running", total_tickets=1, created_by_username="pytest"))
+    # Job-nya WAJIB punya item. Sejak "berjalan" diukur dari item yang benar-benar
+    # aktif (crud._reprocess_item_active_clause) dan bukan dari kolom status job,
+    # job tanpa item tidak memblokir apa pun — memang tidak ada pekerjaan yang bisa
+    # bertabrakan. `create_reprocess_job` pun tidak pernah menghasilkan job kosong:
+    # rencana kosong sudah ditolak 404 lebih dulu.
+    job = ReprocessJob(id=_uuid.uuid4(), campaigns=["Cashline"], scope="campaign",
+                       status="running", total_tickets=1, created_by_username="pytest")
+    db.add(job)
+    db.flush()
+    db.add(ReprocessJobItem(job_id=job.id, ticket_id="PYTESTBLOK1", campaign="Cashline",
+                            old_result_ids=[], status="pending"))
     db.flush()
     with pytest.raises(HTTPException) as exc:
         reprocess.reprocess_filtered(body=_filter_body(), db=db, current_user=admin_user)
     assert exc.value.status_code == 409
     assert no_celery == []
+
+
+def test_post_tidak_diblokir_job_massal_yang_tersangkut(db, admin_user, no_celery):
+    """Kebalikannya, dan inilah yang dulu mengunci menu ini selamanya.
+
+    Job massal yang task Celery-nya tidak pernah sampai ke worker tertinggal
+    ``running`` tanpa batas waktu, dan pengaman 409 di atas membacanya sebagai
+    "masih ada yang berjalan". Sesudah lewat ``REPROCESS_STALE_AFTER``, item
+    ``pending``-nya bukan lagi antrean melainkan sisa — dan tidak boleh menolak
+    perintah baru.
+    """
+    import uuid as _uuid
+    from datetime import datetime, timedelta
+
+    from api.routers import reprocess
+    from db import crud
+    from db.models import ReprocessJob, ReprocessJobItem
+
+    _clear_running_jobs(db)
+    tua = datetime.now() - crud.REPROCESS_STALE_AFTER - timedelta(hours=1)
+    job = ReprocessJob(id=_uuid.uuid4(), campaigns=["Cashline"], scope="campaign",
+                       status="running", total_tickets=1, created_by_username="pytest",
+                       created_at=tua)
+    db.add(job)
+    db.flush()
+    db.add(ReprocessJobItem(job_id=job.id, ticket_id="PYTESTBLOK2", campaign="Cashline",
+                            old_result_ids=[], status="pending"))
+    db.flush()
+    res = reprocess.reprocess_filtered(body=_filter_body(), db=db, current_user=admin_user)
+    assert res.status == "running"
 
 
 def test_post_menolak_filter_yang_tidak_cocok_apa_pun(db, admin_user, no_celery):
