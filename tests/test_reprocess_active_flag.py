@@ -23,6 +23,7 @@ server menerima.
 Test DB memakai transaksi yang selalu di-rollback; tidak ada baris yang tertinggal.
 """
 import uuid
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -56,13 +57,18 @@ def test_result_list_item_punya_field_reprocess_active():
 
 
 def _job_with_item(db, *, job_status: str, item_status: str, ticket_id: str,
-                   scope: str = "ticket"):
-    """Satu job + satu item, tersimpan di dalam transaksi test."""
+                   scope: str = "ticket", age_hours: float = 0):
+    """Satu job + satu item, tersimpan di dalam transaksi test.
+
+    ``age_hours`` memundurkan ``created_at`` job — umur itulah yang membedakan
+    antrean yang benar-benar menunggu worker dari job yang tersangkut.
+    """
     from db.models import ReprocessJob, ReprocessJobItem
 
     job = ReprocessJob(id=uuid.uuid4(), campaigns=["Cashline"], scope=scope,
                        status=job_status, total_tickets=1,
-                       created_by_username="pytest")
+                       created_by_username="pytest",
+                       created_at=datetime.now() - timedelta(hours=age_hours))
     db.add(job)
     db.flush()
     item = ReprocessJobItem(job_id=job.id, ticket_id=ticket_id, campaign="Cashline",
@@ -149,6 +155,67 @@ def test_daftar_tiket_kosong_tidak_menyentuh_db(db):
     assert crud.active_reprocess_ticket_ids(db, []) == set()
 
 
+# --------------------------------------------------------------------------
+# Job yang tersangkut
+#
+# Kejadian nyata, 11 September 2026: dua job ``scope="ticket"`` dibuat pukul
+# 10:39, task Celery-nya tidak pernah sampai ke worker (antrean kosong, item tidak
+# pernah berpindah ke ``processing``), dan jobnya tertinggal ``running``. Tidak ada
+# timeout dan tidak ada reaper, jadi kedua tiket itu ditandai "sedang direproses"
+# SELAMANYA — tombol Reprocess mati, tombol Delete mati, dan Delete All melewatinya.
+# Layar pun tidak menyediakan jalan keluar: tombol "Batalkan" hanya muncul untuk
+# job ``scope="campaign"``.
+#
+# Karena itu umur ikut menentukan: item ``pending`` pada job yang jauh lebih tua
+# dari waktu kerja yang wajar bukan antrean, melainkan sisa.
+# --------------------------------------------------------------------------
+
+def test_item_pending_pada_job_tersangkut_tidak_lagi_menahan_tombol(db):
+    from db import crud
+
+    tid = _tid("S1")
+    umur = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 1
+    _job_with_item(db, job_status="running", item_status="pending", ticket_id=tid,
+                   age_hours=umur)
+    assert crud.active_reprocess_ticket_ids(db, [tid]) == set()
+
+
+def test_item_pending_yang_masih_wajar_tetap_menahan_tombol(db):
+    """Ambangnya harus melepas yang tersangkut TANPA melepas antrean sungguhan."""
+    from db import crud
+
+    tid = _tid("S2")
+    umur = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 - 1
+    _job_with_item(db, job_status="running", item_status="pending", ticket_id=tid,
+                   age_hours=umur)
+    assert tid in crud.active_reprocess_ticket_ids(db, [tid])
+
+
+def test_item_processing_tua_tetap_menahan_tombol(db):
+    """Sengaja TIDAK kedaluwarsa: ``processing`` berarti seorang worker sudah
+    memegang tiket ini dan mungkin sedang menunggu jawaban LLM. Melepasnya berarti
+    menghapus row yang sebentar lagi disentuh worker itu — bahaya yang justru
+    ingin dicegah seluruh pemeriksaan ini. Item ``pending`` tidak punya risiko itu:
+    menurut definisinya belum ada yang memegangnya."""
+    from db import crud
+
+    tid = _tid("S3")
+    _job_with_item(db, job_status="running", item_status="processing", ticket_id=tid,
+                   age_hours=crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 48)
+    assert tid in crud.active_reprocess_ticket_ids(db, [tid])
+
+
+def test_aturan_umur_juga_berlaku_pada_pengaman_409(db):
+    """Kalau hanya salah satu yang tahu soal umur, tombolnya kembali berbohong."""
+    from db import crud
+
+    tid = _tid("S4")
+    umur = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 1
+    _job_with_item(db, job_status="running", item_status="pending", ticket_id=tid,
+                   age_hours=umur)
+    assert crud.active_reprocess_item_for_ticket(db, tid) is None
+
+
 def test_aturan_sama_dengan_pengaman_409(db):
     """Penanda tombol dan penolakan 409 harus tidak pernah berbeda pendapat.
 
@@ -157,15 +224,21 @@ def test_aturan_sama_dengan_pengaman_409(db):
     """
     from db import crud
 
-    for job_status, item_status in [
-        ("running", "pending"), ("running", "processing"),
-        ("running", "done"), ("running", "failed"), ("running", "skipped"),
-        ("cancelled", "pending"), ("done", "pending"),
+    tua = crud.REPROCESS_STALE_AFTER.total_seconds() / 3600 + 1
+    for job_status, item_status, umur in [
+        ("running", "pending", 0), ("running", "processing", 0),
+        ("running", "done", 0), ("running", "failed", 0), ("running", "skipped", 0),
+        ("cancelled", "pending", 0), ("done", "pending", 0),
+        # Umur ikut diuji di sini, bukan hanya di test-nya sendiri: justru pasangan
+        # inilah yang paling mudah menyimpang kalau nanti salah satu fungsi diubah.
+        ("running", "pending", tua), ("running", "processing", tua),
     ]:
         tid = _tid("Z")
-        _job_with_item(db, job_status=job_status, item_status=item_status, ticket_id=tid)
+        _job_with_item(db, job_status=job_status, item_status=item_status,
+                       ticket_id=tid, age_hours=umur)
         via_batch = tid in crud.active_reprocess_ticket_ids(db, [tid])
         via_guard = crud.active_reprocess_item_for_ticket(db, tid) is not None
         assert via_batch == via_guard, (
-            f"job={job_status} item={item_status}: batch={via_batch} guard={via_guard}"
+            f"job={job_status} item={item_status} umur={umur}j: "
+            f"batch={via_batch} guard={via_guard}"
         )
