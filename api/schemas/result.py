@@ -263,6 +263,25 @@ class TicketDeleteResponse(BaseModel):
     deleted: int
 
 
+class TicketDeleteAllPreviewResponse(BaseModel):
+    """Ongkos tombol Delete All SEBELUM dijalankan — tanpa efek samping.
+
+    Bentuknya sengaja sejajar dengan ``ReprocessFilterPreviewResponse`` supaya
+    kedua modal di menu Results bisa dibaca dengan cara yang sama.
+    """
+
+    matched: int          # tiket yang cocok filter
+    skipped: int          # di antaranya yang sedang direproses -> dilewati
+    will_delete: int      # matched - skipped
+    results: int          # baris Result yang benar-benar hilang (>= will_delete)
+    campaigns: list[str]  # campaign yang tersentuh, untuk ditulis di modal
+
+
+class TicketDeleteAllResponse(BaseModel):
+    tickets: int
+    deleted: int
+
+
 class ScorecardEvidence(BaseModel):
     """``evidence`` sebuah item scorecard: kutipan transkrip + menit ke berapa + file
     PDF asalnya."""

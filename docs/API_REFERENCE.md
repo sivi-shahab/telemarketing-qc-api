@@ -199,6 +199,8 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /stats/qc_performance` | Tabel assigned/approved/approve-rate per QC | `stats.qc_performance` |
 | `POST /stats/refresh` | Paksa recompute snapshot Statistics | login |
 | `DELETE /delete_ticket` | Hapus **SEMUA** entry sebuah ticket id (query `?ticket_id=`) — permanen, tanpa jejak audit; berkas di MinIO tidak ikut dihapus | `admin.ticket.delete` |
+| `POST /delete_tickets_preview` | Ongkos tombol **Delete All** menu Results: berapa ticket & entry yang akan hilang untuk filter yang dikirim. Tanpa efek samping | `admin.ticket.delete` |
+| `POST /delete_tickets_filtered` | **Delete All** — hapus semua entry ticket yang cocok filter menu Results (body = `ReprocessFilterRequest`, sama dengan Reprocess All). Ticket yang sedang direproses dilewati. Permanen, tanpa jejak audit | `admin.ticket.delete` |
 
 > `stats.failure_reason` ditegakkan **di dalam** fungsi lewat `has_perm(...)` lalu
 > `raise HTTPException(403)`, bukan lewat `Depends(require(...))`. Efeknya sama, tapi

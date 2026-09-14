@@ -20,12 +20,15 @@ from sales_lookup import (
     agent_ids_for_tl,
     hierarchy_filter_options,
 )
+from api.schemas.reprocess import ReprocessFilterRequest
 from api.schemas.result import (
     DailyStatsResponse,
     NamaIbuKandungResponse,
     ResultListItem,
     ResultListResponse,
     StatsResponse,
+    TicketDeleteAllPreviewResponse,
+    TicketDeleteAllResponse,
     TicketDeleteResponse,
 )
 from api.permissions import (
@@ -1861,3 +1864,110 @@ def delete_ticket(
             detail=f"Tidak ada entry untuk ticket '{tid}'",
         )
     return TicketDeleteResponse(ticket_id=tid, deleted=deleted)
+
+
+# Sebanyak-banyaknya baris yang diambil saat menerjemahkan filter layar menjadi
+# daftar tiket. Kembarannya ``reprocess._FILTER_ROW_CAP``, dan alasannya sama: ada
+# sebagai rem, bukan paginasi — Delete All memang harus melihat SELURUH yang cocok,
+# bukan satu halaman. Disalin, bukan di-import, semata untuk menghindari lingkaran
+# import: ``reprocess`` sudah meng-import modul ini.
+_DELETE_ROW_CAP = 1_000_000
+
+
+def _tickets_for_filtered_delete(db, current_user, filters: dict):
+    """Tiket yang akan dihapus oleh Delete All. Mengembalikan ``(tids, skipped, campaigns)``.
+
+    Kembaran ``reprocess._plan_for_filtered``, dan berdiri di atas alasan yang sama
+    — hanya lebih tajam, karena penghapusan tidak bisa dibatalkan:
+
+    1. **Daftar tiketnya datang dari ``_resolve_filtered_results``**, jalur yang SAMA
+       dengan ``/list_results``. Filter ``ai_status`` dan ``manual_status`` diturunkan
+       di Python, bukan di SQL, jadi query sendiri di sini akan membuat angka di modal
+       konfirmasi berbeda dari baris yang benar-benar hilang. Cakupan campaign &
+       ``data_scope`` role ikut terbawa, jadi tidak ada jalan pintas RBAC.
+    2. **Tiket yang punya item reproses aktif DILEWATI.** Job reproses sudah
+       membekukan ``old_result_ids`` tiket itu; kalau row-nya dihapus sekarang,
+       worker akan mencoba menghapus row yang sudah tidak ada saat hasil barunya
+       selesai — dan hasil baru itu bertahan sebagai satu-satunya entry, persis
+       kebalikan dari yang diminta Admin.
+
+    Dipanggil ULANG oleh endpoint POST, bukan mempercayai angka preview: ada jeda
+    antara Admin membaca modal dan menekan tombolnya.
+    """
+    rows, _ = _resolve_filtered_results(
+        db, current_user, page=1, limit=_DELETE_ROW_CAP, **filters
+    )
+    tids = []
+    campaigns = set()
+    for row in rows:
+        tid = _customer_id_from_files(row.source_files)
+        if tid and tid not in tids:
+            tids.append(tid)
+            campaigns.add((row.campaign or "").strip())
+    if not tids:
+        return [], 0, []
+
+    busy = crud.active_reprocess_ticket_ids(db, tids)
+    wanted = [t for t in tids if t not in busy]
+    return wanted, len(tids) - len(wanted), sorted(campaigns - {""})
+
+
+@router.post(
+    "/delete_tickets_preview",
+    response_model=TicketDeleteAllPreviewResponse,
+    dependencies=[Depends(require(ADMIN_TICKET_DELETE))],
+)
+def delete_tickets_preview(
+    body: ReprocessFilterRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Ongkos tombol Delete All SEBELUM dijalankan — tanpa efek samping apa pun.
+
+    POST, bukan GET, semata karena filternya sebuah objek: layar mengirim
+    ``buildParams()`` apa adanya sehingga tidak ada pemetaan nama yang bisa
+    diam-diam menjatuhkan satu filter — dan filter yang hilang di sini berarti
+    baris yang terhapus lebih banyak daripada yang dilihat Admin.
+
+    Memakai ``ReprocessFilterRequest`` yang sama dengan Reprocess All, bukan salinan
+    baru: satu bentuk filter untuk kedua tombol berarti keduanya tidak bisa menyimpang.
+    """
+    tids, skipped, campaigns = _tickets_for_filtered_delete(
+        db, current_user, body.model_dump(exclude_none=True)
+    )
+    return TicketDeleteAllPreviewResponse(
+        matched=len(tids) + skipped,
+        skipped=skipped,
+        will_delete=len(tids),
+        results=crud.results_count_by_ticket_ids(db, tids),
+        campaigns=campaigns,
+    )
+
+
+@router.post(
+    "/delete_tickets_filtered",
+    response_model=TicketDeleteAllResponse,
+    dependencies=[Depends(require(ADMIN_TICKET_DELETE))],
+)
+def delete_tickets_filtered(
+    body: ReprocessFilterRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Hapus SELURUH entry tiket yang cocok dengan filter menu Results (Admin only).
+
+    Tidak bisa dibatalkan: banding Error Code, usulan/approval Manual Status, dan
+    dokumen pendukung ikut hilang lewat ON DELETE CASCADE. Karena itu layar wajib
+    menampilkan ``/delete_tickets_preview`` lebih dulu, dan daftar tiketnya dihitung
+    ULANG di sini — bukan diambil dari preview.
+    """
+    tids, _skipped, _campaigns = _tickets_for_filtered_delete(
+        db, current_user, body.model_dump(exclude_none=True)
+    )
+    if not tids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tidak ada ticket yang cocok dengan filter (atau semuanya sedang diproses ulang).",
+        )
+    deleted = crud.delete_results_by_ticket_ids(db, tids)
+    return TicketDeleteAllResponse(tickets=len(tids), deleted=deleted)
