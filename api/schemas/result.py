@@ -10,11 +10,28 @@ class ResultCreateResponse(BaseModel):
     reused: bool = False
 
 
+class ProcessingStageInfo(BaseModel):
+    """Satu baris tabel progres pipeline (14 September 2026).
+
+    Urutan & labelnya dari ``compliance.processing_stages.PROCESSING_STAGES``;
+    ``state`` disusun ``stage_table()`` dari ``results.current_stage``, yaitu
+    checkpoint TERAKHIR yang SELESAI — bukan yang sedang berjalan."""
+    key: str
+    label: str
+    state: str  # "selesai" | "berjalan" | "menunggu"
+
+
 class ResultResponse(BaseModel):
     result_id: str
     status: str
     result: Optional[Any] = None
     error: Optional[str] = None
+    # Hanya terisi saat status pending/processing (14 September 2026): tabel progres
+    # pipeline supaya dashboard tidak cuma menampilkan "Status: processing" tanpa
+    # rincian. None saat status done/failed — tabel Hasil Scorecard/error sudah
+    # menggantikannya.
+    current_stage: Optional[str] = None
+    stages: Optional[list[ProcessingStageInfo]] = None
 
 
 class WebhookDocumentItem(BaseModel):
@@ -201,10 +218,26 @@ class ResultListItem(BaseModel):
     appeal_summary: Optional[dict] = None  # Error Code banding summary (counts + history) for this result
     assigned_qc: Optional[str] = None  # QC username this ticket is assigned to (Team Leader QC / SPQ Head view)
     assigned_at: Optional[datetime] = None  # when the Team Leader QC assigned it ("Assign Date")
-    # Per-ticket manual check by QC ("sudah dicek manual"). Latest event only;
-    # the full trail is at GET /qc_manual_check/{result_id}.
+    # "Checked At" — kapan QC men-SUBMIT Manual Status tiket ini (kejadian terakhir
+    # bertipe usul/konfirmasi). Sampai 3 September 2026 dibaca dari tabel
+    # ``qc_manual_checks``; tabel itu sudah berhenti terisi, jadi sumbernya sekarang
+    # ``crud.qc_manual_status_marks`` yang membaca qc_status_events.
     qc_checked_at: Optional[datetime] = None
     qc_checked_by: Optional[str] = None
+    # Terisi hanya bila Manual Status-nya sudah final. Dipisah dari "Checked At"
+    # supaya menu Assign Ticket bisa memperlihatkan ketiga tahapnya utuh: kapan
+    # di-assign, kapan diperiksa QC, kapan disetujui.
+    manual_approved_at: Optional[datetime] = None
+    manual_approved_by: Optional[str] = None
+    # Dokumen yang JENISNYA benar tetapi isinya tidak cocok dengan acuan bank
+    # (3 September 2026): ``[{"label", "fields"}]``. Dokumen seperti ini tidak
+    # menutup kewajibannya, jadi kolom Document tetap meminta penggantinya.
+    document_mismatches: list[dict] = []
+    # Jenis tiap rekaman tiket ini, untuk SEMUA PDF — yang dinilai maupun yang dicoret:
+    # [{"file", "tag", "tag_label", "reason", "excluded"}]. Ditulis worker sejak
+    # 5 September 2026 (lihat compliance/recording_type.py); None pada tiket yang
+    # diproses sebelum itu, dan tampilannya lalu tidak menyebut tag sama sekali.
+    recording_types: Optional[list] = None
 
     class Config:
         from_attributes = True

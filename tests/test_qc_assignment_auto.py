@@ -1,19 +1,27 @@
 """Pembagian otomatis tiket ke QC (`POST /qc_assignment/auto`).
 
-Dua fungsi murni yang memutuskan segalanya diuji di sini: mana tiket yang berhak
-ikut dibagi, dan siapa mendapat apa. Sisanya di router hanyalah membaca DB dan
-menulis hasilnya, jadi yang benar-benar bisa salah ada di dua fungsi ini.
+Dua fungsi murni yang memutuskan segalanya diuji di sini: mana tiket yang berhak ikut
+dibagi, dan siapa mendapat apa. Sisanya di router hanyalah membaca DB dan menulis
+hasilnya, jadi yang benar-benar bisa salah ada di dua fungsi ini.
 
-Aturan pembagiannya: N Ticket ID dibagi rata ke K QC aktif, `floor(N/K)` per
-orang, dan SISA-nya (`N mod K`) disebar satu-satu ke QC pertama — jadi selisih
-beban antar-QC tidak pernah lebih dari satu ticket.
+Aturan pembagiannya sudah dua kali berganti:
 
-Aturan pertamanya menumpuk seluruh sisa ke QC terakhir. Itu diganti setelah
-pembagian sungguhan pertama: dengan 281 ticket dan 11 QC, satu orang menerima 31
-sementara yang lain 25 — dan karena urutan QC tetap, orang yang sama menanggung
-kelebihan itu setiap hari.
+1. Seluruh sisa (`N mod K`) ditumpuk ke QC TERAKHIR. Diganti setelah pembagian
+   sungguhan pertama: 281 ticket ke 11 QC membuat satu orang menerima 31 sementara
+   yang lain 25, dan karena urutan QC tetap, orang yang sama menanggungnya tiap hari.
+2. `split_evenly` — `floor(N/K)` per orang, sisa disebar satu-satu. Adil DALAM satu
+   batch, tetapi MENGAWETKAN ketimpangan yang sudah ada: QC yang memegang 40 dan yang
+   memegang 10 tetap menerima jumlah yang sama pada batch berikutnya.
+3. `split_by_load` (aturan bisnis 4 September 2026) — jatah dihitung dari beban TOTAL
+   yang sudah dipegang tiap QC. Yang paling sedikit dapat lebih dulu, seri diundi, dan
+   antreannya dikocok supaya tidak ada yang selalu kebagian tiket tertua/termuda.
+
+Yang diuji di bawah adalah aturan ke-3. Undiannya diberi `random.Random(seed)` supaya
+hasilnya bisa diperiksa, bukan ditebak.
 """
-from api.routers.qc_assignment import eligible_tickets, split_evenly
+import random
+
+from api.routers.qc_assignment import eligible_tickets, split_by_load
 
 
 def _by_qc(pairs):
@@ -24,81 +32,85 @@ def _by_qc(pairs):
     return out
 
 
+def _counts(pairs):
+    return {qc: len(v) for qc, v in _by_qc(pairs).items()}
+
+
 # --------------------------------------------------------------------------
-# split_evenly
+# split_by_load
 # --------------------------------------------------------------------------
 
-def test_habis_dibagi_setiap_qc_dapat_sama_banyak():
-    pairs = split_evenly(["t1", "t2", "t3", "t4", "t5", "t6"], ["a", "b", "c"])
-
-    assert _by_qc(pairs) == {"a": ["t1", "t2"], "b": ["t3", "t4"], "c": ["t5", "t6"]}
-
-
-def test_sisa_disebar_satu_satu_ke_qc_pertama():
-    """7 tiket / 3 QC = 2 per orang, sisa 1 ke QC PERTAMA — bukan ditumpuk di ujung."""
-    pairs = split_evenly(["t1", "t2", "t3", "t4", "t5", "t6", "t7"], ["a", "b", "c"])
-
-    assert _by_qc(pairs) == {"a": ["t1", "t2", "t3"], "b": ["t4", "t5"], "c": ["t6", "t7"]}
+def test_tanpa_beban_awal_terbagi_serata_mungkin():
+    pairs = split_by_load([f"t{i}" for i in range(6)], ["a", "b", "c"], rnd=random.Random(1))
+    assert sorted(_counts(pairs).values()) == [2, 2, 2]
 
 
-def test_sisa_lebih_dari_satu_disebar_ke_beberapa_qc_pertama():
-    """11 tiket / 4 QC: sisa 3 jatuh ke tiga QC pertama, masing-masing satu."""
-    pairs = split_evenly([f"t{i}" for i in range(1, 12)], ["a", "b", "c", "d"])
-
-    assert [len(v) for v in _by_qc(pairs).values()] == [3, 3, 3, 2]
-
-
-def test_selisih_beban_tidak_pernah_lebih_dari_satu():
-    """Inti dari aturan barunya, diuji pada banyak bentuk sekaligus."""
-    for n in range(1, 60):
-        for k in range(1, 13):
-            counts = [len(v) for v in _by_qc(split_evenly([f"t{i}" for i in range(n)], [f"q{j}" for j in range(k)])).values()]
-            assert max(counts) - min(counts) <= 1, (n, k, counts)
+def test_sisa_tidak_pernah_menumpuk_lebih_dari_satu():
+    pairs = split_by_load([f"t{i}" for i in range(7)], ["a", "b", "c"], rnd=random.Random(1))
+    c = sorted(_counts(pairs).values())
+    assert max(c) - min(c) <= 1
 
 
-def test_potongannya_berurutan_bukan_selang_seling():
-    """Blok berurutan mengikuti urutan tabel: QC pertama dapat tiket teratas."""
-    pairs = split_evenly(["t1", "t2", "t3", "t4"], ["a", "b"])
-
-    assert pairs == [("t1", "a"), ("t2", "a"), ("t3", "b"), ("t4", "b")]
-
-
-def test_tiket_lebih_sedikit_daripada_qc_dibagi_satu_satu():
-    """`floor` = 0, jadi seluruhnya sisa — dan sisa yang disebar satu-satu berarti
-    tiga QC pertama masing-masing dapat satu, tanpa perlu aturan khusus."""
-    pairs = split_evenly(["t1", "t2", "t3"], ["a", "b", "c", "d", "e"])
-
-    assert pairs == [("t1", "a"), ("t2", "b"), ("t3", "c")]
+def test_ketimpangan_yang_SUDAH_ada_dikejar_lebih_dulu():
+    """Inti aturan ke-3: yang sudah berat tidak dapat apa-apa sampai yang lain menyusul."""
+    pairs = split_by_load(["t1", "t2", "t3"], ["berat", "ringan"],
+                          current_load={"berat": 10, "ringan": 7}, rnd=random.Random(0))
+    counts = _counts(pairs)
+    assert counts.get("ringan") == 3, "yang ringan mengejar dulu"
+    assert "berat" not in counts, "yang berat belum boleh dapat tambahan"
 
 
-def test_jumlah_tiket_sama_dengan_jumlah_qc():
-    pairs = split_evenly(["t1", "t2", "t3"], ["a", "b", "c"])
+def test_setelah_menyusul_pembagiannya_kembali_berselang():
+    """Begitu bebannya sama, tambahan berikutnya tersebar, bukan menumpuk."""
+    pairs = split_by_load([f"t{i}" for i in range(6)], ["a", "b"],
+                          current_load={"a": 2, "b": 0}, rnd=random.Random(3))
+    c = _counts(pairs)
+    assert c["b"] == 4 and c["a"] == 2, "b mengejar 2 dulu, sisanya dibagi rata"
 
-    assert pairs == [("t1", "a"), ("t2", "b"), ("t3", "c")]
+
+def test_beban_akhir_selisihnya_tidak_lebih_dari_satu():
+    for seed in range(5):
+        load = {"a": 9, "b": 3, "c": 5}
+        pairs = split_by_load([f"t{i}" for i in range(10)], ["a", "b", "c"],
+                              current_load=load, rnd=random.Random(seed))
+        akhir = dict(load)
+        for _t, qc in pairs:
+            akhir[qc] += 1
+        assert max(akhir.values()) - min(akhir.values()) <= 1, akhir
+
+
+def test_qc_tanpa_catatan_beban_dianggap_nol():
+    pairs = split_by_load(["t1"], ["a", "baru"], current_load={"a": 5}, rnd=random.Random(0))
+    assert _counts(pairs) == {"baru": 1}
+
+
+def test_seluruh_tiket_terbagi_habis_dan_tidak_ada_yang_kembar():
+    tickets = [f"t{i}" for i in range(23)]
+    pairs = split_by_load(tickets, ["a", "b", "c", "d"], rnd=random.Random(7))
+    assert len(pairs) == len(tickets)
+    assert sorted(t for t, _ in pairs) == sorted(tickets)
+
+
+def test_tiket_lebih_sedikit_daripada_qc():
+    pairs = split_by_load(["t1", "t2"], ["a", "b", "c", "d"], rnd=random.Random(2))
+    assert len(pairs) == 2
+    assert len(set(qc for _t, qc in pairs)) == 2, "dua QC berbeda, bukan satu orang dua kali"
 
 
 def test_satu_qc_mengambil_semuanya():
-    pairs = split_evenly(["t1", "t2", "t3"], ["solo"])
-
-    assert _by_qc(pairs) == {"solo": ["t1", "t2", "t3"]}
-
-
-def test_tanpa_tiket_tidak_menghasilkan_apa_apa():
-    assert split_evenly([], ["a", "b"]) == []
+    pairs = split_by_load(["t1", "t2", "t3"], ["solo"], rnd=random.Random(0))
+    assert _counts(pairs) == {"solo": 3}
 
 
-def test_tanpa_qc_tidak_menghasilkan_apa_apa():
-    """Router yang menolak dengan pesan; fungsinya sendiri tidak boleh membagi ke
-    ketiadaan (dan tidak boleh melempar ZeroDivisionError)."""
-    assert split_evenly(["t1"], []) == []
+def test_tanpa_tiket_atau_tanpa_qc_tidak_menghasilkan_apa_apa():
+    assert split_by_load([], ["a", "b"]) == []
+    assert split_by_load(["t1"], []) == []
 
 
-def test_semua_tiket_terbagi_habis():
-    """Penjaga menyeluruh: tidak ada tiket yang hilang atau tergandakan."""
-    tickets = [f"t{i}" for i in range(1, 38)]
-    pairs = split_evenly(tickets, ["a", "b", "c", "d", "e"])
-
-    assert [t for t, _ in pairs] == tickets
+def test_undiannya_deterministik_untuk_seed_yang_sama():
+    a = split_by_load([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
+    b = split_by_load([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
+    assert a == b
 
 
 # --------------------------------------------------------------------------
@@ -136,3 +148,51 @@ def test_duplikat_dan_spasi_dirapikan_urutan_dipertahankan():
     got = eligible_tickets([" t1 ", "t2", "t1", ""], allowed=None, already_assigned=set())
 
     assert got == ["t1", "t2"]
+
+
+# --------------------------------------------------------------------------
+# _auto_assign_pool — SELURUH antrean dalam cakupan, bukan satu halaman
+# --------------------------------------------------------------------------
+
+def test_pool_membuang_tiket_yang_sudah_punya_qc(monkeypatch):
+    """Pratinjau dan pembagian memakai fungsi yang SAMA, jadi angkanya tidak bisa
+    berbeda dari yang benar-benar dibagikan."""
+    from api.routers import qc_assignment as qa
+
+    class _R:
+        def __init__(self, tid):
+            self.source_files = [f"{tid}_1.pdf"]
+
+    class _A:
+        def __init__(self, tid):
+            self.ticket_id = tid
+
+    monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
+    monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
+    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
+    monkeypatch.setattr(qa.crud, "list_results",
+                        lambda *a, **k: ([_R("t1"), _R("t2"), _R("t3")], 3))
+    monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [_A("t2")])
+
+    ticket_ids, pool = qa._auto_assign_pool(None, object())
+    assert ticket_ids == ["t1", "t2", "t3"]
+    assert pool == ["t1", "t3"], "t2 sudah punya QC — tidak boleh diacak ulang"
+
+
+def test_pool_meng_unique_kan_tiket_dua_agent(monkeypatch):
+    """Satu ticket id bisa punya lebih dari satu baris Result; assignment-nya per
+    TIKET, jadi tiket yang sama tidak boleh menghabiskan jatah dua kali."""
+    from api.routers import qc_assignment as qa
+
+    class _R:
+        def __init__(self, tid):
+            self.source_files = [f"{tid}_1.pdf"]
+
+    monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
+    monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
+    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
+    monkeypatch.setattr(qa.crud, "list_results", lambda *a, **k: ([_R("t1"), _R("t1")], 2))
+    monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [])
+
+    ticket_ids, pool = qa._auto_assign_pool(None, object())
+    assert ticket_ids == ["t1"] and pool == ["t1"]

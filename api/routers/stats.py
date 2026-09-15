@@ -76,6 +76,7 @@ from compliance.error_codes import (
     effective_appeal_status,
     not_fulfilled_reason,
     apply_cashline_document_status,
+    apply_mus_exception_document_status,
     apply_static_document_status,
     normalize_dynamic_verification,
     normalize_static_verification,
@@ -84,13 +85,18 @@ from compliance.error_codes import (
 from compliance.documents import (
     DOCUMENT_TYPES,
     card_holder_bands_apply,
+    doc_requirements_waived,
+    mus_exception_doc_confirmed,
     required_doc_requirements,
     format_similarity,
 )
 from compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
 from compliance.scoring import (
     max_score,
+    mus_exempt,
+    mus_wajib_tidak_dipenuhi,
     no_product_interest,
+    passing_grade,
     phase3_score,
     score_bomb_items,
     scorecard_score,
@@ -107,6 +113,7 @@ from compliance.stats_aggregate import (
     _missing_docs_map,
     _normalized_json,
     document_status_map,
+    mismatched_document_types,
     _parse_ymd,
     ai_status_for_result,
     ai_status_map,
@@ -146,7 +153,15 @@ def _document_requirements(flags: dict, raw_result_json, bands_apply: bool, npwp
     daftar dokumen dikirim sebagai dua daftar terpisah, sehingga kolom Document
     tidak bisa menyebut alasan mana milik dokumen mana. Kolom itu sekarang
     merangkainya menjadi "Perlu Dokumen NPWP karena Perubahan NPWP".
+
+    KOSONG bila kewajiban dokumen tiket ini sudah dicabut karena ada pelanggaran
+    non-tolerable lain (3 September 2026, lihat ``documents.doc_requirements_waived``).
+    Diperiksa untuk KETIGA sumber, bukan hanya band similarity: kewajiban yang lahir
+    dari perubahan data TMS / limit >= 50 juta pun tidak lagi ditagih, sehingga kolom
+    Document tidak menampilkan alasan apa pun dan slot unggahnya tertutup.
     """
+    if doc_requirements_waived(raw_result_json):
+        return []
     out: list[dict] = []
 
     def add(doc_type: str, reason: str) -> None:
@@ -249,6 +264,9 @@ def _to_num(value) -> Optional[float]:
 # Results dan export XLSX memberi PASS kepada tiket yang oleh halaman detail sudah
 # dinyatakan FAIL. Alias dipertahankan supaya pemanggil di bawah tidak perlu diubah.
 _max_score = max_score
+_mus_exempt = mus_exempt
+_mus_wajib_tidak_dipenuhi = mus_wajib_tidak_dipenuhi
+_passing_grade = passing_grade
 _scorecard_score = scorecard_score
 _phase3_score = phase3_score
 _score_bomb_items = score_bomb_items
@@ -322,6 +340,30 @@ def _appeal_summary(appeals: list) -> Optional[dict]:
         "tl_pending": tl_pending,
         "spq_pending": spq_pending,
         "history": history,
+    }
+
+
+def _manual_appeal_summary(req) -> Optional[dict]:
+    """Ringkasan AJU BANDING Manual Status satu tiket, sebentuk dengan
+    ``_appeal_summary`` supaya menu Manual Check bisa menjumlahkan keduanya.
+
+    Hanya usulan QC (``origin='qc'``) yang dihitung: vonis yang DITETAPKAN LANGSUNG
+    oleh Team Leader QC / SPQ Head bukan aju banding — tidak ada yang menunggu
+    keputusan siapa pun, jadi ia tidak boleh memunculkan tiket di antrean.
+
+    ``{"total", "pending", "approved", "rejected", "tl_pending", "spq_pending"}``;
+    None bila tiket ini tidak punya usulan Manual Status sama sekali."""
+    if req is None or (getattr(req, "origin", "qc") or "qc") != "qc":
+        return None
+    eff = effective_appeal_status(req)
+    tl = getattr(req, "tl_qc_status", "pending") or "pending"
+    return {
+        "total": 1,
+        "pending": 1 if eff == "pending" else 0,
+        "approved": 1 if eff == "approved" else 0,
+        "rejected": 1 if eff == "rejected" else 0,
+        "tl_pending": 1 if tl == "pending" else 0,
+        "spq_pending": 1 if (tl == "escalated" and req.approval_status == "pending") else 0,
     }
 
 
@@ -487,48 +529,72 @@ def _resolve_filtered_results(
         return out
 
     if banding_pending:
-        # "Manual Check" (banding) menu, filtered per role:
-        #  - QC: every ticket that HAS a banding (any status) so the QC can track the
-        #    review outcome of the bandings it filed;
-        #  - Team Leader QC: tickets with a banding still pending its check;
-        #  - SPQ Head: tickets with a banding escalated to it.
-        # Derived from appeals (not stored on the row), so load the scoped set and
-        # filter in Python.
-        all_results, _ = crud.list_results(
-            db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
-            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
-        )
-        appeal_all = crud.error_code_appeals_for_results(db, [str(r.id) for r in all_results])
-        is_spq = has_perm(db, current_user, MANUAL_STATUS_REVIEW_SPQ) or has_perm(db, current_user, ERROR_CODE_REVIEW_SPQ)
-        # Pengaju banding melihat SEMUA banding-nya (apa pun statusnya) agar bisa
-        # memantau hasil review; reviewer hanya melihat yang menunggu gilirannya.
-        is_qc = has_perm(db, current_user, ERROR_CODE_APPEAL)
-        def _needs_review(rid):
-            s = _appeal_summary(appeal_all.get(rid) or [])
-            if not s:
-                return False
-            if is_qc:
-                return s["total"] > 0
-            return s["spq_pending"] > 0 if is_spq else s["tl_pending"] > 0
-        matched = _apply_status_filters([r for r in all_results if _needs_review(str(r.id))])
-        total = len(matched)
-        results = matched[(page - 1) * limit : page * limit]
-    elif manual_status_pending:
-        # "Pending Check" menu (TL QC / SPQ Head): tickets whose Manual Status COLUMN
-        # is "pending" — a QC status request still awaiting the hierarchy OR the
-        # missing-documents default. Uses the SAME _manual_status helper the column
-        # renders, so the queue matches the column value exactly (not stored on the
-        # row, so load the scoped set and filter in Python).
+        # Menu "Manual Check" — antrean AJU BANDING, DUA jenis sekaligus (3 September
+        # 2026): banding Error Code DAN usulan perubahan Manual Status. Sebelumnya
+        # menu ini hanya membaca ``error_code_appeals``, sehingga QC yang mengajukan
+        # perubahan Manual Status tidak pernah melihat tiketnya di sini — padahal
+        # itu juga sebuah aju banding yang menunggu keputusan.
+        #
+        # Disaring per peran:
+        #  - QC (pengaju): tiket yang MASIH punya banding belum di-approve — yang
+        #    menunggu keputusan maupun yang DITOLAK, karena keduanya masih menuntut
+        #    tindak lanjut. Tiket yang SELURUH bandingnya sudah di-approve hilang
+        #    dari daftar; hasilnya tetap terbaca lewat tombol Riwayat di menu Results.
+        #  - Team Leader QC: banding yang menunggu pemeriksaannya;
+        #  - SPQ Head: banding yang sudah di-escalate kepadanya.
+        # Semuanya diturunkan, tidak disimpan di baris, jadi muat himpunan ter-scope
+        # lalu saring di Python.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
             customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
         all_ids = [str(r.id) for r in all_results]
-        qc_all = crud.qc_status_requests_for(db, all_ids)
-        mdocs_all = _missing_docs_map(db, all_results)
+        appeal_all = crud.error_code_appeals_for_results(db, all_ids)
+        qc_req_all = crud.qc_status_requests_for(db, all_ids)
+        is_spq = has_perm(db, current_user, MANUAL_STATUS_REVIEW_SPQ) or has_perm(db, current_user, ERROR_CODE_REVIEW_SPQ)
+        is_qc = has_perm(db, current_user, ERROR_CODE_APPEAL)
+        def _needs_review(rid):
+            s = _appeal_summary(appeal_all.get(rid) or [])
+            m = _manual_appeal_summary(qc_req_all.get(rid))
+            if not s and not m:
+                return False
+            s = s or {"total": 0, "approved": 0, "tl_pending": 0, "spq_pending": 0}
+            m = m or {"total": 0, "approved": 0, "tl_pending": 0, "spq_pending": 0}
+            if is_qc:
+                # Belum semua di-approve -> masih perlu ditindaklanjuti QC.
+                total = s["total"] + m["total"]
+                return total > 0 and (s["approved"] + m["approved"]) < total
+            if is_spq:
+                return (s["spq_pending"] + m["spq_pending"]) > 0
+            return (s["tl_pending"] + m["tl_pending"]) > 0
+        matched = _apply_status_filters([r for r in all_results if _needs_review(str(r.id))])
+        total = len(matched)
+        results = matched[(page - 1) * limit : page * limit]
+    elif manual_status_pending:
+        # Menu "Pending Check" — sejak 3 September 2026 isinya persis satu hal:
+        # tiket ber-**AI Status = Pending**.
+        #
+        # Sebelumnya menu ini menyaring ``manual_review_state == "menunggu"``, yaitu
+        # "usulan Manual Status belum diputus ATAU tiket kekurangan dokumen" — dua
+        # keadaan yang tidak sama dengan Pending dan tidak sama satu sama lain.
+        # Akibatnya menu bernama "Pending Check" memuat tiket Qualified maupun Not
+        # Qualified, sementara sebagian tiket yang benar-benar Pending justru tidak
+        # ada di dalamnya. Antrean review usulan Manual Status pindah ke menu Manual
+        # Check di atas, tempat seluruh aju banding berkumpul.
+        #
+        # AI Status dihitung helper KANONIK ``ai_status_map`` — bahan yang sama
+        # dengan kolom AI Status di tabelnya, jadi daftar ini tidak bisa berbeda
+        # pendapat dengan layar.
+        all_results, _ = crud.list_results(
+            db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
+            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+        )
+        # AI Status baru ada setelah evaluasi selesai, jadi hasil yang belum ``done``
+        # tidak mungkin cocok dengan nilai mana pun.
+        done_results = [r for r in all_results if r.status == "done"]
+        ai_all = ai_status_map(db, done_results)
         matched = _apply_status_filters([
-            r for r in all_results
-            if manual_review_state(qc_all.get(str(r.id)), mdocs_all.get(str(r.id), False)) == "menunggu"
+            r for r in done_results if ai_all.get(str(r.id)) == "PENDING"
         ])
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
@@ -592,9 +658,10 @@ def list_results(
     # upload time per result (single grouped query, no N+1).
     doctimes = crud.document_upload_times(db, rid_list)
     docset = set(doctimes.keys())
-    # Which document TYPES are already uploaded per result — a similarity band asks
-    # for one specific document, so "has some document" is not enough.
-    doctypes_map = crud.document_types_by_result(db, [str(r.id) for r in results])
+    # Hasil OCR per hasil — dipakai menandai dokumen yang jenisnya benar tetapi
+    # isinya tidak cocok dengan acuan bank (kolom Document), dan untuk mengenali
+    # konfirmasi pengecualian MUS.
+    doc_ocr_map = crud.document_ocr_by_result(db, rid_list)
     # QC-proposed AI-status changes for this page (single grouped query, no N+1).
     qc_map = crud.qc_status_requests_for(db, rid_list)
     # Error Code appeals for this page (single grouped query, no N+1). Approved
@@ -616,7 +683,10 @@ def list_results(
     # server tombolnya kembali enable padahal server akan menolaknya dengan 409.
     reprocessing_cids = crud.active_reprocess_ticket_ids(db, [c for c in cids if c])
     # Per-ticket manual checks by QC for this page (batched, no N+1).
-    manual_check_map = crud.qc_manual_checks_for_results(db, [str(r.id) for r in results])
+    # "Checked At" (QC submit Manual Status) & "Approved At" (disetujui atasan) untuk
+    # halaman ini — batched, tanpa N+1. Sampai 3 September 2026 kolomnya dibaca dari
+    # ``qc_manual_checks``, tabel yang sudah berhenti terisi.
+    manual_marks_map = crud.qc_manual_status_marks(db, rid_list)
     # Riwayat Manual Status per tiket (append-only) — hanya jumlahnya yang dikirim ke
     # tabel; detailnya diambil per tiket lewat GET /qc_status_events/{result_id}.
     ms_events_map = crud.qc_status_events_for_results(db, [str(r.id) for r in results])
@@ -648,6 +718,7 @@ def list_results(
         scorecard_issues = []
         evaluation = None  # per-iteration; the RETURN rule below reads it after the QC override
         raw_result_json = None  # pre-appeal JSON — basis for the similarity-band doc triggers
+        recording_types = None
         if r.status == "done":
             data = crud.get_result_data(db, str(r.id))
             if data is not None:
@@ -656,6 +727,7 @@ def list_results(
                     audio_duration = data.result_json.get("audio_duration")
                     audio_durations = data.result_json.get("audio_durations")
                     excluded_calls = data.result_json.get("excluded_calls")
+                    recording_types = data.result_json.get("recording_types")
                 evaluation = _evaluation_dict(data.result_json)
                 if evaluation is not None:
                     # Terapkan banding yang di-approve (baris error code dihapus &
@@ -676,6 +748,14 @@ def list_results(
                         # Sisi cashline menyusul: baris yang menunggu cover buku tabungan menjadi
                         # PENDING selama tenggat H+2, agar jalur dokumennya tidak terpotong.
                         evaluation = apply_cashline_document_status(evaluation, _ds[0], _ds[1])
+                        # Pengecualian MUS penyakit whitelist (11 September 2026).
+                        evaluation = apply_mus_exception_document_status(
+                            evaluation, _ds[0], _ds[1],
+                            mus_exception_doc_confirmed(
+                                _customer_id_from_files(r.source_files),
+                                dict(doc_ocr_map.get(str(r.id), ())),
+                            ),
+                        )
                     evaluation = apply_approved_appeals(evaluation, _flip)
                     evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
                     evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -696,10 +776,15 @@ def list_results(
                     if score_total is not None:
                         ai_score = int(score_total) if score_total == int(score_total) else score_total
 
-                    eval_pg = _numeric_or_none(evaluation.get("passing_grade"))
-                    if eval_pg is not None:
-                        passing_grade = eval_pg
-                    maximum_score = _numeric_or_none(evaluation.get("maximum_score"))
+                    # passing_grade/maximum_score DITURUNKAN (_max_score/_passing_grade),
+                    # BUKAN dibaca apa adanya dari evaluation: skor maksimal berubah
+                    # setelah hasil ditulis (revisi scorecard v4 14 September 2026, MUS
+                    # 8 September 2026), dan angka bawaan LLM ikut basi bersamanya —
+                    # sama seperti ai_score di atas sudah dihitung ulang, bukan dibaca
+                    # dari ai_score_phase_3 LLM. Kedua fungsi sudah fallback sendiri ke
+                    # nilai LLM lama bila tidak ada info minat produk sama sekali.
+                    maximum_score = _max_score(evaluation)
+                    passing_grade = _passing_grade(evaluation)
 
                     # AI Status mengikuti skor deterministik di atas vs passing grade;
                     # fallback ke ai_status dari LLM bila skor/passing tidak tersedia.
@@ -772,10 +857,15 @@ def list_results(
         # sekarang diturunkan dari satu sumber di atas alih-alih dihitung ulang.
         document_triggers = list(dict.fromkeys(d["reason"] for d in doc_requirements))
         document_upload_types = list(dict.fromkeys(d["doc_type"] for d in doc_requirements))
-        document_missing_types = [
-            t for t in document_upload_types
-            if t not in doctypes_map.get(str(r.id), set())
-        ]
+        # Yang dianggap SUDAH terunggah diambil dari ``document_status_map``, bukan dari
+        # daftar mentah slot yang terisi: helper itu sudah mencoret dokumen yang
+        # jenisnya keliru (14 Agustus 2026) dan yang isinya tidak cocok dengan acuan
+        # bank (3 September 2026). Sebelumnya kolom Document memakai daftar mentah,
+        # sehingga slot yang diisi berkas keliru tetap terbaca "✓ Uploaded" padahal
+        # sistemnya sendiri tetap menganggap dokumennya kurang.
+        _proven = (doc_status_page.get(str(r.id)) or (set(), False))[0]
+        document_missing_types = [t for t in document_upload_types if t not in _proven]
+        doc_mismatches = mismatched_document_types(doc_ocr_map.get(str(r.id), ()))
         # "Kekurangan dokumen": dokumen wajib (perubahan data TMS ATAU limit >= 50jt)
         # tapi belum ada upload. Basis sama dengan chart/KPI (_missing_docs_map).
         missing_docs = mdocs_page.get(str(r.id), False)
@@ -917,8 +1007,12 @@ def list_results(
                 appeal_summary=_appeal_summary(appeal_map.get(str(r.id), [])),
                 assigned_qc=(assignment_map.get(cid or "") or (None, None))[0],
                 assigned_at=(assignment_map.get(cid or "") or (None, None))[1],
-                qc_checked_at=getattr(manual_check_map.get(str(r.id)), "created_at", None),
-                qc_checked_by=getattr(manual_check_map.get(str(r.id)), "checked_by_username", None),
+                qc_checked_at=(manual_marks_map.get(str(r.id)) or {}).get("checked_at"),
+                qc_checked_by=(manual_marks_map.get(str(r.id)) or {}).get("checked_by"),
+                manual_approved_at=(manual_marks_map.get(str(r.id)) or {}).get("approved_at"),
+                manual_approved_by=(manual_marks_map.get(str(r.id)) or {}).get("approved_by"),
+                document_mismatches=doc_mismatches,
+                recording_types=recording_types,
             )
         )
     return ResultListResponse(items=items, total=total, page=page, limit=limit)

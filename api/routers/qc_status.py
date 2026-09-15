@@ -15,7 +15,6 @@ from api.permissions import (
     MANUAL_STATUS_REVIEW_TL,
 )
 from api.rbac import has_perm, require
-from compliance.stats_aggregate import ai_status_for_result, manual_status_of
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -38,22 +37,24 @@ def _direct_origin(db, user) -> str:
     return "tl_direct" if has_perm(db, user, MANUAL_STATUS_REVIEW_TL) else "spq_direct"
 
 
-def _confirms_ai_status(db: Session, result, existing, requested_status: str) -> bool:
-    """True bila usulan ini hanya MEMBENARKAN penilaian mesin, sehingga tidak perlu
-    approval hierarki (permintaan 10 Agustus 2026).
-
-    Dua syarat, keduanya wajib:
-
-    * tiket ini BELUM pernah punya vonis human final (tombolnya masih "Set", bukan
-      "Ubah") — usulan yang mengUBAH vonis sebelumnya tetap lewat alur banding;
-    * vonis yang diajukan SAMA dengan AI Status tiket itu.
-
-    Kalau QC memilih status yang BERBEDA dari AI Status, tidak ada yang berubah:
-    usulannya tetap berjalan QC -> TL QC -> SPQ Head seperti sekarang.
-    """
-    if manual_status_of(existing) is not None:
-        return False
-    return requested_status == ai_status_for_result(db, result)
+# Jalur pintas "qc_confirm" DICABUT (3 September 2026).
+#
+# Antara 10 Agustus dan 3 September 2026, penetapan PERTAMA oleh QC yang nilainya
+# SAMA dengan AI Status berlaku final saat itu juga — alasannya "QC hanya
+# membenarkan penilaian mesin, tidak ada yang berubah". Praktiknya justru ada yang
+# berubah: kolom Manual Status tiket berAI-Status Qualified sudah menampilkan
+# "Qualified" (nilai bawaan yang mengikuti AI Status), sehingga bagi QC layar itu
+# terbaca sebagai "mengubah vonis menjadi Qualified" — dan vonis itu langsung jadi
+# tanpa satu pun reviewer melihatnya.
+#
+# Aturannya kembali lurus dan hanya satu kalimat: HANYA QC yang butuh banding
+# bertingkat; SETIAP vonis QC berjalan QC -> TL QC -> SPQ Head, tanpa pengecualian.
+# Pemegang MANUAL_STATUS_DIRECT (Team Leader QC & SPQ Head) tetap menetapkan
+# langsung tanpa approval — itu tidak berubah.
+#
+# Penanganan baris LAMA ber-``origin='qc_confirm'`` sengaja TIDAK ikut dicabut
+# (lihat ``crud.upsert_qc_status_request``): vonis yang sudah terlanjur final tetap
+# final, pencabutan ini hanya menutup jalannya untuk vonis baru.
 VALID_DECISION = {"approve", "reject"}
 VALID_TL_DECISION = {"approve", "reject", "escalate"}
 
@@ -81,8 +82,8 @@ def submit_qc_status_request(
     """Tetapkan Manual Status (vonis human) untuk sebuah tiket.
 
     - tanpa MANUAL_STATUS_DIRECT -> USULAN, berjalan lewat hierarki
-      QC -> TL QC -> SPQ Head; KECUALI penetapan pertama yang nilainya sama dengan
-      AI Status, yang final saat itu juga (lihat ``_confirms_ai_status``);
+      QC -> TL QC -> SPQ Head. TANPA pengecualian sejak 3 September 2026: vonis QC
+      yang kebetulan sama dengan AI Status pun tetap menunggu approval;
     - dengan MANUAL_STATUS_DIRECT -> ditetapkan LANGSUNG, final saat disimpan
       (tanpa approval), menggantikan usulan QC yang masih menunggu.
 
@@ -111,12 +112,6 @@ def submit_qc_status_request(
         )
 
     origin = _direct_origin(db, current_user)
-    # Penetapan PERTAMA yang nilainya SAMA dengan AI Status tidak mengubah apa pun —
-    # QC hanya membenarkan penilaian mesin — jadi tidak perlu approval hierarki.
-    if origin == "qc" and _confirms_ai_status(
-        db, result, crud.get_qc_status_request(db, result_id), requested_status
-    ):
-        origin = "qc_confirm"
     req = crud.upsert_qc_status_request(
         db,
         result_id=result_id,

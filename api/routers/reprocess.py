@@ -58,8 +58,17 @@ def _job_response(db: Session, job, with_items: bool = True) -> ReprocessJobResp
     counts = crud.reprocess_job_counts(db, job.id)
     items = []
     if with_items:
-        items = [
-            {
+        items = []
+        for it in crud.reprocess_job_items(db, job.id):
+            # Checkpoint pipeline live (14 September 2026) — hanya berarti selagi
+            # item ini benar-benar sedang diproses; hemat satu query per item lain
+            # (pending/done/failed/skipped tidak punya progres yang relevan untuk
+            # ditampilkan).
+            current_stage = None
+            if it.status == "processing" and it.new_result_id:
+                new_result = crud.get_result(db, str(it.new_result_id))
+                current_stage = new_result.current_stage if new_result else None
+            items.append({
                 "id": it.id,
                 "ticket_id": it.ticket_id,
                 "campaign": it.campaign,
@@ -68,9 +77,8 @@ def _job_response(db: Session, job, with_items: bool = True) -> ReprocessJobResp
                 "deleted_old": it.deleted_old or 0,
                 "error_message": it.error_message,
                 "finished_at": it.finished_at,
-            }
-            for it in crud.reprocess_job_items(db, job.id)
-        ]
+                "current_stage": current_stage,
+            })
     return ReprocessJobResponse(
         job_id=str(job.id),
         campaigns=list(job.campaigns or []),
