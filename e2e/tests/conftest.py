@@ -117,8 +117,10 @@ def tiket(api, auth, campaign):
     pdfs = sorted(f for f in os.listdir(PDF_DIR) if f.endswith(".pdf"))
     assert pdfs, f"tidak ada PDF di {PDF_DIR}"
     files = [("files", (f, open(os.path.join(PDF_DIR, f), "rb"), "application/pdf")) for f in pdfs]
+    # reuse=false: tanpa ini, run kedua pada stack yang sama men-clone hasil `done`
+    # lama (tanpa worker, tanpa LLM) dan seluruh test pipeline memeriksa salinan.
     r = requests.post(f"{api}/upload_transcript", headers=auth,
-                      data={"campaign": campaign}, files=files, timeout=180)
+                      data={"campaign": campaign, "reuse": "false"}, files=files, timeout=180)
     assert r.status_code < 300, f"upload gagal: {r.status_code} {r.text[:400]}"
     rid = r.json()["result_id"]
 
