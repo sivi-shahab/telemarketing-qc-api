@@ -3,6 +3,7 @@
 One ticket -> one QC (reassignable). Managed by Team Leader QC (and SPQ Head). A QC
 is then scoped to only their assigned tickets for Results / Statistics / appeals.
 """
+import random
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
@@ -123,34 +124,60 @@ def eligible_tickets(requested, allowed, already_assigned) -> list:
     return out
 
 
-def split_evenly(ticket_ids, qc_usernames) -> list:
-    """Bagi ``ticket_ids`` ke ``qc_usernames``: [(ticket_id, qc_username), ...].
+def split_by_load(ticket_ids, qc_usernames, current_load=None, rnd=None) -> list:
+    """Bagi ``ticket_ids`` ke ``qc_usernames`` MERATA ATAS TOTAL BEBAN:
+    ``[(ticket_id, qc_username), ...]``.
 
-    ``floor(N/K)`` tiket per QC, dan SISANYA (``N mod K``) disebar satu-satu ke QC
-    pertama — sehingga selisih beban antar-QC tidak pernah lebih dari satu ticket.
-    Potongannya berurutan supaya urutan tabel tetap terbaca: QC pertama memegang
-    tiket teratas.
+    ``current_load`` = ``{qc_username: jumlah tiket yang SUDAH dipegang}``. Jatah
+    dihitung dari angka itu, bukan dari nol: yang paling sedikit dapat lebih dulu,
+    terus begitu sampai antreannya habis.
 
-    Aturan pertamanya menumpuk seluruh sisa ke QC TERAKHIR. Itu diganti setelah
-    pembagian sungguhan pertama: 281 ticket ke 11 QC membuat satu orang menerima
-    31 sementara yang lain 25 — dan karena urutan QC tetap, orang yang sama
-    menanggung kelebihannya setiap hari.
+    Aturan sebelumnya (``split_evenly``) membagi rata PER BATCH — ``floor(N/K)`` per
+    orang, sisa disebar satu-satu. Itu memang membuat selisih dalam satu batch tidak
+    pernah lebih dari satu tiket, tetapi ia MENGAWETKAN ketimpangan yang sudah ada:
+    QC yang memegang 40 dan QC yang memegang 10 tetap menerima jumlah yang sama pada
+    batch berikutnya, jadi selisih 30 itu tidak pernah mengecil. Aturan bisnis
+    4 September 2026 menutup celah itu dengan menghitung dari beban total.
 
-    Saat tiket lebih sedikit daripada QC, ``base`` = 0 dan semuanya jadi sisa,
-    jadi QC sebanyak jumlah tiket dapat satu-satu dan sisanya tidak kebagian —
-    tanpa perlu aturan khusus.
+    Urutan antreannya DIKOCOK dan seri diundi, supaya tidak ada QC yang selalu
+    kebagian tiket tertua atau termuda, dan supaya nama pertama secara alfabetis
+    tidak selalu unggul saat bebannya sama. ``rnd`` bisa diisi ``random.Random(seed)``
+    agar hasilnya bisa diuji.
+
+    QC yang tidak ada di ``current_load`` dianggap berbeban nol. Tanpa tiket atau
+    tanpa QC hasilnya kosong.
     """
-    n, k = len(ticket_ids), len(qc_usernames)
-    if not n or not k:
+    if not ticket_ids or not qc_usernames:
         return []
-
-    base, rem = divmod(n, k)
-    pairs, cut = [], 0
-    for pos, qc in enumerate(qc_usernames):
-        take = base + (1 if pos < rem else 0)
-        pairs.extend((tid, qc) for tid in ticket_ids[cut:cut + take])
-        cut += take
+    rnd = rnd or random.Random()
+    load = {u: int((current_load or {}).get(u, 0)) for u in qc_usernames}
+    pool = list(ticket_ids)
+    rnd.shuffle(pool)
+    pairs = []
+    for tid in pool:
+        low = min(load.values())
+        candidates = [u for u, c in load.items() if c == low]
+        owner = rnd.choice(candidates)
+        load[owner] += 1
+        pairs.append((tid, owner))
     return pairs
+
+
+def current_assignment_load(db, qc_usernames) -> dict:
+    """``{qc_username: jumlah tiket yang sedang dipegang}`` untuk ``split_by_load``.
+
+    Dicocokkan case-insensitive, sama seperti ``assigned_ticket_ids_for_qc``.
+    Assignment milik akun QC yang sudah nonaktif atau terhapus TIDAK dihitung —
+    orangnya memang tidak ikut dibagi, jadi bebannya tidak boleh mempengaruhi jatah
+    orang lain.
+    """
+    by_key = {u.casefold(): u for u in qc_usernames}
+    load = {u: 0 for u in qc_usernames}
+    for (owner,) in db.query(QcAssignment.qc_username).all():
+        u = by_key.get((owner or "").strip().casefold())
+        if u:
+            load[u] += 1
+    return load
 
 
 @router.post("/qc_assignment/auto")
@@ -159,7 +186,10 @@ def auto_assign(
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
-    """Bagi rata ticket yang BELUM punya QC ke seluruh QC aktif.
+    """Bagikan ticket yang BELUM punya QC ke seluruh QC aktif, acak dan merata.
+
+    Merata atas TOTAL beban, bukan per batch: jatah dihitung dari jumlah tiket yang
+    sudah dipegang tiap QC (aturan bisnis 4 September 2026 — lihat ``split_by_load``).
 
     Satu permintaan, satu transaksi. Alternatifnya — browser mem-POST
     ``/qc_assignment`` sekali per tiket — berarti ratusan request yang bisa putus
@@ -190,7 +220,11 @@ def auto_assign(
             detail="Tidak ada user QC aktif untuk dibagikan.",
         )
 
-    pairs = split_evenly(pending, [u.username for u in qcs])
+    # Jatah dihitung dari beban yang SUDAH dipegang tiap QC, bukan dibagi rata per
+    # batch — lihat ``split_by_load``. Tanpa ini ketimpangan yang sudah ada tidak
+    # pernah mengecil, berapa kali pun tombol ini ditekan.
+    usernames = [u.username for u in qcs]
+    pairs = split_by_load(pending, usernames, current_assignment_load(db, usernames))
     assigned_at = datetime.utcnow()
     for tid, qc_username in pairs:
         db.add(QcAssignment(
