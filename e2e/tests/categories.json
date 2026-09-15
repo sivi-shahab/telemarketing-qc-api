@@ -1,0 +1,6 @@
+[
+  {"name": "Regresi port dev->prod", "messageRegex": ".*(v3|108.75|41.25|Avg Failure Rate|Total Recording).*", "matchedStatuses": ["failed"]},
+  {"name": "Pipeline tidak selesai", "messageRegex": ".*tidak selesai.*", "matchedStatuses": ["failed", "broken"]},
+  {"name": "Migrasi / skema", "messageRegex": ".*(alembic|current_stage|schema).*", "matchedStatuses": ["failed", "broken"]},
+  {"name": "Masalah infrastruktur uji", "matchedStatuses": ["broken"]}
+]

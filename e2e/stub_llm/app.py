@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Stub LLM: server OpenAI/Azure-compatible untuk e2e, TANPA memanggil model sungguhan.
+
+Dipasang sebagai service terpisah dan ditunjuk lewat ``LLM_BASE_URL`` — **kode keempat
+repo tidak diubah sama sekali**. Itu yang membuat e2e ini menguji kode yang sebenarnya,
+bukan versi yang dilunakkan agar lolos.
+
+Pipeline memanggil model DUA kali dengan bentuk keluaran yang berbeda:
+
+1. **Klasifikasi jenis rekaman** (``compliance.recording_type``) — dikenali dari system
+   prompt yang menyebut "TEPAT SATU label jenis". Balasannya ``{"recordings": [...]}``.
+2. **Penilaian scorecard** (``compliance.evaluator``) — sisanya. Balasannya objek
+   evaluasi lengkap.
+
+Keluarannya DETERMINISTIK supaya test bisa meng-assert angka. Itu justru alasan stub
+dipakai: vonis model sungguhan tidak deterministik dan tidak bisa di-assert.
+
+``usage`` ikut dipalsukan, termasuk ``cached_tokens`` dan ``reasoning_tokens``, supaya
+jalur pencatatan token (Batch 8) ikut teruji — bukan hanya jalur bahagia.
+"""
+import json
+import os
+import re
+
+from fastapi import FastAPI, Request
+
+app = FastAPI(title="stub-llm")
+
+PANGGILAN = []  # jejak untuk di-assert test: bentuk prompt yang benar-benar dikirim
+
+
+def _klasifikasi(berkas):
+    """Rekaman pertama utama, sisanya perbaikan — cukup untuk menguji alurnya."""
+    out = []
+    for i, f in enumerate(berkas):
+        out.append({
+            "file": f,
+            "tag": "recording_utama" if i == 0 else "recording_perbaikan",
+            "reason": "stub: rekaman pertama dianggap utama" if i == 0
+                      else "stub: rekaman berikutnya dianggap perbaikan",
+        })
+    return {"recordings": out}
+
+
+def _item(code, kategori, status, weight, tolerable="YES", skor=None):
+    return {
+        "item_code": code,
+        "category": kategori,
+        "status": status,
+        "weight": weight,
+        "item_score": weight if status == "SESUAI" else (skor if skor is not None else 0),
+        "tolerable": tolerable,
+        "reason": f"stub: {code} {status}",
+        "evidence": {"quote": "stub", "ticket_id": ""},
+    }
+
+
+def _evaluasi():
+    """Evaluasi tetap: cashline+MUS diminati, satu item gagal supaya skornya tidak bulat.
+
+    Dua produk diminati -> max_score v4 = 100 + 35,5 = 135,5.
+    Satu item bobot 10 BELUM_SESUAI -> skor 125,5. Angka itulah yang di-assert test.
+    """
+    return {
+        "ai_summary": "stub evaluation",
+        "call_id": "stub",
+        "cashline_interest": {"status": "INTERESTED", "reason": "stub"},
+        "mus_interest": {"status": "INTERESTED", "reason": "stub"},
+        "mus_cc_interest": {"status": "NOT_STATED", "reason": "stub"},
+        "campaign_interest": ["Mega Cashline", "Mega Ultima Shield"],
+        "scorecard_result": [
+            _item("SC_CL_1", "greeting", "SESUAI", 5),
+            _item("SC_CL_2", "greeting", "SESUAI", 5),
+            _item("SC_CL_24", "verifikasi dinamis", "BELUM_SESUAI", 10),
+            _item("SC_CL_19", "penjelasan mega ultima shield", "SESUAI", 3),
+            _item("SC_CL_33", "legal statement mega ultima shield", "SESUAI", 2.25),
+        ],
+        "card_holder_verification": [],
+        "cashline_data_verification": [],
+        "error_codes": [],
+    }
+
+
+@app.get("/health")
+def health():
+    return {"ok": True, "panggilan": len(PANGGILAN)}
+
+
+@app.get("/_jejak")
+def jejak():
+    """Dibaca test untuk memeriksa BENTUK prompt yang benar-benar dikirim worker."""
+    return {"panggilan": PANGGILAN}
+
+
+@app.post("/_reset")
+def reset():
+    PANGGILAN.clear()
+    return {"ok": True}
+
+
+@app.post("/{path:path}")
+async def chat(path: str, request: Request):
+    body = await request.json()
+    pesan = body.get("messages") or []
+    system = next((m.get("content", "") for m in pesan if m.get("role") == "system"), "")
+    user = next((m.get("content", "") for m in pesan if m.get("role") == "user"), "")
+
+    klasifikasi = "TEPAT SATU label jenis" in system
+    if klasifikasi:
+        berkas = re.findall(r"^\s*-\s*([^\s|]+\.pdf)", user, re.M) or re.findall(r"([\w.-]+\.pdf)", user)
+        isi = json.dumps(_klasifikasi(list(dict.fromkeys(berkas))), ensure_ascii=False)
+    else:
+        isi = json.dumps(_evaluasi(), ensure_ascii=False)
+
+    PANGGILAN.append({
+        "jenis": "klasifikasi" if klasifikasi else "penilaian",
+        "path": path,
+        "model": body.get("model"),
+        # Urutan blok pada user message — inilah yang membuktikan penataan Batch 8
+        # benar-benar sampai ke permintaan, bukan cuma ada di kode.
+        "urutan_blok": re.findall(r"^([A-Z][A-Z ]+):$", user, re.M),
+        "panjang_user": len(user),
+    })
+
+    return {
+        "id": "stub", "object": "chat.completion", "model": body.get("model", "stub"),
+        "choices": [{"index": 0, "finish_reason": "stop",
+                     "message": {"role": "assistant", "content": isi}}],
+        "usage": {
+            "prompt_tokens": 18571, "completion_tokens": 1440, "total_tokens": 20011,
+            "prompt_tokens_details": {"cached_tokens": 18176},
+            "completion_tokens_details": {"reasoning_tokens": 1228},
+        },
+    }

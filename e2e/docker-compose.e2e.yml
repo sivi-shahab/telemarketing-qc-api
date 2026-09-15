@@ -1,0 +1,96 @@
+# Stack E2E TERISOLASI untuk telemarketing QC.
+#
+# api dan worker DIBANGUN DARI DOCKERFILE REPO MASING-MASING — bukan image khusus
+# test. Itu disengaja: yang diuji harus image yang sama bentuknya dengan yang naik ke
+# produksi, termasuk salinan datar core/ ke /app.
+#
+# Tidak satu pun nilai di sini menunjuk produksi: postgres, minio, redis, dan LLM
+# semuanya lokal (lihat .env.e2e).
+name: qc-e2e
+
+networks:
+  default:
+    name: qc-e2e-net
+
+services:
+  e2e-pg:
+    image: postgres:16-alpine
+    container_name: e2e-pg
+    environment:
+      POSTGRES_DB: qce2e
+      POSTGRES_USER: qce2e
+      POSTGRES_PASSWORD: qce2e-pass
+    volumes:
+      - ./pg-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qce2e -d qce2e"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  e2e-redis:
+    image: redis:7-alpine
+    container_name: e2e-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  e2e-minio:
+    image: minio/minio:latest
+    container_name: e2e-minio
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  e2e-stub-llm:
+    build: ./stub_llm
+    image: qc-e2e/stub-llm:latest
+    container_name: e2e-stub-llm
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:9099/health')\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  e2e-api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    image: qc-e2e/api:latest
+    container_name: e2e-api
+    env_file: .env.e2e
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "14100:4000"
+    depends_on:
+      e2e-pg: {condition: service_healthy}
+      e2e-redis: {condition: service_healthy}
+      e2e-minio: {condition: service_healthy}
+      e2e-stub-llm: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  e2e-worker:
+    build:
+      context: ${E2E_WORKER_DIR:-../../telemarketing-qc-worker}
+      dockerfile: worker/Dockerfile
+    image: qc-e2e/worker:latest
+    container_name: e2e-worker
+    env_file: .env.e2e
+    environment:
+      PYTHONPATH: /app
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=2
+    depends_on:
+      e2e-api: {condition: service_healthy}
