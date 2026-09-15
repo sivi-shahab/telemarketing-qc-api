@@ -12,7 +12,21 @@ from compliance.pdf_parser import (
     ticket_id_from_filename,
 )
 
-TRANS_DIR = os.path.join(os.path.dirname(__file__), "..", "example_final", "transkrip")
+# PDF transkrip berisi data nasabah sungguhan: ia sengaja ada di .gitignore dan
+# TIDAK BOLEH di-commit (repo core publik). Test yang membutuhkannya melewatkan
+# diri kalau fixture tidak ada, sehingga suite tetap hijau di CI dan di mesin
+# developer yang tidak memegang salinannya. Tunjuk lokasi lain lewat:
+#     QC_TRANSCRIPT_FIXTURES=/path/ke/transkrip pytest tests/test_pdf_parser.py
+TRANS_DIR = os.environ.get(
+    "QC_TRANSCRIPT_FIXTURES",
+    os.path.join(os.path.dirname(__file__), "..", "example_final", "transkrip"),
+)
+
+needs_fixtures = pytest.mark.skipif(
+    not os.path.isdir(TRANS_DIR),
+    reason=f"fixture transkrip tidak tersedia di {TRANS_DIR} "
+           "(set QC_TRANSCRIPT_FIXTURES untuk menjalankannya)",
+)
 
 
 def _pdf(name):
@@ -44,6 +58,7 @@ def test_parse_filename_timestamp_invalid_returns_none():
 # parse_transcript_pdf
 # --------------------------------------------------------------------------
 
+@needs_fixtures
 def test_parse_single_pdf_segments():
     segs = parse_transcript_pdf(_pdf("201134FTJu_20260520110338.pdf"))
     # Known-good count from manual verification.
@@ -58,6 +73,7 @@ def test_parse_single_pdf_segments():
     assert all("Transcription Report" not in s["text"] for s in segs)
 
 
+@needs_fixtures
 def test_parse_pdf_joins_cross_page_text():
     segs = parse_transcript_pdf(_pdf("201134FTJu_20260520110338.pdf"))
     # The segment starting at 03:36.96 spans the page-0 / page-1 boundary.
@@ -66,6 +82,7 @@ def test_parse_pdf_joins_cross_page_text():
     assert "satu kali" in seg["text"]            # continuation (page 1)
 
 
+@needs_fixtures
 def test_parse_pdf_no_empty_text():
     segs = parse_transcript_pdf(_pdf("201134FTJu_20260520110338.pdf"))
     assert all(s["text"].strip() for s in segs)
@@ -102,6 +119,7 @@ def test_ticket_id_from_filename():
     assert tid.rsplit("_", 1)[0] == "130220dkIM"
 
 
+@needs_fixtures
 def test_build_transcript_duplicate_suffix_set():
     paths = glob.glob(_pdf("130525f7HE_*.pdf"))
     sorted_filenames, messages, _, _ = build_transcript(paths)
@@ -112,6 +130,7 @@ def test_build_transcript_duplicate_suffix_set():
     assert len(messages) > 0
 
 
+@needs_fixtures
 def test_build_transcript_three_file_session():
     paths = glob.glob(_pdf("210112Fzav_*.pdf"))
     sorted_filenames, messages, _, _ = build_transcript(paths)
