@@ -18,8 +18,10 @@ from api.permissions import DOCUMENT_VERIFICATION_TABLE
 from api.rbac import has_perm
 from compliance.documents import (
     DOCUMENT_TYPES,
+    MUS_EXCEPTION_DOC_TYPE,
     card_holder_bands_apply,
     card_holder_doc_types,
+    mus_exception_doc_types,
 )
 from compliance.reference_data import get_credit_limit, npwp_required_by_limit
 from compliance.stats_aggregate import _normalized_json
@@ -28,8 +30,16 @@ from db import crud
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 ALLOWED_EXT = {".pdf"}
+# Konfirmasi pengecualian MUS adalah screenshot email (JPEG/PNG), bukan dokumen
+# identitas — satu-satunya slot yang boleh menerima gambar (dikonversi ke PDF
+# sebelum OCR, lihat ``compliance.ocr.image_bytes_to_pdf``; keputusan
+# 11 September 2026: TIDAK membuat jalur OCR khusus gambar baru).
+_IMAGE_EXT = {".jpg", ".jpeg", ".png"}
 _EXT_MIME = {
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
 }
 
 
@@ -52,6 +62,7 @@ def upload_document(
     kk: UploadFile | None = File(None),
     npwp: UploadFile | None = File(None),
     cover_buku_tabungan: UploadFile | None = File(None),
+    mus_exception_confirmation: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_document_uploader_user),
 ):
@@ -68,6 +79,7 @@ def upload_document(
         "kk": kk,
         "npwp": npwp,
         "cover_buku_tabungan": cover_buku_tabungan,
+        MUS_EXCEPTION_DOC_TYPE: mus_exception_confirmation,
     }
     # Keep only non-empty files (a file with a filename).
     chosen = {k: f for k, f in uploads.items() if f is not None and f.filename}
@@ -104,11 +116,13 @@ def upload_document(
     # 020532VF8Y band ternormalisasi meminta KK dan tiketnya PENDING, tetapi angka
     # mentahnya tidak meminta apa-apa sehingga slotnya tertutup dan tiket itu tidak
     # punya cara untuk dibereskan.
+    result_data = crud.get_result_data(db, result_id)
+    normalized = _normalized_json(getattr(result_data, "result_json", None))
     if card_holder_bands_apply(result.uploaded_at):
-        data = crud.get_result_data(db, result_id)
-        allowed_types.update(
-            card_holder_doc_types(_normalized_json(getattr(data, "result_json", None)))
-        )
+        allowed_types.update(card_holder_doc_types(normalized))
+    # Konfirmasi pengecualian MUS (11 September 2026) — tidak terikat cutoff tanggal
+    # band card-holder di atas, jadi diperiksa terpisah.
+    allowed_types.update(mus_exception_doc_types(normalized))
     bad = [dt for dt in chosen if dt not in allowed_types]
     if bad:
         raise HTTPException(
@@ -119,10 +133,12 @@ def upload_document(
     # Validate extensions before storing anything.
     for doc_type, f in chosen.items():
         ext = os.path.splitext(f.filename)[1].lower()
-        if ext not in ALLOWED_EXT:
+        allowed_ext = ALLOWED_EXT | _IMAGE_EXT if doc_type == MUS_EXCEPTION_DOC_TYPE else ALLOWED_EXT
+        if ext not in allowed_ext:
+            accepted = "PDF/JPG/PNG" if doc_type == MUS_EXCEPTION_DOC_TYPE else "PDF"
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"File '{f.filename}' bukan PDF — hanya file PDF yang diterima",
+                detail=f"File '{f.filename}' bukan {accepted} — hanya file {accepted} yang diterima",
             )
 
     settings = get_settings()
