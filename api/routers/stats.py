@@ -76,6 +76,7 @@ from compliance.error_codes import (
     effective_appeal_status,
     not_fulfilled_reason,
     apply_cashline_document_status,
+    apply_mus_exception_document_status,
     apply_static_document_status,
     normalize_dynamic_verification,
     normalize_static_verification,
@@ -84,13 +85,18 @@ from compliance.error_codes import (
 from compliance.documents import (
     DOCUMENT_TYPES,
     card_holder_bands_apply,
+    doc_requirements_waived,
+    mus_exception_doc_confirmed,
     required_doc_requirements,
     format_similarity,
 )
 from compliance.reference_data import get_credit_limit, get_customer_info, npwp_required_by_limit
 from compliance.scoring import (
     max_score,
+    mus_exempt,
+    mus_wajib_tidak_dipenuhi,
     no_product_interest,
+    passing_grade,
     phase3_score,
     score_bomb_items,
     scorecard_score,
@@ -107,6 +113,7 @@ from compliance.stats_aggregate import (
     _missing_docs_map,
     _normalized_json,
     document_status_map,
+    mismatched_document_types,
     _parse_ymd,
     ai_status_for_result,
     ai_status_map,
@@ -146,7 +153,15 @@ def _document_requirements(flags: dict, raw_result_json, bands_apply: bool, npwp
     daftar dokumen dikirim sebagai dua daftar terpisah, sehingga kolom Document
     tidak bisa menyebut alasan mana milik dokumen mana. Kolom itu sekarang
     merangkainya menjadi "Perlu Dokumen NPWP karena Perubahan NPWP".
+
+    KOSONG bila kewajiban dokumen tiket ini sudah dicabut karena ada pelanggaran
+    non-tolerable lain (3 September 2026, lihat ``documents.doc_requirements_waived``).
+    Diperiksa untuk KETIGA sumber, bukan hanya band similarity: kewajiban yang lahir
+    dari perubahan data TMS / limit >= 50 juta pun tidak lagi ditagih, sehingga kolom
+    Document tidak menampilkan alasan apa pun dan slot unggahnya tertutup.
     """
+    if doc_requirements_waived(raw_result_json):
+        return []
     out: list[dict] = []
 
     def add(doc_type: str, reason: str) -> None:
@@ -249,6 +264,9 @@ def _to_num(value) -> Optional[float]:
 # Results dan export XLSX memberi PASS kepada tiket yang oleh halaman detail sudah
 # dinyatakan FAIL. Alias dipertahankan supaya pemanggil di bawah tidak perlu diubah.
 _max_score = max_score
+_mus_exempt = mus_exempt
+_mus_wajib_tidak_dipenuhi = mus_wajib_tidak_dipenuhi
+_passing_grade = passing_grade
 _scorecard_score = scorecard_score
 _phase3_score = phase3_score
 _score_bomb_items = score_bomb_items
@@ -592,9 +610,10 @@ def list_results(
     # upload time per result (single grouped query, no N+1).
     doctimes = crud.document_upload_times(db, rid_list)
     docset = set(doctimes.keys())
-    # Which document TYPES are already uploaded per result — a similarity band asks
-    # for one specific document, so "has some document" is not enough.
-    doctypes_map = crud.document_types_by_result(db, [str(r.id) for r in results])
+    # Hasil OCR per hasil — dipakai menandai dokumen yang jenisnya benar tetapi
+    # isinya tidak cocok dengan acuan bank (kolom Document), dan untuk mengenali
+    # konfirmasi pengecualian MUS.
+    doc_ocr_map = crud.document_ocr_by_result(db, rid_list)
     # QC-proposed AI-status changes for this page (single grouped query, no N+1).
     qc_map = crud.qc_status_requests_for(db, rid_list)
     # Error Code appeals for this page (single grouped query, no N+1). Approved
@@ -616,7 +635,10 @@ def list_results(
     # server tombolnya kembali enable padahal server akan menolaknya dengan 409.
     reprocessing_cids = crud.active_reprocess_ticket_ids(db, [c for c in cids if c])
     # Per-ticket manual checks by QC for this page (batched, no N+1).
-    manual_check_map = crud.qc_manual_checks_for_results(db, [str(r.id) for r in results])
+    # "Checked At" (QC submit Manual Status) & "Approved At" (disetujui atasan) untuk
+    # halaman ini — batched, tanpa N+1. Sampai 3 September 2026 kolomnya dibaca dari
+    # ``qc_manual_checks``, tabel yang sudah berhenti terisi.
+    manual_marks_map = crud.qc_manual_status_marks(db, rid_list)
     # Riwayat Manual Status per tiket (append-only) — hanya jumlahnya yang dikirim ke
     # tabel; detailnya diambil per tiket lewat GET /qc_status_events/{result_id}.
     ms_events_map = crud.qc_status_events_for_results(db, [str(r.id) for r in results])
@@ -648,6 +670,7 @@ def list_results(
         scorecard_issues = []
         evaluation = None  # per-iteration; the RETURN rule below reads it after the QC override
         raw_result_json = None  # pre-appeal JSON — basis for the similarity-band doc triggers
+        recording_types = None
         if r.status == "done":
             data = crud.get_result_data(db, str(r.id))
             if data is not None:
@@ -656,6 +679,7 @@ def list_results(
                     audio_duration = data.result_json.get("audio_duration")
                     audio_durations = data.result_json.get("audio_durations")
                     excluded_calls = data.result_json.get("excluded_calls")
+                    recording_types = data.result_json.get("recording_types")
                 evaluation = _evaluation_dict(data.result_json)
                 if evaluation is not None:
                     # Terapkan banding yang di-approve (baris error code dihapus &
@@ -676,6 +700,14 @@ def list_results(
                         # Sisi cashline menyusul: baris yang menunggu cover buku tabungan menjadi
                         # PENDING selama tenggat H+2, agar jalur dokumennya tidak terpotong.
                         evaluation = apply_cashline_document_status(evaluation, _ds[0], _ds[1])
+                        # Pengecualian MUS penyakit whitelist (11 September 2026).
+                        evaluation = apply_mus_exception_document_status(
+                            evaluation, _ds[0], _ds[1],
+                            mus_exception_doc_confirmed(
+                                _customer_id_from_files(r.source_files),
+                                dict(doc_ocr_map.get(str(r.id), ())),
+                            ),
+                        )
                     evaluation = apply_approved_appeals(evaluation, _flip)
                     evaluation = apply_approved_card_holder_appeals(evaluation, _flip)
                     evaluation = apply_approved_cashline_appeals(evaluation, _flip)
@@ -696,10 +728,15 @@ def list_results(
                     if score_total is not None:
                         ai_score = int(score_total) if score_total == int(score_total) else score_total
 
-                    eval_pg = _numeric_or_none(evaluation.get("passing_grade"))
-                    if eval_pg is not None:
-                        passing_grade = eval_pg
-                    maximum_score = _numeric_or_none(evaluation.get("maximum_score"))
+                    # passing_grade/maximum_score DITURUNKAN (_max_score/_passing_grade),
+                    # BUKAN dibaca apa adanya dari evaluation: skor maksimal berubah
+                    # setelah hasil ditulis (revisi scorecard v4 14 September 2026, MUS
+                    # 8 September 2026), dan angka bawaan LLM ikut basi bersamanya —
+                    # sama seperti ai_score di atas sudah dihitung ulang, bukan dibaca
+                    # dari ai_score_phase_3 LLM. Kedua fungsi sudah fallback sendiri ke
+                    # nilai LLM lama bila tidak ada info minat produk sama sekali.
+                    maximum_score = _max_score(evaluation)
+                    passing_grade = _passing_grade(evaluation)
 
                     # AI Status mengikuti skor deterministik di atas vs passing grade;
                     # fallback ke ai_status dari LLM bila skor/passing tidak tersedia.
@@ -772,10 +809,15 @@ def list_results(
         # sekarang diturunkan dari satu sumber di atas alih-alih dihitung ulang.
         document_triggers = list(dict.fromkeys(d["reason"] for d in doc_requirements))
         document_upload_types = list(dict.fromkeys(d["doc_type"] for d in doc_requirements))
-        document_missing_types = [
-            t for t in document_upload_types
-            if t not in doctypes_map.get(str(r.id), set())
-        ]
+        # Yang dianggap SUDAH terunggah diambil dari ``document_status_map``, bukan dari
+        # daftar mentah slot yang terisi: helper itu sudah mencoret dokumen yang
+        # jenisnya keliru (14 Agustus 2026) dan yang isinya tidak cocok dengan acuan
+        # bank (3 September 2026). Sebelumnya kolom Document memakai daftar mentah,
+        # sehingga slot yang diisi berkas keliru tetap terbaca "✓ Uploaded" padahal
+        # sistemnya sendiri tetap menganggap dokumennya kurang.
+        _proven = (doc_status_page.get(str(r.id)) or (set(), False))[0]
+        document_missing_types = [t for t in document_upload_types if t not in _proven]
+        doc_mismatches = mismatched_document_types(doc_ocr_map.get(str(r.id), ()))
         # "Kekurangan dokumen": dokumen wajib (perubahan data TMS ATAU limit >= 50jt)
         # tapi belum ada upload. Basis sama dengan chart/KPI (_missing_docs_map).
         missing_docs = mdocs_page.get(str(r.id), False)
@@ -917,8 +959,12 @@ def list_results(
                 appeal_summary=_appeal_summary(appeal_map.get(str(r.id), [])),
                 assigned_qc=(assignment_map.get(cid or "") or (None, None))[0],
                 assigned_at=(assignment_map.get(cid or "") or (None, None))[1],
-                qc_checked_at=getattr(manual_check_map.get(str(r.id)), "created_at", None),
-                qc_checked_by=getattr(manual_check_map.get(str(r.id)), "checked_by_username", None),
+                qc_checked_at=(manual_marks_map.get(str(r.id)) or {}).get("checked_at"),
+                qc_checked_by=(manual_marks_map.get(str(r.id)) or {}).get("checked_by"),
+                manual_approved_at=(manual_marks_map.get(str(r.id)) or {}).get("approved_at"),
+                manual_approved_by=(manual_marks_map.get(str(r.id)) or {}).get("approved_by"),
+                document_mismatches=doc_mismatches,
+                recording_types=recording_types,
             )
         )
     return ResultListResponse(items=items, total=total, page=page, limit=limit)

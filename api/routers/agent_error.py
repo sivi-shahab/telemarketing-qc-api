@@ -42,6 +42,9 @@ from compliance.error_codes import (
     apply_approved_card_holder_appeals,
     apply_approved_cashline_appeals,
     apply_approved_critical_compliance_appeals,
+    apply_cashline_document_status,
+    apply_mus_exception_document_status,
+    apply_static_document_status,
     appeals_that_flip,
     approved_appeals_only,
     normalize_dynamic_verification,
@@ -51,6 +54,8 @@ from compliance.error_codes import (
     merge_dynamic_verification_rows,
     relabel_error_table,
 )
+from compliance.documents import mus_exception_doc_confirmed
+from compliance.stats_aggregate import document_status_map
 from db import crud
 
 router = APIRouter(dependencies=[Depends(get_agent_error_summary_user)])
@@ -175,6 +180,27 @@ def agent_error_summary(
         # Baris verifikasi dinamis tanpa dua sisi pembanding (Ascend/transkrip kosong)
         # turun ke SKIPPED_NULL, bukan MISMATCH — tidak menerbitkan B17.
         evaluation = normalize_dynamic_verification(evaluation)
+        # Status dokumennya menyusul: PENDING selama tenggat H+2 berjalan, MISMATCH
+        # bila terlewat tanpa unggah. TANPA INI baris yang masih menunggu dokumen
+        # (mis. cover buku tabungan untuk nama_pemilik_rekening) terbaca MISMATCH
+        # apa adanya dari LLM dan `build_error_code_table` menerbitkannya sebagai
+        # error B02 di summary ini — padahal scorecard-nya sendiri (dihitung dengan
+        # bahan yang sama di bawah) sudah benar PENDING. Mirrors
+        # api/routers/transcript.py::_with_error_code_table.
+        doc_status = document_status_map(db, [result]).get(str(result.id))
+        if doc_status is not None:
+            evaluation = apply_static_document_status(evaluation, doc_status[0], doc_status[1])
+            evaluation = apply_cashline_document_status(evaluation, doc_status[0], doc_status[1])
+            # ``cid`` sengaja dihitung ulang di sini: di atas ia hanya ada di dalam
+            # cabang fallback DWH, dan snapshot yang utuh membuat cabang itu tidak
+            # pernah dimasuki.
+            evaluation = apply_mus_exception_document_status(
+                evaluation, doc_status[0], doc_status[1],
+                mus_exception_doc_confirmed(
+                    _customer_id(result.source_files),
+                    dict(crud.document_ocr_by_result(db, [str(result.id)]).get(str(result.id), ())),
+                ),
+            )
         evaluation = apply_approved_appeals(evaluation, flip)
         evaluation = apply_approved_card_holder_appeals(evaluation, flip)
         evaluation = apply_approved_cashline_appeals(evaluation, flip)
