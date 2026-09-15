@@ -571,21 +571,30 @@ def _resolve_filtered_results(
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
     elif manual_status_pending:
-        # "Pending Check" menu (TL QC / SPQ Head): tickets whose Manual Status COLUMN
-        # is "pending" — a QC status request still awaiting the hierarchy OR the
-        # missing-documents default. Uses the SAME _manual_status helper the column
-        # renders, so the queue matches the column value exactly (not stored on the
-        # row, so load the scoped set and filter in Python).
+        # Menu "Pending Check" — sejak 3 September 2026 isinya persis satu hal:
+        # tiket ber-**AI Status = Pending**.
+        #
+        # Sebelumnya menu ini menyaring ``manual_review_state == "menunggu"``, yaitu
+        # "usulan Manual Status belum diputus ATAU tiket kekurangan dokumen" — dua
+        # keadaan yang tidak sama dengan Pending dan tidak sama satu sama lain.
+        # Akibatnya menu bernama "Pending Check" memuat tiket Qualified maupun Not
+        # Qualified, sementara sebagian tiket yang benar-benar Pending justru tidak
+        # ada di dalamnya. Antrean review usulan Manual Status pindah ke menu Manual
+        # Check di atas, tempat seluruh aju banding berkumpul.
+        #
+        # AI Status dihitung helper KANONIK ``ai_status_map`` — bahan yang sama
+        # dengan kolom AI Status di tabelnya, jadi daftar ini tidak bisa berbeda
+        # pendapat dengan layar.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
             customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
-        all_ids = [str(r.id) for r in all_results]
-        qc_all = crud.qc_status_requests_for(db, all_ids)
-        mdocs_all = _missing_docs_map(db, all_results)
+        # AI Status baru ada setelah evaluasi selesai, jadi hasil yang belum ``done``
+        # tidak mungkin cocok dengan nilai mana pun.
+        done_results = [r for r in all_results if r.status == "done"]
+        ai_all = ai_status_map(db, done_results)
         matched = _apply_status_filters([
-            r for r in all_results
-            if manual_review_state(qc_all.get(str(r.id)), mdocs_all.get(str(r.id), False)) == "menunggu"
+            r for r in done_results if ai_all.get(str(r.id)) == "PENDING"
         ])
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
