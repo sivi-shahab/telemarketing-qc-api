@@ -343,6 +343,30 @@ def _appeal_summary(appeals: list) -> Optional[dict]:
     }
 
 
+def _manual_appeal_summary(req) -> Optional[dict]:
+    """Ringkasan AJU BANDING Manual Status satu tiket, sebentuk dengan
+    ``_appeal_summary`` supaya menu Manual Check bisa menjumlahkan keduanya.
+
+    Hanya usulan QC (``origin='qc'``) yang dihitung: vonis yang DITETAPKAN LANGSUNG
+    oleh Team Leader QC / SPQ Head bukan aju banding — tidak ada yang menunggu
+    keputusan siapa pun, jadi ia tidak boleh memunculkan tiket di antrean.
+
+    ``{"total", "pending", "approved", "rejected", "tl_pending", "spq_pending"}``;
+    None bila tiket ini tidak punya usulan Manual Status sama sekali."""
+    if req is None or (getattr(req, "origin", "qc") or "qc") != "qc":
+        return None
+    eff = effective_appeal_status(req)
+    tl = getattr(req, "tl_qc_status", "pending") or "pending"
+    return {
+        "total": 1,
+        "pending": 1 if eff == "pending" else 0,
+        "approved": 1 if eff == "approved" else 0,
+        "rejected": 1 if eff == "rejected" else 0,
+        "tl_pending": 1 if tl == "pending" else 0,
+        "spq_pending": 1 if (tl == "escalated" and req.approval_status == "pending") else 0,
+    }
+
+
 @router.get("/stats/qc_performance")
 def qc_performance(
     campaign: Optional[str] = Query(None, description="Batasi ke tiket satu campaign"),
@@ -505,29 +529,44 @@ def _resolve_filtered_results(
         return out
 
     if banding_pending:
-        # "Manual Check" (banding) menu, filtered per role:
-        #  - QC: every ticket that HAS a banding (any status) so the QC can track the
-        #    review outcome of the bandings it filed;
-        #  - Team Leader QC: tickets with a banding still pending its check;
-        #  - SPQ Head: tickets with a banding escalated to it.
-        # Derived from appeals (not stored on the row), so load the scoped set and
-        # filter in Python.
+        # Menu "Manual Check" — antrean AJU BANDING, DUA jenis sekaligus (3 September
+        # 2026): banding Error Code DAN usulan perubahan Manual Status. Sebelumnya
+        # menu ini hanya membaca ``error_code_appeals``, sehingga QC yang mengajukan
+        # perubahan Manual Status tidak pernah melihat tiketnya di sini — padahal
+        # itu juga sebuah aju banding yang menunggu keputusan.
+        #
+        # Disaring per peran:
+        #  - QC (pengaju): tiket yang MASIH punya banding belum di-approve — yang
+        #    menunggu keputusan maupun yang DITOLAK, karena keduanya masih menuntut
+        #    tindak lanjut. Tiket yang SELURUH bandingnya sudah di-approve hilang
+        #    dari daftar; hasilnya tetap terbaca lewat tombol Riwayat di menu Results.
+        #  - Team Leader QC: banding yang menunggu pemeriksaannya;
+        #  - SPQ Head: banding yang sudah di-escalate kepadanya.
+        # Semuanya diturunkan, tidak disimpan di baris, jadi muat himpunan ter-scope
+        # lalu saring di Python.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
             customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
         )
-        appeal_all = crud.error_code_appeals_for_results(db, [str(r.id) for r in all_results])
+        all_ids = [str(r.id) for r in all_results]
+        appeal_all = crud.error_code_appeals_for_results(db, all_ids)
+        qc_req_all = crud.qc_status_requests_for(db, all_ids)
         is_spq = has_perm(db, current_user, MANUAL_STATUS_REVIEW_SPQ) or has_perm(db, current_user, ERROR_CODE_REVIEW_SPQ)
-        # Pengaju banding melihat SEMUA banding-nya (apa pun statusnya) agar bisa
-        # memantau hasil review; reviewer hanya melihat yang menunggu gilirannya.
         is_qc = has_perm(db, current_user, ERROR_CODE_APPEAL)
         def _needs_review(rid):
             s = _appeal_summary(appeal_all.get(rid) or [])
-            if not s:
+            m = _manual_appeal_summary(qc_req_all.get(rid))
+            if not s and not m:
                 return False
+            s = s or {"total": 0, "approved": 0, "tl_pending": 0, "spq_pending": 0}
+            m = m or {"total": 0, "approved": 0, "tl_pending": 0, "spq_pending": 0}
             if is_qc:
-                return s["total"] > 0
-            return s["spq_pending"] > 0 if is_spq else s["tl_pending"] > 0
+                # Belum semua di-approve -> masih perlu ditindaklanjuti QC.
+                total = s["total"] + m["total"]
+                return total > 0 and (s["approved"] + m["approved"]) < total
+            if is_spq:
+                return (s["spq_pending"] + m["spq_pending"]) > 0
+            return (s["tl_pending"] + m["tl_pending"]) > 0
         matched = _apply_status_filters([r for r in all_results if _needs_review(str(r.id))])
         total = len(matched)
         results = matched[(page - 1) * limit : page * limit]
