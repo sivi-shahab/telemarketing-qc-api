@@ -1,22 +1,27 @@
-"""Avg Failure Rate untuk tab **Hierarki Failure Rate**.
+"""Failure Rate untuk tab **Hierarki Failure Rate**.
 
-Sejak 2 September 2026 hierarki menampilkan rasionya sebagai **kelipatan** ("2.8x"),
-bukan persen. Alasannya: satu tiket Not Qualified menyumbang SEMUA risk base-nya
-(``risk_base_tally``), sehingga pembilangnya rutin melebihi penyebut dan angka
-lama melewati 100% — tidak terbaca sebagai persentase.
+Penyebutnya **Total Recording** (jumlah rekaman/PDF yang dinilai), yaitu kolom tepat di
+sebelah kiri rasionya di tabel AM -> TL -> Agent — BUKAN jumlah tiket dan bukan jumlah
+error. Itu yang dijaga di sini.
 
-Penyebutnya **Total Recording** (jumlah rekaman/PDF yang dinilai), yaitu kolom
-tepat di sebelah kiri rasionya di tabel AM -> TL -> Agent. Sempat dipindah ke
-tiket Not Qualified pada 2 September 2026 pagi lalu dikembalikan sore harinya
-bersamaan dengan penggantian nama kolom Submissions -> Total Recording dan
-Tiket -> Submission.
+RIWAYAT SATUAN, supaya tidak diubah bolak-balik tanpa sengaja:
 
-Overview per campaign dan tabel Daftar QC SENGAJA tidak ikut berubah — lihat
-``_rate_of`` yang tetap dipertahankan untuk keduanya.
+* sampai 2 September 2026 — persen (``_rate_of``);
+* 2–15 September 2026 — kelipatan ("2.8x", helper ``_avg_of``), karena satu tiket Not
+  Qualified menyumbang SELURUH risk base-nya (``risk_base_tally``) sehingga pembilangnya
+  rutin melebihi penyebut dan angkanya melewati 100%;
+* sejak 15 September 2026 — **kembali persen**, menyamakan server dengan tampilan
+  dashboard yang diselaraskan ke repo monolit.
+
+Konsekuensi yang DISENGAJA dan tidak boleh dibaca sebagai bug: nilai di atas 100% wajar
+muncul di tab ini. Test ``rasio_di_atas_100_persen_wajar`` mengunci harapan itu.
+
+Penyebutnya sempat dipindah ke tiket Not Qualified pada 2 September 2026 pagi lalu
+dikembalikan ke Total Recording sore harinya, bersamaan dengan penggantian nama kolom
+Submissions -> Total Recording dan Tiket -> Submission.
 """
 
 from compliance.stats_aggregate import (
-    _avg_of,
     _build_hierarchy,
     _rate_of,
     _risk_node,
@@ -31,32 +36,32 @@ def _acc(**kw):
     return base
 
 
-# ---- _avg_of --------------------------------------------------------------
+# ---- _rate_of -------------------------------------------------------------
 
-def test_avg_of_membagi_total_risk_dengan_total_recording():
-    """1550 total failure atas 566 rekaman = 2.7 kali lipat."""
-    assert _avg_of({"H": 800, "M": 600, "L": 150}, 566) == 2.7
+def test_rate_of_membagi_total_risk_dengan_total_recording():
+    """1550 total failure atas 566 rekaman = 273.9%."""
+    assert _rate_of({"H": 800, "M": 600, "L": 150}, 566) == 273.9
 
 
-def test_avg_of_nol_recording_tidak_meledak():
+def test_rate_of_nol_recording_tidak_meledak():
     """Belum ada rekaman dinilai: 0.0, bukan ZeroDivisionError."""
-    assert _avg_of({"H": 5, "M": 0, "L": 0}, 0) == 0.0
+    assert _rate_of({"H": 5, "M": 0, "L": 0}, 0) == 0.0
 
 
-def test_avg_of_mengabaikan_system_dan_new():
-    """Sama seperti _rate_of: hanya H/M/L yang dihitung, O dan N tidak."""
-    assert _avg_of({"H": 2, "M": 0, "L": 0, "O": 99, "N": 99}, 2) == 1.0
+def test_rate_of_mengabaikan_system_dan_new():
+    """Hanya H/M/L yang dihitung; O dan N tidak."""
+    assert _rate_of({"H": 2, "M": 0, "L": 0, "O": 99, "N": 99}, 2) == 100.0
 
 
-def test_avg_of_bukan_persen():
-    """Nilainya rasio, jadi 100x lebih kecil dari _rate_of dengan penyebut sama."""
-    risk = {"H": 10, "M": 0, "L": 0}
-    assert _avg_of(risk, 5) == 2.0
-    assert _rate_of(risk, 5) == 200.0
+def test_rasio_di_atas_100_persen_wajar():
+    """DISENGAJA: satu tiket Not Qualified menyumbang SELURUH risk base-nya, jadi
+    pembilangnya bisa melebihi penyebut. Angka 200% bukan kesalahan hitung — inilah
+    yang dulu membuat penyajian kelipatan sempat dipilih."""
+    assert _rate_of({"H": 10, "M": 0, "L": 0}, 5) == 200.0
 
 
-def test_avg_of_dibulatkan_satu_desimal():
-    assert _avg_of({"H": 10, "M": 0, "L": 0}, 3) == 3.3
+def test_rate_of_dibulatkan_satu_desimal():
+    assert _rate_of({"H": 10, "M": 0, "L": 0}, 3) == 333.3
 
 
 # ---- _risk_node -----------------------------------------------------------
@@ -69,7 +74,7 @@ def test_risk_node_memakai_total_recording_sebagai_penyebut():
     # Kolom "Total Recording" = transcripts; kolom "Submission" = jumlah tiket.
     assert node["submissions"] == 566
     assert node["ticket_count"] == 334
-    assert node["error_rate"] == 2.7  # 1550/566, bukan 1550/280 dan bukan 1550/334
+    assert node["error_rate"] == 273.9  # 1550/566, bukan 1550/280 dan bukan 1550/334
 
 
 def test_risk_node_tanpa_transcripts_jatuh_ke_submissions():
@@ -82,7 +87,7 @@ def test_risk_node_tanpa_transcripts_jatuh_ke_submissions():
     acc = _acc(submissions=10, errors=4, H=20, M=0, L=0)
     del acc["transcripts"]
     node = _risk_node(acc)
-    assert node["error_rate"] == 2.0  # 20/10
+    assert node["error_rate"] == 200.0  # 20/10
 
 
 def test_risk_node_tanpa_recording():
@@ -104,7 +109,7 @@ def test_all_telesales_memakai_total_transcripts():
     assert allt["submissions"] == 566      # Total Recording
     assert allt["ticket_count"] == 334     # Submission
     assert allt["errors"] == 280
-    assert allt["error_rate"] == 2.7
+    assert allt["error_rate"] == 273.9
 
 
 def test_all_telesales_tanpa_total_transcripts_jatuh_ke_total_eval():
@@ -113,7 +118,7 @@ def test_all_telesales_tanpa_total_transcripts_jatuh_ke_total_eval():
     meta = {"a1": {"agent_id": "A1", "name": "Agent Satu",
                    "area_manager": "AM1", "team_leader": "TL1"}}
     out = _build_hierarchy(acc, meta, total_eval=100, total_err=10)
-    assert out["all_telesales"]["error_rate"] == 0.3  # 30/100
+    assert out["all_telesales"]["error_rate"] == 30.0  # 30/100
 
 
 def test_simpul_pohon_ikut_memakai_total_recording():
@@ -127,6 +132,6 @@ def test_simpul_pohon_ikut_memakai_total_recording():
     tl = am["team_leaders"][0]
     agent = tl["agents"][0]
     for node in (am, tl, agent):
-        assert node["error_rate"] == 0.3   # 30 risk / 100 recording
+        assert node["error_rate"] == 30.0  # 30 risk / 100 recording
         assert node["submissions"] == 100  # Total Recording
         assert node["ticket_count"] == 50  # Submission
