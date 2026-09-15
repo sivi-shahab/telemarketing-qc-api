@@ -148,3 +148,51 @@ def test_duplikat_dan_spasi_dirapikan_urutan_dipertahankan():
     got = eligible_tickets([" t1 ", "t2", "t1", ""], allowed=None, already_assigned=set())
 
     assert got == ["t1", "t2"]
+
+
+# --------------------------------------------------------------------------
+# _auto_assign_pool — SELURUH antrean dalam cakupan, bukan satu halaman
+# --------------------------------------------------------------------------
+
+def test_pool_membuang_tiket_yang_sudah_punya_qc(monkeypatch):
+    """Pratinjau dan pembagian memakai fungsi yang SAMA, jadi angkanya tidak bisa
+    berbeda dari yang benar-benar dibagikan."""
+    from api.routers import qc_assignment as qa
+
+    class _R:
+        def __init__(self, tid):
+            self.source_files = [f"{tid}_1.pdf"]
+
+    class _A:
+        def __init__(self, tid):
+            self.ticket_id = tid
+
+    monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
+    monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
+    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
+    monkeypatch.setattr(qa.crud, "list_results",
+                        lambda *a, **k: ([_R("t1"), _R("t2"), _R("t3")], 3))
+    monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [_A("t2")])
+
+    ticket_ids, pool = qa._auto_assign_pool(None, object())
+    assert ticket_ids == ["t1", "t2", "t3"]
+    assert pool == ["t1", "t3"], "t2 sudah punya QC — tidak boleh diacak ulang"
+
+
+def test_pool_meng_unique_kan_tiket_dua_agent(monkeypatch):
+    """Satu ticket id bisa punya lebih dari satu baris Result; assignment-nya per
+    TIKET, jadi tiket yang sama tidak boleh menghabiskan jatah dua kali."""
+    from api.routers import qc_assignment as qa
+
+    class _R:
+        def __init__(self, tid):
+            self.source_files = [f"{tid}_1.pdf"]
+
+    monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
+    monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
+    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
+    monkeypatch.setattr(qa.crud, "list_results", lambda *a, **k: ([_R("t1"), _R("t1")], 2))
+    monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [])
+
+    ticket_ids, pool = qa._auto_assign_pool(None, object())
+    assert ticket_ids == ["t1"] and pool == ["t1"]

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE
-from api.qc_scope import scoped_customer_ids
+from api.qc_scope import scoped_customer_ids, ticket_id_for_result
+from api.rbac import effective_campaigns_for
 from api.rbac import require
 from db import crud
 from db.models import QcAssignment, User
@@ -180,9 +181,79 @@ def current_assignment_load(db, qc_usernames) -> dict:
     return load
 
 
+def _active_qc_usernames(db) -> list:
+    """Username QC aktif, urut nama — populasi penerima auto assign."""
+    rows = (
+        db.query(User)
+        .filter(User.role == "qc", User.is_active == True)  # noqa: E712
+        .order_by(User.name, User.username)
+        .all()
+    )
+    return [(u.username or "").strip() for u in rows if (u.username or "").strip()]
+
+
+def _auto_assign_pool(db, current_user):
+    """``(ticket_ids, pool)`` untuk auto assign, DALAM CAKUPAN pemanggil.
+
+    Dipakai bersama oleh hitungan pratinjau (``GET /qc_assignment/unassigned``) dan
+    pembagian sebenarnya — sengaja satu fungsi, karena angka "sekian ticket belum
+    di-assign" yang dibaca orang sebelum menekan tombol HARUS berasal dari himpunan
+    yang sama dengan yang nanti dibagikan. Menghitungnya dua kali dengan dua definisi
+    adalah cara paling mudah membuat layar berbohong.
+
+    Populasinya = daftar Results dalam cakupan pemanggil, sama dengan yang ditampilkan
+    menu Assign Ticket (upload QC Support dikecualikan di sana juga). ``limit`` sengaja
+    dibuka lebar: yang perlu dibagi adalah SELURUH antrean, bukan satu halaman — dan
+    itulah bedanya dengan daftar ~100 baris yang termuat di layar.
+    """
+    results, _total = crud.list_results(
+        db,
+        campaigns=effective_campaigns_for(db, current_user),
+        customer_ids=scoped_customer_ids(db, current_user),
+        page=1,
+        limit=1_000_000,
+        exclude_uploaded_by_role="qc_support",
+    )
+    # Satu ticket id bisa punya lebih dari satu baris Result (tiket dua-agent), dan
+    # assignment-nya per TIKET — jadi di-unique-kan dulu, kalau tidak tiket yang sama
+    # akan terhitung (dan menghabiskan jatah) dua kali.
+    seen, ticket_ids = set(), []
+    for r in results:
+        tid = (ticket_id_for_result(r) or "").strip()
+        if tid and tid not in seen:
+            seen.add(tid)
+            ticket_ids.append(tid)
+    assigned_ids = {(a.ticket_id or "").strip() for a in crud.list_qc_assignments(db)}
+    return ticket_ids, [t for t in ticket_ids if t not in assigned_ids]
+
+
+@router.get("/qc_assignment/unassigned")
+def unassigned_summary(
+    db: Session = Depends(get_db),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
+):
+    """Berapa ticket yang BELUM di-assign dalam cakupan pemanggil (pratinjau tombol).
+
+    Angka ini beda dengan hitungan "x / y ticket" di toolbar menu Assign Ticket: yang
+    di sana hanya ticket yang termuat di tabel, sedangkan yang di sini — dan yang
+    dibagikan Auto Assign tanpa ``ticket_ids`` — adalah SELURUH antrean dalam cakupan.
+    Tanpa endpoint ini layarnya tidak punya cara menyebut angka yang benar sebelum
+    tombolnya ditekan.
+
+    Bacaan murni; tidak mengubah apa pun.
+    """
+    ticket_ids, pool = _auto_assign_pool(db, current_user)
+    return {
+        "unassigned": len(pool),
+        "assigned": len(ticket_ids) - len(pool),
+        "total": len(ticket_ids),
+        "qc_count": len(_active_qc_usernames(db)),
+    }
+
+
 @router.post("/qc_assignment/auto")
 def auto_assign(
-    ticket_ids: list = Form(...),
+    ticket_ids: list | None = Form(None),
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
@@ -196,17 +267,25 @@ def auto_assign(
     di tengah dan meninggalkan pembagian timpang yang tidak bisa diulang dengan
     aman.
     """
-    allowed = scoped_customer_ids(db, current_user)
-    allowed_set = None if allowed is None else set(allowed)
-
-    requested = [(t or "").strip() for t in (ticket_ids or [])]
-    taken = {
-        row.ticket_id
-        for row in db.query(QcAssignment.ticket_id)
-        .filter(QcAssignment.ticket_id.in_(requested or [""]))
-        .all()
-    }
-    pending = eligible_tickets(requested, allowed_set, taken)
+    # ``ticket_ids`` OPSIONAL. Dikirim -> hanya itu yang dibagi (daftar yang termuat
+    # layar; jalur yang dipakai dashboard hari ini). Tidak dikirim -> server memakai
+    # SELURUH antrean dalam cakupan pemanggil, lewat himpunan yang sama dengan
+    # pratinjau ``GET /qc_assignment/unassigned``.
+    scope_ticket_ids = None
+    if ticket_ids:
+        allowed = scoped_customer_ids(db, current_user)
+        allowed_set = None if allowed is None else set(allowed)
+        requested = [(t or "").strip() for t in ticket_ids]
+        taken = {
+            row.ticket_id
+            for row in db.query(QcAssignment.ticket_id)
+            .filter(QcAssignment.ticket_id.in_(requested or [""]))
+            .all()
+        }
+        pending = eligible_tickets(requested, allowed_set, taken)
+    else:
+        scope_ticket_ids, pending = _auto_assign_pool(db, current_user)
+        requested = list(pending)
 
     qcs = (
         db.query(User)
@@ -253,7 +332,14 @@ def auto_assign(
         "skipped": len(set(requested) - set(pending)),
         "qc_count": len(qcs),
         "assigned_at": assigned_at.isoformat(),
+        # ``{qc_username: [ticket_id, ...]}`` — daftar id, BUKAN jumlah. Layar memakai
+        # ini untuk memperbarui baris yang benar-benar berpindah tanpa memuat ulang.
         "per_qc": per_qc,
+        # Tiga angka tambahan untuk layar yang memanggil TANPA ticket_ids; pemanggil
+        # lama boleh mengabaikannya.
+        "pool": len(pending),
+        "unassigned_left": len(pending) - len(pairs),
+        "total": len(scope_ticket_ids) if scope_ticket_ids is not None else len(requested),
     }
 
 
