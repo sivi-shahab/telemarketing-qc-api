@@ -65,6 +65,12 @@ class ReprocessItem(BaseModel):
     deleted_old: int = 0
     error_message: Optional[str] = None
     finished_at: Optional[datetime] = None
+    # Checkpoint pipeline TERAKHIR yang selesai untuk ``new_result_id`` (14
+    # September 2026 — lihat results.current_stage dan
+    # compliance.processing_stages.PROCESSING_STAGES). Hanya berarti selagi
+    # status="processing"; None sebelum item ini mulai diproses atau setelah
+    # selesai/gagal.
+    current_stage: Optional[str] = None
 
 
 class ReprocessCounts(BaseModel):

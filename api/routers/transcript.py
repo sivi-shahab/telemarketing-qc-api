@@ -55,6 +55,7 @@ from compliance.error_codes import (
     override_risk_base_for_new_joiner,
     relabel_error_table,
 )
+from compliance.processing_stages import stage_table
 from compliance.scoring import (
     _to_num,
     base_ai_status,
@@ -659,8 +660,21 @@ def get_result(
             error=result.error_message,
         )
 
-    # pending / processing
-    return ResultResponse(result_id=result_id, status=result.status)
+    # pending / processing — tabel progres pipeline (14 September 2026), supaya
+    # dashboard tidak cuma menampilkan "Status: processing" tanpa rincian.
+    #
+    # [ADAPTASI] Urutan & label tahapnya dibaca dari ``compliance.processing_stages``,
+    # BUKAN dari ``worker.tasks.process_transcript`` seperti di repo monolit: image API
+    # tidak memuat ``worker/`` sama sekali. Penyusunan barisnya pun tinggal di core
+    # (``stage_table``), supaya aturan "current_stage adalah checkpoint yang SUDAH
+    # selesai, jadi yang berjalan adalah satu sesudahnya" berdiri tepat di sebelah
+    # daftar yang mendefinisikannya.
+    return ResultResponse(
+        result_id=result_id,
+        status=result.status,
+        current_stage=result.current_stage,
+        stages=stage_table(result.current_stage),
+    )
 
 
 @router.get("/list_transcripts", response_model=TranscriptListResponse)

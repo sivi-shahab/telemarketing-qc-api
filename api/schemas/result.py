@@ -10,11 +10,28 @@ class ResultCreateResponse(BaseModel):
     reused: bool = False
 
 
+class ProcessingStageInfo(BaseModel):
+    """Satu baris tabel progres pipeline (14 September 2026).
+
+    Urutan & labelnya dari ``compliance.processing_stages.PROCESSING_STAGES``;
+    ``state`` disusun ``stage_table()`` dari ``results.current_stage``, yaitu
+    checkpoint TERAKHIR yang SELESAI — bukan yang sedang berjalan."""
+    key: str
+    label: str
+    state: str  # "selesai" | "berjalan" | "menunggu"
+
+
 class ResultResponse(BaseModel):
     result_id: str
     status: str
     result: Optional[Any] = None
     error: Optional[str] = None
+    # Hanya terisi saat status pending/processing (14 September 2026): tabel progres
+    # pipeline supaya dashboard tidak cuma menampilkan "Status: processing" tanpa
+    # rincian. None saat status done/failed — tabel Hasil Scorecard/error sudah
+    # menggantikannya.
+    current_stage: Optional[str] = None
+    stages: Optional[list[ProcessingStageInfo]] = None
 
 
 class WebhookDocumentItem(BaseModel):
