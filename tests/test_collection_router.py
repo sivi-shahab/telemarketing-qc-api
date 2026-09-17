@@ -94,18 +94,6 @@ def _user():
     return SimpleNamespace(role="qc", username="u1")
 
 
-def test_allowed_campaigns_irisan_env_dan_cakupan(monkeypatch):
-    monkeypatch.setattr(col, "collection_campaigns_from_env", lambda: frozenset({"collection", "koleksi"}))
-    monkeypatch.setattr(col, "effective_campaigns_for", lambda db, u: ["Collection", "Cashline"])
-    assert col._allowed_campaigns(None, _user()) == ["collection"]
-
-
-def test_allowed_campaigns_tanpa_pembatasan_memakai_seluruh_env(monkeypatch):
-    monkeypatch.setattr(col, "collection_campaigns_from_env", lambda: frozenset({"collection"}))
-    monkeypatch.setattr(col, "effective_campaigns_for", lambda db, u: None)
-    assert col._allowed_campaigns(None, _user()) == ["collection"]
-
-
 def test_list_ditolak_tanpa_capability(monkeypatch):
     monkeypatch.setattr(col, "has_perm", lambda db, u, p: False)
     with pytest.raises(HTTPException) as exc:
@@ -118,8 +106,8 @@ def test_detail_campaign_bukan_collection_404(monkeypatch):
     monkeypatch.setattr(col.crud, "get_result", lambda db, rid: SimpleNamespace(
         id=rid, campaign="Cashline", status="done", source_files=[], uploaded_at=None,
         completed_at=None, processing_sec=None, error_message=None, current_stage=None))
-    monkeypatch.setattr(col, "ensure_can_view_result", lambda db, u, r: None)
-    monkeypatch.setattr(col, "_allowed_campaigns", lambda db, u: ["collection"])
+    monkeypatch.setattr(col, "ensure_can_view_collection_result", lambda db, u, r: None)
+    monkeypatch.setattr(col, "_view_scope", lambda db, u: {"campaigns": ["collection"]})
     with pytest.raises(HTTPException) as exc:
         col.get_collection_result("r1", db=None, current_user=_user())
     assert exc.value.status_code == 404
@@ -130,8 +118,8 @@ def test_detail_done_mengembalikan_laporan_ternormalisasi(monkeypatch):
     monkeypatch.setattr(col.crud, "get_result", lambda db, rid: SimpleNamespace(
         id=rid, campaign="Collection", status="done", source_files=["1_a.pdf"], uploaded_at=None,
         completed_at=None, processing_sec=3.2, error_message=None, current_stage="tandai_selesai"))
-    monkeypatch.setattr(col, "ensure_can_view_result", lambda db, u, r: None)
-    monkeypatch.setattr(col, "_allowed_campaigns", lambda db, u: ["collection"])
+    monkeypatch.setattr(col, "ensure_can_view_collection_result", lambda db, u, r: None)
+    monkeypatch.setattr(col, "_view_scope", lambda db, u: {"campaigns": ["collection"]})
     monkeypatch.setattr(col.crud, "get_result_data", lambda db, rid: SimpleNamespace(
         result_json={"report_type": "collection_weighted",
                      "evaluation": {"scorecard_result": [{"weight": 4, "status": "PASS"}]}}))
@@ -139,6 +127,24 @@ def test_detail_done_mengembalikan_laporan_ternormalisasi(monkeypatch):
     assert out["report"]["ai_score_phase_2"] == 4
     assert out["report"]["ai_status"] == "PASS"
     assert out["source_files"] == ["1_a.pdf"]
+
+
+def test_detail_memakai_maximum_score_tersimpan(monkeypatch):
+    """Balasan terpotong (1 item bobot 4) dengan maksimum konfigurasi 150 tersimpan:
+    detail harus tetap FAIL dengan maksimum 150, bukan PASS 4/4."""
+    monkeypatch.setattr(col, "has_perm", lambda db, u, p: True)
+    monkeypatch.setattr(col.crud, "get_result", lambda db, rid: SimpleNamespace(
+        id=rid, campaign="Collection", status="done", source_files=["1_a.pdf"], uploaded_at=None,
+        completed_at=None, processing_sec=3.2, error_message=None, current_stage="tandai_selesai"))
+    monkeypatch.setattr(col, "ensure_can_view_collection_result", lambda db, u, r: None)
+    monkeypatch.setattr(col, "_view_scope", lambda db, u: {"campaigns": ["collection"]})
+    monkeypatch.setattr(col.crud, "get_result_data", lambda db, rid: SimpleNamespace(
+        result_json={"report_type": "collection_weighted",
+                     "evaluation": {"maximum_score": 150,
+                                    "scorecard_result": [{"weight": 4, "status": "PASS"}]}}))
+    out = col.get_collection_result("r1", db=None, current_user=_user())
+    assert out["report"]["maximum_score"] == 150
+    assert out["report"]["ai_status"] == "FAIL"
 
 
 def test_list_collection_results_filter_ai_status_memakai_maximum_tersimpan(db):

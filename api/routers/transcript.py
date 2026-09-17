@@ -24,8 +24,13 @@ from api.schemas.result import (
     TranscriptListResponse,
 )
 from api.permissions import MENU_TRANSCRIPTS, SCOPE_QC_SUPPORT_OWN
-from api.rbac import data_scope_for, has_perm
-from api.qc_scope import ensure_can_view_result, scoped_customer_ids
+from api.rbac import collection_campaigns_from_env, data_scope_for, has_perm
+from api.qc_scope import (
+    ensure_can_view_collection_result,
+    ensure_can_view_result,
+    scoped_customer_ids,
+)
+from compliance.campaign_kind import is_collection
 from api.routers.stats import _customer_id_from_files
 from db import crud
 from sales_lookup import new_joiner_info
@@ -735,7 +740,13 @@ def transcript_pdf(
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result tidak ditemukan")
-    ensure_can_view_result(db, current_user, result)
+    if is_collection(result.campaign, collection_campaigns_from_env()):
+        # Tiket Collection: cakupan yang SAMA dengan menu Collection Results. Aturan
+        # Cashline di bawah menuntut assignment, padahal Assign Ticket dicabut untuk
+        # login Collection — QC Collection akan ditolak di setiap PDF.
+        ensure_can_view_collection_result(db, current_user, result)
+    else:
+        ensure_can_view_result(db, current_user, result)
 
     if filename not in (result.source_files or []):
         raise HTTPException(

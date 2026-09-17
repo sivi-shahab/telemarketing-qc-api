@@ -212,3 +212,87 @@ def ensure_can_view_result(db, current_user, result) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ticket ini di luar cakupan Anda",
         )
+
+
+# ---------------------------------------------------------------------------
+# Cakupan menu Collection Results (17 September 2026)
+# ---------------------------------------------------------------------------
+#
+# Tiket Collection TIDAK memakai aturan cakupan Cashline di atas. Alur Assign
+# Ticket dicabut untuk login Collection (``COLLECTION_REMOVED_PERMISSIONS``), jadi
+# ``qc_assigned`` versi Cashline membuat QC Collection ditolak di SETIAP detail
+# dan PDF; sebaliknya cakupan sales tidak punya pemetaan roster untuk tiket
+# penagihan. Daftar, detail, dan PDF tiket Collection karena itu memakai SATU
+# definisi di bawah ini:
+#
+#   - campaign tiket ∈ COLLECTION_CAMPAIGNS ∩ campaign efektif (``None`` = semua);
+#   - ``all`` / ``qc_assigned`` -> cukup cakupan campaign, tanpa assignment;
+#   - ``qc_support_own``        -> hanya upload QC Support; cakupan lain justru
+#                                  mengecualikan upload QC Support (isolasi sama
+#                                  dengan menu Results);
+#   - cakupan sales / tak dikenal -> ditolak seluruhnya.
+
+def collection_view_scope(db, current_user):
+    """Versi DAFTAR dari :func:`collection_can_view`.
+
+    ``None`` bila login ini tidak boleh melihat tiket Collection apa pun (fitur mati,
+    cakupan sales, atau cakupan tak dikenal). Selain itu dict
+    ``{"campaigns": [...casefold], "uploaded_by_role" | "exclude_uploaded_by_role": ...}``
+    yang langsung bisa diteruskan ke ``crud.list_collection_results``. Daftar
+    ``campaigns`` bisa KOSONG — artinya tidak ada campaign Collection dalam cakupan.
+    """
+    from api.rbac import collection_campaigns_from_env, data_scope_for, effective_campaigns_for
+    from api import permissions as P
+
+    env = collection_campaigns_from_env()
+    if not env:
+        return None
+    scope = data_scope_for(db, current_user)
+    if scope not in (P.SCOPE_ALL, P.SCOPE_QC_ASSIGNED, P.SCOPE_QC_SUPPORT_OWN):
+        return None
+    effective = effective_campaigns_for(db, current_user)
+    if effective is None:
+        campaigns = sorted(env)
+    else:
+        campaigns = sorted(env & {(c or "").strip().casefold() for c in effective})
+    iso = ({"uploaded_by_role": "qc_support"} if scope == P.SCOPE_QC_SUPPORT_OWN
+           else {"exclude_uploaded_by_role": "qc_support"})
+    return {"campaigns": campaigns, **iso}
+
+
+def collection_can_view(db, current_user, result) -> bool:
+    """Boleh-tidaknya ``current_user`` melihat satu tiket Collection — pasangan
+    :func:`collection_view_scope`, sehingga daftar dan detail/PDF selalu sepakat."""
+    from compliance.stats_aggregate import is_hidden_ticket
+
+    if result is None or is_hidden_ticket(_customer_id_of(result)):
+        return False
+    scope = collection_view_scope(db, current_user)
+    if scope is None:
+        return False
+    campaign = (getattr(result, "campaign", None) or "").strip().casefold()
+    if campaign not in scope["campaigns"]:
+        return False
+    uploaded_by = getattr(result, "uploaded_by_role", None) or ""
+    if "uploaded_by_role" in scope:
+        return uploaded_by == scope["uploaded_by_role"]
+    return uploaded_by != scope["exclude_uploaded_by_role"]
+
+
+def ensure_can_view_collection_result(db, current_user, result) -> None:
+    """Versi ``raise`` dari :func:`collection_can_view` untuk endpoint per tiket.
+
+    404 untuk tiket tersembunyi (sama dengan ``ensure_can_view_result``: tidak boleh
+    mengonfirmasi keberadaannya), 403 untuk tiket di luar cakupan."""
+    from compliance.stats_aggregate import is_hidden_ticket
+
+    if is_hidden_ticket(_customer_id_of(result)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="result tidak ditemukan",
+        )
+    if not collection_can_view(db, current_user, result):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ticket ini di luar cakupan Anda",
+        )

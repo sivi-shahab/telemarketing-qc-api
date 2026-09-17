@@ -5,8 +5,9 @@ Terpisah dari ``/list_results`` karena laporannya berformat lain
 TMS submit_time, Ascend, dokumen/SLA, banding, manual check — tidak berlaku untuk
 penagihan. Endpoint di sini HANYA membaca ``results`` + ``result_data``.
 
-PDF transkrip memakai ``GET /transcript_pdf/{result_id}`` yang sudah ada: ia
-hanya membaca MinIO dan sudah menjaga cakupan tiket.
+PDF transkrip memakai ``GET /transcript_pdf/{result_id}`` yang sudah ada; untuk
+tiket Collection ia menjaga cakupan dengan definisi yang SAMA dengan daftar dan
+detail di sini (``api.qc_scope.collection_can_view``).
 """
 from datetime import date
 from typing import Optional
@@ -16,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api.permissions import MENU_COLLECTION_RESULTS
-from api.qc_scope import ensure_can_view_result
-from api.rbac import collection_campaigns_from_env, effective_campaigns_for, has_perm
+from api.qc_scope import collection_view_scope, ensure_can_view_collection_result
+from api.rbac import has_perm
 from compliance.collection_report import (
     collection_list_row,
     is_collection_result_json,
@@ -29,14 +30,9 @@ from db import crud
 router = APIRouter(prefix="/collection", tags=["collection"])
 
 
-def _allowed_campaigns(db, current_user) -> list:
-    """Campaign Collection yang boleh dilihat: env ∩ cakupan campaign efektif.
-    ``None`` dari ``effective_campaigns_for`` = tidak dibatasi."""
-    collection = collection_campaigns_from_env()
-    scope = effective_campaigns_for(db, current_user)
-    if scope is None:
-        return sorted(collection)
-    return sorted(collection & {c.strip().casefold() for c in scope})
+def _view_scope(db, current_user) -> dict:
+    """Cakupan daftar Collection login ini; ditolak = ``campaigns`` kosong."""
+    return collection_view_scope(db, current_user) or {"campaigns": []}
 
 
 def _require_menu(db, current_user):
@@ -66,9 +62,10 @@ def list_collection_results(
     current_user=Depends(get_current_user),
 ):
     _require_menu(db, current_user)
-    campaigns = _allowed_campaigns(db, current_user)
+    scope = _view_scope(db, current_user)
+    campaigns = scope["campaigns"]
     rows, total = crud.list_collection_results(
-        db, campaigns=campaigns, status=status, ai_status=ai_status, ticket_id=ticket_id,
+        db, **scope, status=status, ai_status=ai_status, ticket_id=ticket_id,
         date_start=_parse_date(date_start), date_end=_parse_date(date_end),
         page=page, limit=limit,
     )
@@ -88,11 +85,12 @@ def get_collection_result(
     result = crud.get_result(db, result_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Result tidak ditemukan")
-    ensure_can_view_result(db, current_user, result)
-    # 404, bukan 403: tiket Cashline tidak "terlarang" di sini, ia memang bukan
-    # bagian menu ini — detailnya ada di menu Results.
-    if (result.campaign or "").strip().casefold() not in _allowed_campaigns(db, current_user):
+    # Campaign dicek SEBELUM cakupan, dan jawabannya 404: tiket Cashline (atau
+    # campaign Collection di luar cakupan) memang bukan bagian menu ini, dan 403 di
+    # sini akan mengonfirmasi keberadaan tiket yang tidak boleh dilihat.
+    if (result.campaign or "").strip().casefold() not in _view_scope(db, current_user)["campaigns"]:
         raise HTTPException(status_code=404, detail="Result ini bukan campaign Collection")
+    ensure_can_view_collection_result(db, current_user, result)
 
     report = None
     if result.status == "done":
