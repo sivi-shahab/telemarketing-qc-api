@@ -55,10 +55,15 @@ def _clear_running_jobs(db):
     Tanpa ini test tidak deterministik: tiket mana pun yang dipungut dari tabel
     berpeluang sudah ditandai sibuk oleh dunia luar, dan ``skipped`` ikut naik.
     """
-    from db.models import ReprocessJob
+    from db.models import ReprocessJob, ReprocessJobItem
 
     db.query(ReprocessJob).filter(ReprocessJob.status == "running").update(
         {"status": "done"}, synchronize_session=False)
+    # Status job saja tidak cukup: item ``processing`` tetap dihitung aktif walau
+    # job-nya sudah bukan ``running`` (lihat crud._reprocess_item_active_clause).
+    db.query(ReprocessJobItem).filter(
+        ReprocessJobItem.status.in_(["pending", "processing"])
+    ).update({"status": "done"}, synchronize_session=False)
     db.flush()
 
 
