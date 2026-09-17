@@ -268,6 +268,32 @@ def test_permissions_for_tidak_mengubah_set_cache_role(monkeypatch, collection_e
     assert cached == {P.MENU_RESULTS}
 
 
+@pytest.mark.parametrize("role,scope,campaigns,expected", [
+    ("qc", "cakupan_kustom", ["Collection"], False),
+    ("qc", None, ["Collection"], False),
+    ("admin", "cakupan_kustom", None, False),
+    ("admin", P.SCOPE_ALL, None, True),
+    ("demo", P.SCOPE_ALL, None, True),
+    ("qc", P.SCOPE_QC_ASSIGNED, ["Collection"], True),
+    ("qc_support", P.SCOPE_QC_SUPPORT_OWN, ["Collection"], True),
+])
+def test_collection_results_visible_hanya_cakupan_yang_dikenal(role, scope, campaigns, expected):
+    """Cakupan di luar all/qc_assigned/qc_support_own ditolak
+    ``qc_scope.collection_view_scope`` — menunya tidak boleh muncul dengan daftar yang
+    pasti kosong."""
+    assert rbac.collection_results_visible(role, scope, campaigns, COLLECTION) is expected
+
+
+def test_reject_collection_only_stats_env_kosong_tanpa_kerja_db(monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", "")
+
+    def _jangan_dipanggil(*a, **kw):
+        raise AssertionError("stats_views_for tidak boleh dipanggil saat env kosong")
+
+    monkeypatch.setattr(rbac, "stats_views_for", _jangan_dipanggil)
+    assert rbac.reject_collection_only_stats(None, _USER) is None
+
+
 # --------------------------------------------------------------------------
 # stats_views — subset Cashline/Collection untuk menu Stats (/auth/me)
 # --------------------------------------------------------------------------

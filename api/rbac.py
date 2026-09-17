@@ -163,6 +163,10 @@ def permissions_for(db: Session, user) -> set:
     return out
 
 
+# Cakupan yang diterima ``api.qc_scope.collection_view_scope``.
+COLLECTION_VIEW_SCOPES = frozenset({perms.SCOPE_ALL, perms.SCOPE_QC_ASSIGNED, perms.SCOPE_QC_SUPPORT_OWN})
+
+
 def collection_results_visible(role, data_scope, campaigns, collection_campaigns) -> bool:
     """Apakah menu Collection Results diberikan (dihitung saat request, tidak
     pernah disimpan di role).
@@ -177,7 +181,9 @@ def collection_results_visible(role, data_scope, campaigns, collection_campaigns
     Definisi cakupannya sama dengan ``api.qc_scope.collection_view_scope`` — menu
     hanya muncul bagi yang memang bisa melihat isinya.
     """
-    if not collection_campaigns or perms.is_sales_scope(data_scope):
+    if not collection_campaigns or data_scope not in COLLECTION_VIEW_SCOPES:
+        # Cakupan sales maupun cakupan kustom/tak dikenal ditolak
+        # ``collection_view_scope`` — menu tanpa isi tidak diberikan, juga ke Admin.
         return False
     if role in perms.ADMIN_LIKE_ROLES:
         return True
@@ -239,6 +245,9 @@ def stats_views_for(db: Session, user) -> list:
 def reject_collection_only_stats(db: Session, user) -> None:
     """403 bila login hanya berhak Stats Collection. Endpoint Stats Cashline
     sebelumnya cukup login; perilaku itu dipertahankan untuk semua login lain."""
+    if not collection_campaigns_from_env():
+        # Fitur Collection mati: tidak ada login Collection-only, tanpa query apa pun.
+        return
     views = stats_views_for(db, user)
     if STATS_COLLECTION in views and STATS_CASHLINE not in views:
         raise HTTPException(status_code=403, detail="Akses ditolak")

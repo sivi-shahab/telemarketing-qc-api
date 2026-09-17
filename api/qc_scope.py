@@ -241,14 +241,16 @@ def collection_view_scope(db, current_user):
     yang langsung bisa diteruskan ke ``crud.list_collection_results``. Daftar
     ``campaigns`` bisa KOSONG — artinya tidak ada campaign Collection dalam cakupan.
     """
-    from api.rbac import collection_campaigns_from_env, data_scope_for, effective_campaigns_for
+    from api.rbac import (
+        COLLECTION_VIEW_SCOPES, collection_campaigns_from_env, data_scope_for, effective_campaigns_for,
+    )
     from api import permissions as P
 
     env = collection_campaigns_from_env()
     if not env:
         return None
     scope = data_scope_for(db, current_user)
-    if scope not in (P.SCOPE_ALL, P.SCOPE_QC_ASSIGNED, P.SCOPE_QC_SUPPORT_OWN):
+    if scope not in COLLECTION_VIEW_SCOPES:
         return None
     effective = effective_campaigns_for(db, current_user)
     if effective is None:
