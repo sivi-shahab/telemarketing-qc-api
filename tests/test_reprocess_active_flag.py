@@ -126,6 +126,47 @@ def test_job_dibatalkan_tidak_menahan_tombol(db):
     assert crud.active_reprocess_ticket_ids(db, [tid]) == set()
 
 
+def test_item_processing_pada_job_dibatalkan_tetap_menahan_tombol(db):
+    """Batalkan hanya melewati item ``pending``; item ``processing`` dibiarkan
+    selesai (``cancel_reprocess_job``). Worker masih memegang tiket itu dan sebentar
+    lagi menghapus row lamanya, jadi tombol Reprocess/Delete harus tetap ditahan.
+
+    Kejadian 17 September 2026: job massal dibatalkan saat 8 item sedang diproses;
+    menu Results hanya menampilkan 1 tiket "Memproses..." (job lain yang masih
+    ``running``), sementara 8 tiket itu tampil siap ditekan lagi.
+    """
+    from db import crud
+
+    tid = _tid("E2")
+    _job_with_item(db, job_status="cancelled", item_status="processing", ticket_id=tid,
+                   scope="campaign")
+    assert tid in crud.active_reprocess_ticket_ids(db, [tid])
+
+
+def test_pengaman_409_menolak_tiket_yang_masih_diproses_job_dibatalkan(db):
+    """Tanpa ini POST /reprocess_ticket membuat row baru KEDUA untuk tiket yang
+    sama, dan tiket itu berakhir dengan dua row."""
+    from db import crud
+
+    tid = _tid("E3")
+    _, item = _job_with_item(db, job_status="cancelled", item_status="processing",
+                             ticket_id=tid, scope="campaign")
+    active = crud.active_reprocess_item_for_ticket(db, tid)
+    assert active is not None and active.id == item.id
+
+
+def test_job_dibatalkan_dengan_item_processing_tidak_memblokir_reprocess_all(db):
+    """Yang ditahan per TIKET, bukan seluruh Reprocess All: job yang dibatalkan
+    bukan lagi job massal yang berjalan, dan tiket yang masih diproses sudah
+    dilewati lewat ``active_reprocess_ticket_ids``."""
+    from db import crud
+
+    _netralkan_job_berjalan(db)
+    _job_with_item(db, job_status="cancelled", item_status="processing",
+                   ticket_id=_tid("E4"), scope="campaign")
+    assert crud.running_reprocess_job(db, scope="campaign") is None
+
+
 def test_job_massal_juga_menahan_tombol(db):
     """Job scope ``campaign`` membekukan row tiket ini juga, jadi tombolnya ikut
     ditahan — ``reprocess_single_ticket`` memang menolaknya dengan 409."""
@@ -223,10 +264,15 @@ def _netralkan_job_berjalan(db):
     tanpa ini hasilnya bergantung pada apa yang kebetulan berjalan di dunia luar.
     Perubahannya ikut ter-rollback.
     """
-    from db.models import ReprocessJob
+    from db.models import ReprocessJob, ReprocessJobItem
 
     db.query(ReprocessJob).filter(ReprocessJob.status == "running").update(
         {"status": "done"}, synchronize_session=False)
+    # Status job saja tidak cukup: item ``processing`` tetap dihitung aktif walau
+    # job-nya sudah bukan ``running`` (lihat crud._reprocess_item_active_clause).
+    db.query(ReprocessJobItem).filter(
+        ReprocessJobItem.status.in_(["pending", "processing"])
+    ).update({"status": "done"}, synchronize_session=False)
     db.flush()
 
 
@@ -320,7 +366,8 @@ def test_aturan_sama_dengan_pengaman_409(db):
     for job_status, item_status, umur in [
         ("running", "pending", 0), ("running", "processing", 0),
         ("running", "done", 0), ("running", "failed", 0), ("running", "skipped", 0),
-        ("cancelled", "pending", 0), ("done", "pending", 0),
+        ("cancelled", "pending", 0), ("cancelled", "processing", 0),
+        ("done", "pending", 0),
         # Umur ikut diuji di sini, bukan hanya di test-nya sendiri: justru pasangan
         # inilah yang paling mudah menyimpang kalau nanti salah satu fungsi diubah.
         ("running", "pending", tua), ("running", "processing", tua),
