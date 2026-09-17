@@ -172,6 +172,7 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
         effective_campaigns_for,
         permissions_for,
         role_label_for,
+        stats_views_for,
     )
 
     return MeResponse(
@@ -189,4 +190,5 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
         # role — inilah yang benar-benar dilihat user, jadi itu pula yang ditampilkan.
         # ``None`` (tanpa pembatasan) dikirim sebagai list kosong.
         campaigns=effective_campaigns_for(db, current_user) or [],
+        stats_views=stats_views_for(db, current_user),
     )

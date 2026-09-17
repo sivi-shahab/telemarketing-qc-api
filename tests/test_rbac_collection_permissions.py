@@ -246,3 +246,29 @@ def test_permissions_for_tidak_mengubah_set_cache_role(monkeypatch, collection_e
     monkeypatch.setattr(rbac, "effective_campaigns_for", lambda db, u: None)
     rbac.permissions_for(None, _USER)
     assert cached == {P.MENU_RESULTS}
+
+
+# --------------------------------------------------------------------------
+# stats_views — subset Cashline/Collection untuk menu Stats (/auth/me)
+# --------------------------------------------------------------------------
+
+ENV = frozenset({"collection"})
+ALL = {P.MENU_STATS}
+
+
+@pytest.mark.parametrize("role,perms_,scope,campaigns,env,expected", [
+    ("admin", ALL, "all", None, ENV, ["cashline", "collection"]),
+    ("demo", ALL, "all", None, ENV, ["cashline", "collection"]),
+    ("admin", ALL, "all", None, frozenset(), ["cashline"]),
+    ("spq_head", ALL, "all", None, ENV, ["cashline"]),
+    ("qc", ALL, "qc_assigned", ["Collection"], ENV, ["collection"]),
+    ("qc", ALL, "qc_assigned", ["Cashline"], ENV, ["cashline"]),
+    ("qc", ALL, "qc_assigned", ["Cashline", " COLLECTION "], ENV, ["cashline", "collection"]),
+    ("team_leader", ALL, "sales_tl", ["Cashline", "Collection"], ENV, ["cashline"]),
+    ("sales_agent", ALL, "sales_agent", ["Collection"], ENV, []),
+    ("qc", ALL, "qc_assigned", [], ENV, []),
+    ("qc", set(), "qc_assigned", ["Collection"], ENV, []),
+    ("qc", ALL, "qc_assigned", ["Collection"], frozenset(), ["cashline"]),
+])
+def test_stats_views(role, perms_, scope, campaigns, env, expected):
+    assert rbac.stats_views(role, perms_, scope, campaigns, env) == expected

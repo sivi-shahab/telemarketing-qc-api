@@ -180,6 +180,53 @@ def collection_results_visible(data_scope, campaigns, collection_campaigns) -> b
     return any(is_collection(name, collection_campaigns) for name in campaigns)
 
 
+STATS_CASHLINE = "cashline"
+STATS_COLLECTION = "collection"
+
+
+def stats_views(role, permissions, data_scope, campaigns, collection_campaigns) -> list:
+    """Tampilan Stats yang boleh dibuka: subset berurutan dari cashline/collection.
+
+    Keputusan 17 September 2026: KEDUANYA hanya untuk Admin (``ADMIN_LIKE_ROLES``) dan
+    login yang di-assign campaign Collection sekaligus non-Collection. Login non-Admin
+    tanpa batas campaign tetap Cashline saja. Env kosong = perilaku lama (Cashline).
+    Cakupan sales tidak pernah mendapat Collection (tidak ada pemetaan roster sales).
+    """
+    if perms.MENU_STATS not in permissions:
+        return []
+    if not collection_campaigns:
+        return [STATS_CASHLINE]
+    if role in perms.ADMIN_LIKE_ROLES:
+        return [STATS_CASHLINE, STATS_COLLECTION]
+    if campaigns is None:
+        return [STATS_CASHLINE]
+    has_collection = any(is_collection(c, collection_campaigns) for c in campaigns)
+    has_other = any(not is_collection(c, collection_campaigns) for c in campaigns)
+    views = []
+    if has_other:
+        views.append(STATS_CASHLINE)
+    if has_collection and not perms.is_sales_scope(data_scope):
+        views.append(STATS_COLLECTION)
+    return views
+
+
+def stats_views_for(db: Session, user) -> list:
+    views = stats_views(
+        getattr(user, "role", None),
+        permissions_for(db, user),
+        data_scope_for(db, user),
+        effective_campaigns_for(db, user),
+        collection_campaigns_from_env(),
+    )
+    if STATS_COLLECTION in views:
+        # Gerbang data Collection yang sama dengan daftar Collection Results: cakupan
+        # tak dikenal (None) tidak boleh mendapat tampilan yang isinya pasti ditolak.
+        from api.qc_scope import collection_view_scope
+        if collection_view_scope(db, user) is None:
+            views = [v for v in views if v != STATS_COLLECTION]
+    return views
+
+
 def data_scope_for(db: Session, user) -> str:
     return _role_def(db, getattr(user, "role", None))["data_scope"]
 

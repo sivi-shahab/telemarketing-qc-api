@@ -88,3 +88,6 @@ class MeResponse(UserResponse):
     data_scope: str = "all"
     # Kosong = SEMUA campaign (bawaan setiap role sistem, termasuk ``qc``).
     campaigns: list[str] = []
+    # Tampilan menu Stats yang boleh dibuka: subset ["cashline", "collection"].
+    # Dua nilai = dashboard menampilkan toggle. Lihat ``api.rbac.stats_views``.
+    stats_views: list[str] = []
