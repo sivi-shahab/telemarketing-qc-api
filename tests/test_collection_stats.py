@@ -6,10 +6,15 @@ import uuid
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
+
+from api.routers import stats as st
+from api.routers import stats_collection as sc
 from compliance.collection_report import REPORT_TYPE
 from compliance.collection_stats import aggregate_collection_stats
 from db import crud
-from db.models import Result, ResultData
+from db.models import Result, ResultData, User, UserCampaign
 
 
 def _res(status="done", generated_at=None, uploaded_at=datetime(2026, 9, 17, 3, 0)):
@@ -170,3 +175,73 @@ def test_stats_rows_filter_tanggal_wib(db):
 
 def test_stats_rows_campaign_kosong(db):
     assert crud.collection_stats_rows(db, campaigns=[]) == []
+
+
+# --------------------------------------------------------------------------
+# Endpoint GET /stats/collection + gerbang Stats Cashline
+# --------------------------------------------------------------------------
+# ``_user`` ditiru dari ``tests/test_collection_scope.py`` — user + UserCampaign
+# sungguhan, karena ``effective_campaigns_for`` membaca dari tabel itu.
+
+def _user(db, role, campaigns=()):
+    tag = uuid.uuid4().hex[:8]
+    user = User(username=f"uji-stats-{tag}", email=f"uji-stats-{tag}@example.invalid",
+                hashed_password="x", role=role)
+    db.add(user)
+    db.flush()
+    for c in campaigns:
+        db.add(UserCampaign(user_id=user.id, campaign=c))
+    db.flush()
+    return user
+
+
+@pytest.fixture()
+def env_on(monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", CAMP)
+
+
+def _call(db, user, **kw):
+    return sc.collection_stats(date_start=kw.get("date_start"), date_end=kw.get("date_end"),
+                               campaign=kw.get("campaign"), db=db, current_user=user)
+
+
+def test_qc_collection_only_sepakat_dengan_daftar(db, env_on):
+    user = _user(db, "qc", [CAMP])
+    for _ in range(2):
+        _seed(db)
+    out = _call(db, user)
+    from api.routers import collection as col
+    listed = col.list_collection_results(status=None, ai_status=None, ticket_id=None, date_start=None,
+                                         date_end=None, page=1, limit=100, db=db, current_user=user)
+    assert out["kpi"]["total"] == listed["total"] == 2
+    assert out["kpi"]["pass"] == 2
+
+
+def test_login_sales_ditolak(db, env_on):
+    user = _user(db, "sales_agent", [CAMP])
+    with pytest.raises(HTTPException) as exc:
+        _call(db, user)
+    assert exc.value.status_code == 403
+
+
+def test_env_kosong_ditolak(db, monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", "")
+    with pytest.raises(HTTPException) as exc:
+        _call(db, _user(db, "admin"))
+    assert exc.value.status_code == 403
+
+
+def test_campaign_di_luar_cakupan_payload_nol(db, env_on):
+    _seed(db)
+    out = _call(db, _user(db, "admin"), campaign="ZZLain")
+    assert out["kpi"]["total"] == 0
+
+
+def test_stats_cashline_menolak_collection_only(db, env_on):
+    with pytest.raises(HTTPException) as exc:
+        st.stats_overview(db=db, current_user=_user(db, "qc", [CAMP]))
+    assert exc.value.status_code == 403
+
+
+def test_stats_cashline_tetap_melayani_admin(db, env_on):
+    assert "overview" in st.stats_overview(db=db, current_user=_user(db, "admin"))

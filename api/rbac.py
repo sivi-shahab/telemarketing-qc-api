@@ -227,6 +227,14 @@ def stats_views_for(db: Session, user) -> list:
     return views
 
 
+def reject_collection_only_stats(db: Session, user) -> None:
+    """403 bila login hanya berhak Stats Collection. Endpoint Stats Cashline
+    sebelumnya cukup login; perilaku itu dipertahankan untuk semua login lain."""
+    views = stats_views_for(db, user)
+    if STATS_COLLECTION in views and STATS_CASHLINE not in views:
+        raise HTTPException(status_code=403, detail="Akses ditolak")
+
+
 def data_scope_for(db: Session, user) -> str:
     return _role_def(db, getattr(user, "role", None))["data_scope"]
 
