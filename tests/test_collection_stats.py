@@ -123,6 +123,27 @@ def test_agent_dikelompokkan_dan_tidak_disebut():
     assert [a["agent"] for a in agents[1:]] == ["Andi", "Tidak disebut"]
 
 
+def test_status_tak_dikenal_masuk_diproses_bucket_kpi_menjumlah():
+    rows = [(_res(), _rep()), (_res("pending"), None), (_res("queued"), None), (_res(None), None),
+            (_res("failed"), None)]
+    k = aggregate_collection_stats(rows)["kpi"]
+    assert (k["total"], k["done"], k["in_progress"], k["failed"]) == (5, 1, 3, 1)
+    assert k["done"] + k["in_progress"] + k["failed"] == k["total"]
+
+
+def test_critical_item_code_distrip_kosong_dan_strip_diabaikan():
+    crit = {"status": "FAIL", "checked_items": [
+        {"item_code": " K1 ", "requirement": "tidak mengancam", "status": "FAIL"},
+        {"item_code": "K1", "requirement": "tidak mengancam", "status": "FAIL"},
+        {"item_code": "", "requirement": "kosong", "status": "FAIL"},
+        {"item_code": " - ", "requirement": "strip", "status": "FAIL"},
+        {"requirement": "tanpa kode", "status": "FAIL"},
+        {"item_code": None, "requirement": "null", "status": "FAIL"}]}
+    out = aggregate_collection_stats([(_res(), _rep(critical=crit))])
+    assert out["critical"]["fail"] == 1
+    assert out["critical"]["items"] == [{"item_code": "K1", "requirement": "tidak mengancam", "fail": 2}]
+
+
 def test_komitmen():
     rows = [(_res(), _rep(commit="COMMITTED_TO_PAY")), (_res(), _rep(commit="REFUSED")),
             (_res(), _rep(commit="aneh"))]
@@ -134,13 +155,13 @@ CAMP = "ZZStatsCollection"
 
 
 def _seed(db, *, status="done", campaign=CAMP, n_data=1, uploaded_by_role=None,
-          uploaded_at=datetime(2026, 9, 17, 3, 0)):
+          uploaded_at=datetime(2026, 9, 17, 3, 0), result_json=None):
     r = Result(id=uuid.uuid4(), campaign=campaign, status=status, uploaded_by_role=uploaded_by_role,
                source_files=[f"ZS{uuid.uuid4().hex[:8]}_call.pdf"], uploaded_at=uploaded_at)
     db.add(r)
     db.flush()
     for _ in range(n_data):
-        db.add(ResultData(result_id=r.id, result_json=_rep()))
+        db.add(ResultData(result_id=r.id, result_json=_rep() if result_json is None else result_json))
     db.flush()
     return r
 
@@ -171,6 +192,22 @@ def test_stats_rows_filter_tanggal_wib(db):
                                           date_end=date(2026, 9, 17))) == 1
     assert crud.collection_stats_rows(db, campaigns=[CAMP], date_start=date(2026, 9, 16),
                                       date_end=date(2026, 9, 16)) == []
+
+
+def test_filter_ai_status_daftar_sepakat_dengan_kpi_stats(db):
+    """Tiket done tanpa laporan berbobot tidak ikut filter PASS/FAIL daftar Collection
+    Results — sama dengan Stats yang menghitungnya sebagai ``without_report``."""
+    gagal = _rep(items=[{"item_code": "A", "weight": 10, "status": "BELUM_SESUAI", "category": "Pembukaan"}])
+    _seed(db)
+    _seed(db, result_json=gagal)
+    _seed(db, result_json={"evaluation": {}})  # done, bukan laporan berbobot
+    kw = {"campaigns": [CAMP]}
+    kpi = aggregate_collection_stats(crud.collection_stats_rows(db, **kw))["kpi"]
+    _, fail_total = crud.list_collection_results(db, ai_status="FAIL", limit=100, **kw)
+    _, pass_total = crud.list_collection_results(db, ai_status="PASS", limit=100, **kw)
+    assert kpi["without_report"] == 1
+    assert fail_total == kpi["fail"] == 1
+    assert pass_total == kpi["pass"] == 1
 
 
 def test_stats_rows_campaign_kosong(db):
