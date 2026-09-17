@@ -31,9 +31,20 @@ Dihitung di server, satu fungsi di `api/rbac.py`:
 stats_views_for(db, user) -> list[str]   # subset berurutan dari ["cashline", "collection"]
 ```
 
-- **"collection"** bila `collection_results_visible(data_scope, effective_campaigns, env)` bernilai True — definisi yang sama dengan menu Collection Results (fitur hidup, cakupan bukan sales, campaign tidak dibatasi atau beririsan dengan Collection).
-- **"cashline"** bila user memegang `menu.stats` DAN (campaign efektif `None` ATAU ada campaign efektif yang bukan Collection). Env kosong ⇒ semua campaign dianggap bukan Collection ⇒ perilaku lama.
-- Login tanpa `menu.stats` tetap tidak melihat menu Stats (menu tidak berubah); `stats_views` untuk login itu hanya dipakai bila ia memang memegang `menu.stats`. Untuk "collection", syarat `menu.stats` juga berlaku.
+Keputusan user (17 September 2026): **hanya Admin dan login yang di-assign campaign Collection DAN Cashline** yang mendapat keduanya (toggle). Login tanpa batas campaign selain Admin tidak otomatis mendapat Stats Collection.
+
+Semua syarat di bawah hanya berlaku bila user memegang `menu.stats` (tanpa itu `stats_views = []`) dan fitur Collection hidup (`COLLECTION_CAMPAIGNS` tidak kosong); env kosong ⇒ `["cashline"]` untuk setiap pemegang `menu.stats` (perilaku lama).
+
+- **Admin** (`role` ∈ `ADMIN_LIKE_ROLES`, yaitu `admin` dan `demo` yang izinnya disamakan dengan Admin) ⇒ `["cashline", "collection"]`.
+- **Selain Admin**, dengan `campaigns = effective_campaigns_for(db, user)`:
+  - `None` (tidak dibatasi campaign) ⇒ `["cashline"]`.
+  - daftar berisi **hanya** campaign Collection ⇒ `["collection"]`, kecuali cakupan sales (Collection tidak punya pemetaan roster sales) ⇒ `[]`.
+  - daftar berisi **hanya** campaign non-Collection ⇒ `["cashline"]`.
+  - daftar berisi **keduanya** ⇒ `["cashline", "collection"]`; bila cakupan sales ⇒ `["cashline"]`.
+  - daftar kosong ⇒ `[]`.
+- Untuk "collection" pada login non-Admin, `api.qc_scope.collection_view_scope` tetap menjadi gerbang data; bila ia `None` (mis. cakupan tak dikenal) "collection" tidak diberikan.
+
+Catatan: aturan ini sengaja lebih sempit daripada visibilitas menu **Collection Results** (`collection_results_visible`, yang juga memberi menu itu ke login non-sales tanpa batas campaign). Keputusan user hanya menyangkut Stats; perbedaan ini dicatat sebagai pertanyaan terbuka apakah menu Collection Results perlu diselaraskan.
 
 `/auth/me` (`MeResponse`) mendapat field baru `stats_views: list[str]`.
 
@@ -138,7 +149,7 @@ Salinan vendored: api `core/compliance/`, worker `core/compliance/`, core `src/q
 ## Pengujian
 
 - **Unit (`tests/test_collection_stats.py`)**: laporan valid campuran PASS/FAIL; laporan tanpa verdict (`TIDAK_TERSEDIA` tidak dihitung sebagai PASS/FAIL); tiket belum selesai & done tanpa laporan berbobot; agent dengan variasi huruf/spasi dan tanpa nama; basis tanggal `generated_at` vs `uploaded_at` di batas hari WIB; input kosong ⇒ pembagi nol `None`; indikator top-10 terpotong dan urutan stabil.
-- **Unit (`tests/test_rbac_collection_permissions.py`)**: `stats_views_for` untuk admin tanpa batas (env hidup ⇒ keduanya; env kosong ⇒ cashline), Collection-only (collection), Cashline-only (cashline), campuran (keduanya), sales (cashline saja), tanpa `menu.stats` (kosong).
+- **Unit (`tests/test_rbac_collection_permissions.py`)**: `stats_views_for` untuk admin & demo (env hidup ⇒ keduanya; env kosong ⇒ cashline), non-admin tanpa batas campaign (cashline saja), Collection-only (collection), Cashline-only (cashline), campuran (keduanya), sales campuran (cashline), sales Collection-only (kosong), daftar campaign kosong (kosong), tanpa `menu.stats` (kosong).
 - **DB (Postgres sementara, tidak pernah DB bersama)**: `GET /stats/collection` untuk QC Collection-only sepakat dengan `list_collection_results` (total & PASS); login sales ⇒ 403; tiket Cashline tidak ikut; isolasi qc_support; `result_data` ganda tidak menggandakan hitungan; endpoint Stats Cashline menolak Collection-only dan tetap melayani admin; env kosong ⇒ `/stats/collection` 403 dan Stats Cashline tidak berubah.
 - **Dashboard**: `npm test` (helper murni bila ada), `npm run build`. Pengecekan visual di browser dilakukan user (tidak ada kredensial).
 
@@ -147,3 +158,4 @@ Salinan vendored: api `core/compliance/`, worker `core/compliance/`, core `src/q
 - Nama agent dari LLM tidak dijamin konsisten ejaannya; pengelompokan hanya merapikan huruf/spasi, bukan mencocokkan ejaan berbeda.
 - Tanpa cache, waktu respons naik linear terhadap jumlah tiket Collection dalam rentang; bila kelak lambat, pendekatan snapshot bisa ditambahkan tanpa mengubah payload.
 - `COLLECTION_CAMPAIGNS` harus sama di API dan worker (sudah jadi syarat fitur Collection Results).
+- SPQ Head / TL QC tanpa batas campaign kini hanya melihat Stats Cashline, sementara menu Collection Results tetap terlihat bagi mereka — pertanyaan terbuka apakah menu itu juga dipersempit ke Admin + login yang di-assign Collection.
