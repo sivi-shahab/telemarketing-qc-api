@@ -146,3 +146,26 @@ def test_permissions_for_user_cashline_role_sama_tidak_berubah(db, collection_en
     assert P.MENU_PENDING_CHECK in perms
     assert P.MENU_UPLOAD_AUDIO not in perms
     assert P.MENU_UPLOAD_TRANSCRIPT not in perms
+
+
+# --------------------------------------------------------------------------
+# MENU_COLLECTION_RESULTS — menu hasil audit berbobot Collection
+# --------------------------------------------------------------------------
+
+def test_menu_collection_results_ditambahkan_untuk_login_collection():
+    out = rbac.collection_adjusted_permissions({P.MENU_RESULTS}, ["Collection"], COLLECTION)
+    assert P.MENU_COLLECTION_RESULTS in out
+
+
+def test_menu_collection_results_tidak_bocor_ke_cashline():
+    out = rbac.collection_adjusted_permissions({P.MENU_RESULTS}, ["Cashline"], COLLECTION)
+    assert P.MENU_COLLECTION_RESULTS not in out
+
+
+def test_admin_memegang_menu_collection_results():
+    assert P.MENU_COLLECTION_RESULTS in P._ADMIN_PERMISSIONS
+
+
+def test_menu_collection_results_punya_label_manage_role():
+    labels = {code for _group, rows in P.PERMISSION_GROUPS for code, _label in rows}
+    assert P.MENU_COLLECTION_RESULTS in labels
