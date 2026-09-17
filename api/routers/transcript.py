@@ -715,10 +715,12 @@ def list_transcripts(
     iso = ({"uploaded_by_role": "qc_support"}
            if data_scope_for(db, current_user) == SCOPE_QC_SUPPORT_OWN
            else {"exclude_uploaded_by_role": "qc_support"})
+    # Tiket Collection dilayani menu Collection Results (format laporan berbeda).
     items, total = crud.list_transcripts(
         db, status=status, campaign=campaign, ticket_id=ticket_id,
         ai_status=ai_status, page=page, limit=limit,
         customer_ids=scoped_customer_ids(db, current_user), **iso,
+        exclude_campaigns=sorted(collection_campaigns_from_env()) or None,
     )
     return TranscriptListResponse(items=items, total=total, page=page, limit=limit)
 
