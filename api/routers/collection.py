@@ -21,7 +21,7 @@ from api.rbac import collection_campaigns_from_env, effective_campaigns_for, has
 from compliance.collection_report import (
     collection_list_row,
     is_collection_result_json,
-    normalize_weighted_report,
+    normalize_stored_report,
 )
 from compliance.processing_stages import stage_table
 from db import crud
@@ -99,7 +99,7 @@ def get_collection_result(
         data = crud.get_result_data(db, result_id)
         rj = data.result_json if data else None
         if is_collection_result_json(rj):
-            report = normalize_weighted_report(rj.get("evaluation"))
+            report = normalize_stored_report(rj.get("evaluation"))
 
     iso = lambda dt: dt.isoformat() if dt is not None else None  # noqa: E731
     return {

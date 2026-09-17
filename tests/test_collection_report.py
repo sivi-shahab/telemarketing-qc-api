@@ -10,9 +10,11 @@ from types import SimpleNamespace
 from compliance.collection_report import (
     PASSING_GRADE_RATIO,
     REPORT_TYPE,
+    apply_configured_weights,
     build_collection_result_json,
     collection_list_row,
     is_collection_result_json,
+    normalize_stored_report,
     normalize_weighted_report,
     scorecard_maximum,
 )
@@ -143,3 +145,85 @@ def test_list_row_tanpa_result_json_masih_bisa_dirender():
     assert row["score"] is None
     assert row["ai_status"] is None
     assert row["ticket_id"] is None
+
+
+# --------------------------------------------------------------------------
+# Jalur BACA: maksimum yang tersimpan tidak boleh hilang saat dinormalisasi ulang
+# --------------------------------------------------------------------------
+
+def _laporan_terpotong():
+    """Balasan terpotong: hanya 1 item (bobot 10) yang dijawab dari scorecard 150.
+    Saat ditulis worker, maksimumnya 150 dan hasilnya FAIL (10 < 135)."""
+    return normalize_weighted_report(
+        {"scorecard_result": [_item("A1", 10, "SESUAI")]}, configured_maximum=150)
+
+
+def test_normalize_stored_report_memakai_maximum_score_tersimpan():
+    stored = _laporan_terpotong()
+    assert stored["maximum_score"] == 150 and stored["ai_status"] == "FAIL"
+
+    again = normalize_stored_report(stored)
+    assert again["maximum_score"] == 150
+    assert again["passing_grade"] == 135
+    # Tanpa maksimum tersimpan, penyebutnya menyusut ke 10 dan FAIL berubah PASS.
+    assert again["ai_status"] == "FAIL"
+
+
+def test_normalize_stored_report_maximum_tidak_valid_jatuh_ke_jumlah_item():
+    for bad in (None, 0, -5, "150", True, float("nan")):
+        ev = {"maximum_score": bad, "scorecard_result": [_item("A1", 10, "SESUAI")]}
+        r = normalize_stored_report(ev)
+        assert r["maximum_score"] == 10, bad
+        assert r["ai_status"] == "PASS", bad
+
+
+def test_normalize_stored_report_input_bukan_dict():
+    assert normalize_stored_report(None)["maximum_score"] == 0
+
+
+def test_list_row_memakai_maximum_score_tersimpan():
+    rj = {"report_type": REPORT_TYPE, "evaluation": _laporan_terpotong()}
+    row = collection_list_row(SimpleNamespace(
+        id="r1", campaign="Collection", source_files=["T1_a.pdf"], status="done",
+        uploaded_at=None, completed_at=None), rj)
+    assert row["maximum_score"] == 150
+    assert row["ai_status"] == "FAIL"
+
+
+# --------------------------------------------------------------------------
+# Bobot & item_score dari model tidak dipercaya
+# --------------------------------------------------------------------------
+
+def test_item_score_dijepit_ke_rentang_nol_sampai_bobot():
+    r = normalize_weighted_report({"scorecard_result": [
+        _item("A1", 5, "SESUAI", item_score=50),
+        _item("A2", 5, "BELUM_SESUAI", item_score=-3),
+        _item("A3", 5, "SESUAI", item_score=2.5),
+    ]})
+    assert [i["item_score"] for i in r["scorecard_result"]] == [5, 0, 2.5]
+    assert r["ai_score_phase_2"] == 7.5
+
+
+def test_apply_configured_weights_menimpa_bobot_model_per_item_code():
+    raw = {"call_id": "x", "scorecard_result": [
+        _item("A1", 99, "SESUAI"), _item("A2", 1, "SESUAI"), _item("ZZ", 7, "SESUAI"),
+        "bukan dict",
+    ]}
+    config = '[{"item_code": "A1", "weight": 4}, {"item_code": "A2", "weight": 6}, {"item_code": "B1", "weight": 3}]'
+    out = apply_configured_weights(raw, config)
+    weights = [i["weight"] for i in out["scorecard_result"] if isinstance(i, dict)]
+    # ZZ tidak ada di konfigurasi -> bobot model dipertahankan.
+    assert weights == [4, 6, 7]
+    assert out["call_id"] == "x"
+    # Masukan tidak diubah di tempat.
+    assert raw["scorecard_result"][0]["weight"] == 99
+
+    report = normalize_weighted_report(out, configured_maximum=13)
+    assert report["ai_score_phase_2"] == 17  # 4 + 6 + 7
+
+
+def test_apply_configured_weights_konfigurasi_tidak_terbaca_tidak_mengubah_apa_pun():
+    raw = {"scorecard_result": [_item("A1", 9, "SESUAI")]}
+    for bad in (None, "", "bukan json", '{"a": 1}', '[{"item_code": "A1", "weight": "4"}]'):
+        assert apply_configured_weights(raw, bad)["scorecard_result"][0]["weight"] == 9, bad
+    assert apply_configured_weights(None, '[{"item_code": "A1", "weight": 4}]') is None
