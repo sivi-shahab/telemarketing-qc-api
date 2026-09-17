@@ -139,3 +139,33 @@ def test_detail_done_mengembalikan_laporan_ternormalisasi(monkeypatch):
     assert out["report"]["ai_score_phase_2"] == 4
     assert out["report"]["ai_status"] == "PASS"
     assert out["source_files"] == ["1_a.pdf"]
+
+
+def test_list_collection_results_filter_ai_status_memakai_maximum_tersimpan(db):
+    """Laporan tersimpan dari balasan terpotong: 1 item bobot 10 SESUAI, tetapi
+    maksimum konfigurasi 150 -> FAIL. Filter PASS tidak boleh menangkapnya."""
+    ev = {"maximum_score": 150,
+          "scorecard_result": [{"weight": 10, "status": "SESUAI", "item_code": "A"}]}
+    r = _seed(db, "ZZTestCollection", evaluation=ev)
+    _, total_pass = crud.list_collection_results(db, campaigns=["ZZTestCollection"], ai_status="PASS")
+    rows, total_fail = crud.list_collection_results(db, campaigns=["ZZTestCollection"], ai_status="FAIL")
+    assert total_pass == 0
+    assert total_fail == 1 and str(rows[0][0].id) == str(r.id)
+
+
+def test_list_collection_results_satu_baris_per_result_dengan_result_data_terbaru(db):
+    """Dua baris result_data (acks_late / proses ulang) tidak boleh menggandakan
+    baris daftar; yang terbaca adalah evaluasi TERBARU."""
+    r = _seed(db, "ZZTestCollection", evaluation=_failing_eval())
+    db.add(ResultData(result_id=r.id, created_at=datetime(2030, 1, 1),
+                      result_json={"report_type": REPORT_TYPE, "evaluation": _passing_eval(),
+                                   "penanda": "terbaru"}))
+    db.flush()
+
+    rows, total = crud.list_collection_results(db, campaigns=["ZZTestCollection"], limit=100)
+    assert total == 1 and len(rows) == 1
+    assert rows[0][1]["penanda"] == "terbaru"
+
+    rows_pass, total_pass = crud.list_collection_results(
+        db, campaigns=["ZZTestCollection"], ai_status="PASS", limit=100)
+    assert total_pass == 1 and len(rows_pass) == 1
