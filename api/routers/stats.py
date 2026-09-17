@@ -452,6 +452,9 @@ def _resolve_filtered_results(
         allowed = {c.strip().casefold() for c in role_campaigns}
         if campaign.strip().casefold() not in allowed:
             return [], 0
+    # Tiket Collection dilayani menu Collection Results (format laporan berbeda).
+    from api.rbac import collection_campaigns_from_env
+    _exclude = sorted(collection_campaigns_from_env()) or None
     # Sales Agent (TL) & QC (agent) are scoped to their tickets; other roles: all.
     scoped_cids = _scoped_customer_ids(db, current_user)
     # Hierarchy dropdown (AM / TL / TLO). Narrows WITHIN the role scope above —
@@ -546,7 +549,7 @@ def _resolve_filtered_results(
         # lalu saring di Python.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
-            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         all_ids = [str(r.id) for r in all_results]
         appeal_all = crud.error_code_appeals_for_results(db, all_ids)
@@ -587,7 +590,7 @@ def _resolve_filtered_results(
         # pendapat dengan layar.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
-            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         # AI Status baru ada setelah evaluasi selesai, jadi hasil yang belum ``done``
         # tidak mungkin cocok dengan nilai mana pun.
@@ -604,7 +607,7 @@ def _resolve_filtered_results(
         # atas — supaya "Qualified" berarti hal yang sama persis di ketiga menu.
         all_results, _ = crud.list_results(
             db, status="done", campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1,
-            limit=1_000_000, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            limit=1_000_000, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         matched = _apply_status_filters(all_results)
         total = len(matched)
@@ -612,7 +615,7 @@ def _resolve_filtered_results(
     else:
         results, total = crud.list_results(
             db, status=status, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=page,
-            limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
     return results, total
 
@@ -1834,6 +1837,10 @@ def export_tickets_xlsx(
         if campaign.strip().casefold() not in allowed:
             campaign = None
             role_campaigns = []  # di luar cakupan -> hasil kosong, bukan melebar
+    # Tiket Collection dilayani menu Collection Results (format laporan berbeda);
+    # tidak boleh ikut di file export Results.
+    from api.rbac import collection_campaigns_from_env
+    _exclude = sorted(collection_campaigns_from_env()) or None
     scoped_cids = _scoped_customer_ids(db, current_user)
     filter_uids = agent_ids_for_hierarchy_filter(db, am_nip, tl_nip, agent_nip,
                                                  role_campaigns)
@@ -1850,7 +1857,7 @@ def export_tickets_xlsx(
     results, _total = crud.list_results(
         db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id,
         page=1, limit=1_000_000, customer_ids=scoped_cids,
-        date_start=d_start, date_end=d_end, **_iso,
+        date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
     )
 
     # Filter AI / Manual Status diterapkan di Python: keduanya DITURUNKAN per hasil
