@@ -44,7 +44,7 @@ Semua syarat di bawah hanya berlaku bila user memegang `menu.stats` (tanpa itu `
   - daftar kosong ⇒ `[]`.
 - Untuk "collection" pada login non-Admin, `api.qc_scope.collection_view_scope` tetap menjadi gerbang data; bila ia `None` (mis. cakupan tak dikenal) "collection" tidak diberikan.
 
-Catatan: aturan ini sengaja lebih sempit daripada visibilitas menu **Collection Results** (`collection_results_visible`, yang juga memberi menu itu ke login non-sales tanpa batas campaign). Keputusan user hanya menyangkut Stats; perbedaan ini dicatat sebagai pertanyaan terbuka apakah menu Collection Results perlu diselaraskan.
+Catatan: aturan ini sengaja lebih sempit daripada visibilitas menu **Collection Results** (`collection_results_visible`, yang juga memberi menu itu ke login non-sales tanpa batas campaign). Keputusan lanjutan user (17 September 2026): menu Collection Results beserta daftar/detail/PDF-nya DISELARASKAN — hanya Admin atau login yang di-assign campaign Collection (non-sales).
 
 `/auth/me` (`MeResponse`) mendapat field baru `stats_views: list[str]`.
 

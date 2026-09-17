@@ -50,6 +50,7 @@ Ia membuat jaringan + `postgres:16-alpine` sementara, menyalin `core/compliance`
 | dashboard | `src/utils/statsView.js` + `.test.mjs` (baru), `package.json` | Resolusi mode toggle (murni) |
 | dashboard | `src/stores/auth.js`, `src/views/dashboard/StatsView.vue` (ubah) | `statsViews`, toggle, muat data per mode |
 | dashboard | `src/components/collection/CollectionStatsPanel.vue` (baru) | Panel Stats Collection |
+| api | `api/rbac.py`, `api/qc_scope.py` (ubah, Task 7) | Menu & cakupan Collection Results = Admin atau di-assign Collection |
 
 ---
 
@@ -1003,8 +1004,44 @@ git -C telemarketing-qc-dashboard commit -m "feat(stats): panel Stats Collection
 
 ---
 
+### Task 7: Menu & cakupan Collection Results memakai aturan campaign yang sama
+
+Keputusan user (17 September 2026): menu **Collection Results** (dan data di baliknya: daftar, detail, PDF) memakai aturan yang sama dengan Stats — **Admin** (`ADMIN_LIKE_ROLES`) atau login yang **di-assign** campaign Collection. Login non-Admin tanpa batas campaign (`effective_campaigns_for` = `None`, mis. SPQ Head / TL QC pusat) tidak lagi melihat Collection.
+
+**Files:**
+- Modify: `telemarketing-qc-api/api/rbac.py` (`collection_results_visible` + pemanggilnya di `permissions_for`), `api/qc_scope.py` (`collection_view_scope`)
+- Test: `tests/test_rbac_collection_permissions.py`, `tests/test_collection_scope.py`, `tests/test_collection_stats.py`
+
+**Interfaces:**
+- Produces:
+  - `collection_results_visible(role, data_scope, campaigns, collection_campaigns) -> bool` — parameter `role` DITAMBAHKAN di depan. True bila env tidak kosong DAN cakupan bukan sales DAN (`role` ∈ `ADMIN_LIKE_ROLES` ATAU (`campaigns` bukan `None` DAN ada campaign Collection di dalamnya)).
+  - `collection_view_scope(db, user)`: bila role bukan Admin dan `effective_campaigns_for` = `None` ⇒ `None`. Admin tanpa batas ⇒ `campaigns = sorted(env)` seperti sekarang.
+  - `stats_views` (Task 3) tetap sepakat: login yang mendapat `"collection"` di Stats = login yang melihat menu Collection Results (kecuali syarat `menu.stats`).
+
+- [ ] **Step 1: Ubah/ tambah test (gagal dulu)**
+  - Ganti test yang saat ini mengharapkan login non-Admin tanpa batas campaign (`effective=None`, mis. `tests/test_rbac_collection_permissions.py` sekitar baris 208–209) mendapat `MENU_COLLECTION_RESULTS`: sekarang harus TIDAK mendapat menu; tambahkan kasus Admin tanpa batas ⇒ mendapat menu, demo ⇒ mendapat menu.
+  - `tests/test_collection_scope.py`: tambah kasus DB user `spq_head` (atau role non-Admin `data_scope: all`) tanpa `user_campaigns` ⇒ `collection_view_scope` = `None`, daftar kosong, detail 404/403, `collection_can_view` False; Admin tanpa batas ⇒ tetap melihat tiket Collection.
+  - Sesuaikan test lain yang memanggil `collection_results_visible` dengan signature baru.
+  - `tests/test_collection_stats.py`: tambah test bahwa untuk sekumpulan login (admin, demo, spq_head tanpa campaign, qc Collection-only, qc campuran, qc Cashline-only, sales campuran) `("collection" in stats_views_for) == (MENU_COLLECTION_RESULTS in permissions_for)` — dengan `menu.stats` dimiliki semua login tersebut.
+
+  Run: `RUN_DB_TESTS "tests/test_rbac_collection_permissions.py tests/test_collection_scope.py tests/test_collection_stats.py -p no:warnings"` → FAIL pada kasus baru.
+
+- [ ] **Step 2: Implementasi**
+  - `collection_results_visible`: tambah parameter `role`; logika seperti di Interfaces; perbarui docstring (sebut keputusan 17 September 2026).
+  - `permissions_for`: teruskan `getattr(user, "role", None)`.
+  - `collection_view_scope`: sesudah pengecekan scope sales/tak dikenal, bila `effective is None` dan role bukan Admin ⇒ `return None`.
+  - Rapikan `stats_views` (Task 3) agar memakai `collection_results_visible(role, data_scope, campaigns, env)` untuk bagian Collection — satu definisi, bukan dua.
+
+- [ ] **Step 3: Jalankan suite penuh**
+  Run: `RUN_DB_TESTS "tests -p no:warnings"` → seluruh suite lulus.
+
+- [ ] **Step 4: Commit**
+  `fix(rbac): Collection Results & Stats Collection hanya Admin dan login yang di-assign Collection`
+
+---
+
 ## Catatan untuk eksekusi
 
 - Tidak ada perubahan worker selain sinkron core (Task 1, 2).
 - Tidak ada push/PR/deploy/perubahan `.env` dalam rencana ini.
-- Pertanyaan terbuka (tidak dikerjakan): apakah menu **Collection Results** juga dipersempit ke Admin + login yang di-assign Collection (saat ini login non-sales tanpa batas campaign tetap melihatnya).
+- Menu **Collection Results** diselaraskan dengan aturan Stats di Task 7 (keputusan user).
