@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE
 from api.qc_scope import scoped_customer_ids, ticket_id_for_result
-from api.rbac import effective_campaigns_for
+from api.rbac import collection_campaigns_from_env, effective_campaigns_for
 from api.rbac import require
 from db import crud
 from db.models import QcAssignment, User
@@ -213,6 +213,9 @@ def _auto_assign_pool(db, current_user):
         page=1,
         limit=1_000_000,
         exclude_uploaded_by_role="qc_support",
+        # Campaign Collection tidak mengenal Assign Ticket (lihat
+        # COLLECTION_REMOVED_PERMISSIONS) — tiketnya tidak boleh ikut dibagikan.
+        exclude_campaigns=sorted(collection_campaigns_from_env()) or None,
     )
     # Satu ticket id bisa punya lebih dari satu baris Result (tiket dua-agent), dan
     # assignment-nya per TIKET — jadi di-unique-kan dulu, kalau tidak tiket yang sama

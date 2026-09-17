@@ -51,7 +51,13 @@ from api.permissions import (
     STATS_QC_PERFORMANCE,
     is_sales_scope,
 )
-from api.rbac import data_scope_for, effective_campaigns_for, has_perm, require
+from api.rbac import (
+    data_scope_for,
+    effective_campaigns_for,
+    has_perm,
+    reject_collection_only_stats,
+    require,
+)
 from api.qc_scope import ensure_can_view_result, scoped_customer_ids
 from db import crud
 from compliance.badwords import badword_fail_reason, badword_rows, has_badword
@@ -377,6 +383,7 @@ def qc_performance(
     Hierarki Failure Rate tree. Restricted to Team Leader QC, SPQ Head and admin —
     the roles that manage the QC division. Dibatasi ke campaign yang menjadi cakupan
     pemanggil."""
+    reject_collection_only_stats(db, current_user)
     return crud.qc_performance_rows(db, campaign,
                                     effective_campaigns_for(db, current_user))
 
@@ -452,6 +459,9 @@ def _resolve_filtered_results(
         allowed = {c.strip().casefold() for c in role_campaigns}
         if campaign.strip().casefold() not in allowed:
             return [], 0
+    # Tiket Collection dilayani menu Collection Results (format laporan berbeda).
+    from api.rbac import collection_campaigns_from_env
+    _exclude = sorted(collection_campaigns_from_env()) or None
     # Sales Agent (TL) & QC (agent) are scoped to their tickets; other roles: all.
     scoped_cids = _scoped_customer_ids(db, current_user)
     # Hierarchy dropdown (AM / TL / TLO). Narrows WITHIN the role scope above —
@@ -546,7 +556,7 @@ def _resolve_filtered_results(
         # lalu saring di Python.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
-            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         all_ids = [str(r.id) for r in all_results]
         appeal_all = crud.error_code_appeals_for_results(db, all_ids)
@@ -587,7 +597,7 @@ def _resolve_filtered_results(
         # pendapat dengan layar.
         all_results, _ = crud.list_results(
             db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1, limit=1_000_000,
-            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         # AI Status baru ada setelah evaluasi selesai, jadi hasil yang belum ``done``
         # tidak mungkin cocok dengan nilai mana pun.
@@ -604,7 +614,7 @@ def _resolve_filtered_results(
         # atas — supaya "Qualified" berarti hal yang sama persis di ketiga menu.
         all_results, _ = crud.list_results(
             db, status="done", campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=1,
-            limit=1_000_000, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            limit=1_000_000, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
         matched = _apply_status_filters(all_results)
         total = len(matched)
@@ -612,7 +622,7 @@ def _resolve_filtered_results(
     else:
         results, total = crud.list_results(
             db, status=status, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id, page=page,
-            limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso,
+            limit=limit, customer_ids=scoped_cids, date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
         )
     return results, total
 
@@ -1020,6 +1030,7 @@ def list_results(
 
 @router.get("/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    reject_collection_only_stats(db, current_user)
     data = crud.get_stats(
         db,
         _scoped_customer_ids(db, current_user),
@@ -1030,6 +1041,7 @@ def get_stats(db: Session = Depends(get_db), current_user=Depends(get_current_us
 
 @router.get("/stats/daily", response_model=DailyStatsResponse)
 def get_daily_stats(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    reject_collection_only_stats(db, current_user)
     days = crud.get_daily_stats(db, _scoped_customer_ids(db, current_user))
     return DailyStatsResponse(days=days)
 
@@ -1101,6 +1113,7 @@ def _snapshot_for(db: Session, current_user) -> dict:
 @router.get("/stats/overview")
 def stats_overview(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """KPI cards + status donut + sales-performance table."""
+    reject_collection_only_stats(db, current_user)
     snap = _snapshot_for(db, current_user)
     return {
         "overview": snap["overview"],
@@ -1119,6 +1132,7 @@ def stats_campaigns_monthly(
 ):
     """Per (campaign, month) performance report: submissions, Risk Base breakdown
     (High/Medium/Low/System/New) and error rate. Area Manager melihat area-nya saja."""
+    reject_collection_only_stats(db, current_user)
     return _snapshot_for(db, current_user)["campaign_monthly"]
 
 
@@ -1205,6 +1219,7 @@ def stats_hierarchy(
     campaign dicocokkan case-insensitive karena kunci snapshot berasal dari
     ``Result.campaign`` apa adanya, sedangkan dropdown dari daftar campaign aktif.
     """
+    reject_collection_only_stats(db, current_user)
     snap = _snapshot_for(db, current_user)
     if not campaign:
         return _scoped_hierarchy(db, current_user, snap["hierarchy"])
@@ -1223,6 +1238,7 @@ def stats_hierarchy(
 def stats_role_counts(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """User counts per role, split into the Sales and QC divisions — for the
     "Jumlah Sales" / "Jumlah QC" tables under the Overview donut."""
+    reject_collection_only_stats(db, current_user)
     from sqlalchemy import func as _f
     from db.models import User
     rows = dict(
@@ -1243,6 +1259,7 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
     carries its ``team_leader`` so the Area Manager roster can group by TL. For an
     Area Manager the response also carries ``hierarchy`` — a scoped Team Leader ->
     Agent tree for the "Hierarki Failure Rate" tab (no Area Manager level)."""
+    reject_collection_only_stats(db, current_user)
     from compliance.stats_aggregate import (
         compute_scoped_hierarchy,
         compute_scoped_overview,
@@ -1271,6 +1288,7 @@ def stats_failure_reasons(
 ):
     """Kategori scorecard yang paling sering gagal + alasannya. Hanya untuk
     SPQ Head & Admin (tab "Failure Reason" di menu Stats)."""
+    reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
     from compliance.stats_aggregate import compute_failure_reasons
@@ -1286,6 +1304,7 @@ def stats_failure_reasons_hierarchy(
     """Failure Reason yang dipecah per hierarki sales (AM -> TL -> Agent): kategori
     scorecard terbesar MILIK tiap simpul. Sub-tab "Hierarki Based" pada tab Failure
     Reason; hak aksesnya sama dengan agregatnya."""
+    reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
     from compliance.stats_aggregate import compute_failure_reasons_hierarchy
@@ -1312,6 +1331,7 @@ def stats_ai_status_timeseries(
     ``granularity`` = daily|weekly|monthly|quarterly|semester|yearly;
     ``start``/``end`` = optional 'YYYY-MM-DD' WIB bounds; ``campaign`` optional filter;
     ``offset`` pages the default window by whole windows (0 = latest, <0 older)."""
+    reject_collection_only_stats(db, current_user)
     # ``_scoped_customer_ids`` sudah menjawab None untuk cakupan tanpa penyempitan,
     # jadi tidak perlu daftar role di sini — dan dengan begitu pembatasan CAMPAIGN
     # (yang juga berlaku pada ``data_scope: all``) ikut terbawa.
@@ -1322,6 +1342,7 @@ def stats_ai_status_timeseries(
 @router.post("/stats/refresh")
 def stats_refresh(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Force-recompute today's Statistics snapshot (SPQ Head only)."""
+    reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak dapat me-refresh statistik")
     crud.get_or_build_stats_snapshot(db, force=True)
@@ -1834,6 +1855,10 @@ def export_tickets_xlsx(
         if campaign.strip().casefold() not in allowed:
             campaign = None
             role_campaigns = []  # di luar cakupan -> hasil kosong, bukan melebar
+    # Tiket Collection dilayani menu Collection Results (format laporan berbeda);
+    # tidak boleh ikut di file export Results.
+    from api.rbac import collection_campaigns_from_env
+    _exclude = sorted(collection_campaigns_from_env()) or None
     scoped_cids = _scoped_customer_ids(db, current_user)
     filter_uids = agent_ids_for_hierarchy_filter(db, am_nip, tl_nip, agent_nip,
                                                  role_campaigns)
@@ -1850,7 +1875,7 @@ def export_tickets_xlsx(
     results, _total = crud.list_results(
         db, campaign=campaign, campaigns=role_campaigns, ticket_id=ticket_id,
         page=1, limit=1_000_000, customer_ids=scoped_cids,
-        date_start=d_start, date_end=d_end, **_iso,
+        date_start=d_start, date_end=d_end, **_iso, exclude_campaigns=_exclude,
     )
 
     # Filter AI / Manual Status diterapkan di Python: keduanya DITURUNKAN per hasil

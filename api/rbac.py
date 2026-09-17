@@ -146,13 +146,111 @@ def permissions_for(db: Session, user) -> set:
     lewat ``effective_campaigns_for``) — dibayar karena campaign efektif adalah
     properti ORANG, bukan properti role, sehingga tidak bisa ikut cache role.
     """
-    base = _role_def(db, getattr(user, "role", None))["permissions"]
+    role = _role_def(db, getattr(user, "role", None))
+    base = role["permissions"]
     collection = collection_campaigns_from_env()
     if not collection:
+        # Menu Collection Results tidak pernah berasal dari role — juga bila (masih)
+        # tersimpan di baris ``roles``. Fitur mati = menunya hilang untuk semua.
+        if perms.MENU_COLLECTION_RESULTS in base:
+            return set(base) - {perms.MENU_COLLECTION_RESULTS}
         return base
-    return collection_adjusted_permissions(
-        base, effective_campaigns_for(db, user), collection
+    effective = effective_campaigns_for(db, user)
+    out = collection_adjusted_permissions(base, effective, collection)
+    out.discard(perms.MENU_COLLECTION_RESULTS)
+    if collection_results_visible(getattr(user, "role", None), role["data_scope"], effective, collection):
+        out.add(perms.MENU_COLLECTION_RESULTS)
+    return out
+
+
+# Cakupan yang diterima ``api.qc_scope.collection_view_scope``.
+COLLECTION_VIEW_SCOPES = frozenset({perms.SCOPE_ALL, perms.SCOPE_QC_ASSIGNED, perms.SCOPE_QC_SUPPORT_OWN})
+
+
+def collection_results_visible(role, data_scope, campaigns, collection_campaigns) -> bool:
+    """Apakah menu Collection Results diberikan (dihitung saat request, tidak
+    pernah disimpan di role).
+
+    Keputusan 17 September 2026: sama dengan aturan Stats Collection (Task 3/4) —
+    Admin (``ADMIN_LIKE_ROLES``) SELALU melihatnya (selama fitur hidup dan cakupan
+    bukan sales), sedangkan login non-Admin hanya melihatnya bila campaign
+    efektifnya DIBATASI (bukan ``None``) dan berisi campaign Collection. Login
+    non-Admin tanpa batas campaign (``campaigns`` ``None``, mis. SPQ Head / TL QC
+    pusat) TIDAK LAGI mendapat menu ini — sebelumnya diperlakukan sama dengan
+    Admin, sekarang harus di-assign campaign Collection secara eksplisit.
+    Definisi cakupannya sama dengan ``api.qc_scope.collection_view_scope`` — menu
+    hanya muncul bagi yang memang bisa melihat isinya.
+    """
+    if not collection_campaigns or data_scope not in COLLECTION_VIEW_SCOPES:
+        # Cakupan sales maupun cakupan kustom/tak dikenal ditolak
+        # ``collection_view_scope`` — menu tanpa isi tidak diberikan, juga ke Admin.
+        return False
+    if role in perms.ADMIN_LIKE_ROLES:
+        return True
+    if campaigns is None:
+        return False
+    return any(is_collection(name, collection_campaigns) for name in campaigns)
+
+
+STATS_CASHLINE = "cashline"
+STATS_COLLECTION = "collection"
+
+
+def stats_views(role, permissions, data_scope, campaigns, collection_campaigns) -> list:
+    """Tampilan Stats yang boleh dibuka: subset berurutan dari cashline/collection.
+
+    Keputusan 17 September 2026: KEDUANYA hanya untuk Admin (``ADMIN_LIKE_ROLES``) dan
+    login yang di-assign campaign Collection sekaligus non-Collection. Login non-Admin
+    tanpa batas campaign tetap Cashline saja. Env kosong = perilaku lama (Cashline).
+    Cakupan sales tidak pernah mendapat Collection (tidak ada pemetaan roster sales).
+
+    Bagian Collection satu-satunya sumber kebenarannya adalah
+    ``collection_results_visible`` — sama persis dengan syarat menu Collection
+    Results, supaya login yang mendapat "collection" di sini adalah login yang
+    juga melihat menunya (lihat ``stats_views_for``).
+    """
+    if perms.MENU_STATS not in permissions:
+        return []
+    if not collection_campaigns:
+        return [STATS_CASHLINE]
+    views = []
+    if role in perms.ADMIN_LIKE_ROLES:
+        views.append(STATS_CASHLINE)
+    elif campaigns is None:
+        views.append(STATS_CASHLINE)
+    elif any(not is_collection(c, collection_campaigns) for c in campaigns):
+        views.append(STATS_CASHLINE)
+    if collection_results_visible(role, data_scope, campaigns, collection_campaigns):
+        views.append(STATS_COLLECTION)
+    return views
+
+
+def stats_views_for(db: Session, user) -> list:
+    views = stats_views(
+        getattr(user, "role", None),
+        permissions_for(db, user),
+        data_scope_for(db, user),
+        effective_campaigns_for(db, user),
+        collection_campaigns_from_env(),
     )
+    if STATS_COLLECTION in views:
+        # Gerbang data Collection yang sama dengan daftar Collection Results: cakupan
+        # tak dikenal (None) tidak boleh mendapat tampilan yang isinya pasti ditolak.
+        from api.qc_scope import collection_view_scope
+        if collection_view_scope(db, user) is None:
+            views = [v for v in views if v != STATS_COLLECTION]
+    return views
+
+
+def reject_collection_only_stats(db: Session, user) -> None:
+    """403 bila login hanya berhak Stats Collection. Endpoint Stats Cashline
+    sebelumnya cukup login; perilaku itu dipertahankan untuk semua login lain."""
+    if not collection_campaigns_from_env():
+        # Fitur Collection mati: tidak ada login Collection-only, tanpa query apa pun.
+        return
+    views = stats_views_for(db, user)
+    if STATS_COLLECTION in views and STATS_CASHLINE not in views:
+        raise HTTPException(status_code=403, detail="Akses ditolak")
 
 
 def data_scope_for(db: Session, user) -> str:

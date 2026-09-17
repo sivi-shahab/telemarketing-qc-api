@@ -65,6 +65,7 @@ MENU_DELETE_CAMPAIGN = "menu.delete_campaign"
 MENU_MANAGE_USER = "menu.manage_user"
 MENU_MANAGE_ROLE = "menu.manage_role"
 MENU_ROLE_HIERARCHY = "menu.role_hierarchy"
+MENU_COLLECTION_RESULTS = "menu.collection_results"
 
 # --- Fitur di dalam halaman Results ---
 RESULTS_EVALUATION_DETAIL = "results.evaluation_detail"
@@ -164,7 +165,7 @@ ALL_PERMISSIONS = [
     MENU_UPLOAD_TRANSCRIPT, MENU_GET_RESULT, MENU_UPLOAD_SALES_DATABASE,
     MENU_UPLOAD_QC_DATABASE, MENU_REPROCESS_TICKETS, MENU_DELETE_CAMPAIGN,
     MENU_MANAGE_USER,
-    MENU_MANAGE_ROLE, MENU_ROLE_HIERARCHY,
+    MENU_MANAGE_ROLE, MENU_ROLE_HIERARCHY, MENU_COLLECTION_RESULTS,
     RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE, RESULTS_CATEGORY_SCORE,
     RESULTS_STATUS_REASON_FULL,
     RESULTS_LAYOUT_DEMO,
@@ -208,6 +209,7 @@ ADMIN_ONLY_PERMISSIONS = {
     ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_REPROCESS,
     ADMIN_DOC_SLA_WRITE,
     TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+    MENU_COLLECTION_RESULTS,
 }
 
 # --- Penyesuaian untuk login campaign COLLECTION (2 September 2026) ---
@@ -243,6 +245,9 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
 # mengunggah ke campaign Collection.
 COLLECTION_ADDED_PERMISSIONS = frozenset({
     MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, AUDIO_UPLOAD, TRANSCRIPT_UPLOAD,
+    # Menu hasil audit berbobot Collection (17 September 2026) — halaman terpisah
+    # dari Results karena format laporannya berbeda dan tidak memakai TMS/Ascend.
+    MENU_COLLECTION_RESULTS,
 })
 
 # Role yang BOLEH memegang ADMIN_ONLY_PERMISSIONS. Daftar ini yang dipakai
@@ -258,6 +263,7 @@ PERMISSION_GROUPS = [
     ("Menu", [
         (MENU_STATS, "Stats"),
         (MENU_RESULTS, "Results"),
+        (MENU_COLLECTION_RESULTS, "Collection Results"),
         (MENU_TRANSCRIPTS, "Transkrip"),
         (MENU_ASSIGN_TICKET, "Assign Ticket"),
         (MENU_MANUAL_CHECK, "Manual Check"),
@@ -366,6 +372,8 @@ _ADMIN_PERMISSIONS = [
         MENU_REPROCESS_TICKETS,
         MENU_DELETE_CAMPAIGN, MENU_MANAGE_USER, MENU_MANAGE_ROLE,
         MENU_ROLE_HIERARCHY,
+        # Tanpa MENU_COLLECTION_RESULTS: menu itu dihitung saat request oleh
+        # ``api.rbac.permissions_for`` (hanya bila COLLECTION_CAMPAIGNS terisi).
         RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,
         RESULTS_STATUS_REASON_FULL,
         RESULTS_CATEGORY_SCORE, MANUAL_STATUS_COLUMN,
