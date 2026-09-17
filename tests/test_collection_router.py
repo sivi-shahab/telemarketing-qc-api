@@ -3,7 +3,7 @@
 Bagian DB memakai fixture ``db`` (transaksi yang selalu di-rollback, skip bila DB
 tidak terjangkau)."""
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from db import crud
 from db.models import Result, ResultData
@@ -56,3 +56,29 @@ def test_list_collection_results_filter_ai_status(db):
 
 def test_list_collection_results_daftar_campaign_kosong(db):
     assert crud.list_collection_results(db, campaigns=[]) == ([], 0)
+
+
+def test_list_collection_results_filter_tanggal_pakai_wib(db):
+    """Tanpa ``reference_data`` (jalur Collection sengaja tidak punya itu) dan tanpa
+    ``generated_at``, filter tanggal jatuh ke fallback terakhir: ``uploaded_at``
+    dikonversi WIB (UTC+7) — BUKAN tanggal UTC mentahnya. 2026-09-16 18:30 UTC adalah
+    2026-09-17 01:30 WIB, jadi hasilnya harus lolos filter tanggal 2026-09-17 dan
+    TIDAK lolos filter 2026-09-16, membuktikan konversinya benar-benar terjadi."""
+    dekat_batas = _seed(db, "ZZTestCollection", uploaded_at=datetime(2026, 9, 16, 18, 30))
+    di_luar_rentang = _seed(db, "ZZTestCollection", uploaded_at=datetime(2026, 9, 14, 10, 0))
+
+    rows, total = crud.list_collection_results(
+        db, campaigns=["ZZTestCollection"],
+        date_start=date(2026, 9, 17), date_end=date(2026, 9, 17), limit=100,
+    )
+    assert total == 1
+    assert str(rows[0][0].id) == str(dekat_batas.id)
+    assert str(di_luar_rentang.id) not in {str(r[0].id) for r in rows}
+
+    # Tanggal UTC mentahnya (16 September) TIDAK boleh menangkap baris ini — kalau
+    # tertangkap berarti fallback memakai uploaded_at UTC, bukan WIB.
+    rows_utc, total_utc = crud.list_collection_results(
+        db, campaigns=["ZZTestCollection"],
+        date_start=date(2026, 9, 16), date_end=date(2026, 9, 16), limit=100,
+    )
+    assert str(dekat_batas.id) not in {str(r[0].id) for r in rows_utc}
