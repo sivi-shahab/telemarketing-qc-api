@@ -169,3 +169,13 @@ def test_admin_memegang_menu_collection_results():
 def test_menu_collection_results_punya_label_manage_role():
     labels = {code for _group, rows in P.PERMISSION_GROUPS for code, _label in rows}
     assert P.MENU_COLLECTION_RESULTS in labels
+
+
+def test_menu_collection_results_admin_only():
+    """Sama seperti MENU_UPLOAD_AUDIO/MENU_UPLOAD_TRANSCRIPT/AUDIO_UPLOAD/
+    TRANSCRIPT_UPLOAD (sibling di COLLECTION_ADDED_PERMISSIONS): harus tetap
+    ADMIN_ONLY supaya tidak bisa disimpan langsung ke role bersama (qc,
+    team_leader_qc, spq_head) lewat Manage Role — satu-satunya jalan capability
+    ini boleh muncul di luar role admin-like adalah penyesuaian per-request di
+    ``collection_adjusted_permissions`` untuk login yang efektif Collection."""
+    assert P.MENU_COLLECTION_RESULTS in P.ADMIN_ONLY_PERMISSIONS
