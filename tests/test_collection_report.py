@@ -4,8 +4,15 @@ qc-collection/src/server/weightedReport.ts.
 Dua aturan yang dijaga: (1) setiap field yang dibaca dashboard selalu ada dengan
 tipe yang benar; (2) tidak ada verdict yang dikarang.
 """
+from datetime import datetime
+from types import SimpleNamespace
+
 from compliance.collection_report import (
     PASSING_GRADE_RATIO,
+    REPORT_TYPE,
+    build_collection_result_json,
+    collection_list_row,
+    is_collection_result_json,
     normalize_weighted_report,
     scorecard_maximum,
 )
@@ -95,3 +102,44 @@ def test_scorecard_maximum():
     assert scorecard_maximum("bukan json") is None
     assert scorecard_maximum('{"weight": 3}') is None
     assert scorecard_maximum("[]") is None
+
+
+def test_build_result_json_menandai_jenis_laporan():
+    report = normalize_weighted_report({"scorecard_result": [_item("A", 5, "SESUAI")]})
+    out = build_collection_result_json(
+        result_id="r1", campaign="Collection", source_files=["123_a.pdf"], report=report,
+        processed_at="2026-09-17T10:00:00+00:00", processing_sec=12.345)
+    assert out["report_type"] == REPORT_TYPE
+    assert out["evaluation"] is report
+    assert out["num_calls"] == 1
+    assert out["processing_sec"] == 12.35
+    assert "reference_data" not in out  # jalur Collection tidak membaca TMS/Ascend
+    assert is_collection_result_json(out)
+    assert not is_collection_result_json({"evaluation": {}})
+    assert not is_collection_result_json(None)
+
+
+def test_list_row_membaca_ulang_lewat_normalizer():
+    result = SimpleNamespace(id="r1", campaign="Collection", source_files=["777_x.pdf"],
+                             status="done", uploaded_at=datetime(2026, 9, 17, 3, 0),
+                             completed_at=None)
+    rj = {"report_type": REPORT_TYPE, "evaluation": {
+        "agent_name": "Tiwi", "scorecard_result": [_item("A", 10, "SESUAI")],
+        "critical_compliance_check": {"status": "fail"}, "error_codes": ["E01"]}}
+    row = collection_list_row(result, rj)
+    assert row["ticket_id"] == "777"
+    assert row["agent_name"] == "Tiwi"
+    assert (row["score"], row["maximum_score"], row["ai_status"]) == (10, 10, "PASS")
+    # status di-upper-case normalizer, jadi "fail" huruf kecil terbaca FAIL
+    assert row["critical_status"] == "FAIL"
+    assert row["error_code_count"] == 1
+
+
+def test_list_row_tanpa_result_json_masih_bisa_dirender():
+    result = SimpleNamespace(id="r2", campaign="Collection", source_files=[], status="processing",
+                             uploaded_at=None, completed_at=None)
+    row = collection_list_row(result, None)
+    assert row["status"] == "processing"
+    assert row["score"] is None
+    assert row["ai_status"] is None
+    assert row["ticket_id"] is None
