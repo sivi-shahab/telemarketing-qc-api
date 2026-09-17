@@ -152,3 +152,29 @@ def test_signature_snapshot_ikut_berubah_saat_env_collection_berubah(db, monkeyp
     monkeypatch.setenv("COLLECTION_CAMPAIGNS", COLL)
     on = crud._stats_signature(db)
     assert off != on
+
+
+# --- Statistics: KPI berscope di compute_stats_snapshot --------------------
+
+def _cid(result):
+    return result.source_files[0].split("_", 1)[0]
+
+
+def test_stats_snapshot_berscope_kpi_mengecualikan_collection(db, env_on):
+    """Hitungan status berscope (kartu KPI) harus sepakat dengan daftar done-nya:
+    tiket Collection tidak ikut dihitung sebagai tiket Cashline."""
+    kol_done = _seed(db, COLL, status="done")
+    kol_pending = _seed(db, COLL, status="pending")
+    cash = _seed(db, CASH, status="done")
+    ov = sa.compute_stats_snapshot(db, customer_ids=[_cid(kol_done), _cid(kol_pending), _cid(cash)])["overview"]
+    assert ov["total_submissions"] == 1
+    assert ov["done"] == 1
+    assert ov["pending"] == 0
+
+
+def test_stats_snapshot_berscope_env_kosong_tidak_berubah(db, env_off):
+    kol = _seed(db, COLL, status="pending")
+    cash = _seed(db, CASH, status="done")
+    ov = sa.compute_stats_snapshot(db, customer_ids=[_cid(kol), _cid(cash)])["overview"]
+    assert ov["total_submissions"] == 2
+    assert ov["pending"] == 1 and ov["done"] == 1
