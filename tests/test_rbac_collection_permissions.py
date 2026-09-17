@@ -162,8 +162,12 @@ def test_menu_collection_results_tidak_bocor_ke_cashline():
     assert P.MENU_COLLECTION_RESULTS not in out
 
 
-def test_admin_memegang_menu_collection_results():
-    assert P.MENU_COLLECTION_RESULTS in P._ADMIN_PERMISSIONS
+def test_menu_collection_results_tidak_pernah_diberikan_statis_ke_admin():
+    """Diberikan saat request oleh ``permissions_for``; kalau ikut statis di role
+    admin, menunya tetap muncul walau ``COLLECTION_CAMPAIGNS`` kosong."""
+    assert P.MENU_COLLECTION_RESULTS not in P._ADMIN_PERMISSIONS
+    assert P.MENU_COLLECTION_RESULTS not in P.DEFAULT_ROLES["admin"]["permissions"]
+    assert P.MENU_COLLECTION_RESULTS not in P.DEFAULT_ROLES["demo"]["permissions"]
 
 
 def test_menu_collection_results_punya_label_manage_role():
@@ -179,3 +183,66 @@ def test_menu_collection_results_admin_only():
     ini boleh muncul di luar role admin-like adalah penyesuaian per-request di
     ``collection_adjusted_permissions`` untuk login yang efektif Collection."""
     assert P.MENU_COLLECTION_RESULTS in P.ADMIN_ONLY_PERMISSIONS
+
+
+def test_menu_collection_results_tetap_di_collection_added():
+    assert P.MENU_COLLECTION_RESULTS in P.COLLECTION_ADDED_PERMISSIONS
+
+
+# --------------------------------------------------------------------------
+# permissions_for — MENU_COLLECTION_RESULTS dihitung saat request
+# --------------------------------------------------------------------------
+
+def _fake_role(monkeypatch, *, permissions, scope, effective):
+    monkeypatch.setattr(rbac, "_role_def", lambda db, key: {
+        "permissions": set(permissions), "data_scope": scope, "campaigns": []})
+    monkeypatch.setattr(rbac, "effective_campaigns_for", lambda db, u: effective)
+
+
+_USER = object()
+
+
+@pytest.mark.parametrize("role_key", ["team_leader_qc", "spq_head", "admin", "telesales_head"])
+def test_role_tanpa_batas_campaign_sisi_non_sales_mendapat_menu(monkeypatch, collection_env, role_key):
+    role = P.DEFAULT_ROLES[role_key]
+    _fake_role(monkeypatch, permissions=role["permissions"], scope=role["data_scope"], effective=None)
+    assert P.MENU_COLLECTION_RESULTS in rbac.permissions_for(None, _USER)
+
+
+def test_env_kosong_tidak_ada_menu_bahkan_untuk_admin(monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", "")
+    # Termasuk bila capability-nya (masih) tersimpan di baris role DB.
+    _fake_role(monkeypatch, permissions=set(P._ADMIN_PERMISSIONS) | {P.MENU_COLLECTION_RESULTS},
+               scope=P.SCOPE_ALL, effective=None)
+    assert P.MENU_COLLECTION_RESULTS not in rbac.permissions_for(None, _USER)
+
+
+@pytest.mark.parametrize("scope", [P.SCOPE_SALES_AM, P.SCOPE_SALES_TL, P.SCOPE_SALES_AGENT])
+def test_cakupan_sales_tidak_mendapat_menu(monkeypatch, collection_env, scope):
+    _fake_role(monkeypatch, permissions={P.MENU_RESULTS}, scope=scope, effective=["Collection"])
+    assert P.MENU_COLLECTION_RESULTS not in rbac.permissions_for(None, _USER)
+
+
+def test_batas_campaign_beririsan_dengan_collection_mendapat_menu(monkeypatch, collection_env):
+    """Campuran Collection + Cashline: alur assign tetap, menu Collection ada."""
+    _fake_role(monkeypatch, permissions={P.MENU_RESULTS, P.MENU_ASSIGN_TICKET},
+               scope=P.SCOPE_QC_ASSIGNED, effective=["Cashline", " COLLECTION "])
+    perms = rbac.permissions_for(None, _USER)
+    assert P.MENU_COLLECTION_RESULTS in perms
+    assert P.MENU_ASSIGN_TICKET in perms
+
+
+@pytest.mark.parametrize("effective", [["Cashline"], []])
+def test_batas_campaign_tanpa_collection_tidak_mendapat_menu(monkeypatch, collection_env, effective):
+    _fake_role(monkeypatch, permissions={P.MENU_RESULTS, P.MENU_COLLECTION_RESULTS},
+               scope=P.SCOPE_ALL, effective=effective)
+    assert P.MENU_COLLECTION_RESULTS not in rbac.permissions_for(None, _USER)
+
+
+def test_permissions_for_tidak_mengubah_set_cache_role(monkeypatch, collection_env):
+    cached = {P.MENU_RESULTS}
+    monkeypatch.setattr(rbac, "_role_def", lambda db, key: {
+        "permissions": cached, "data_scope": P.SCOPE_ALL, "campaigns": []})
+    monkeypatch.setattr(rbac, "effective_campaigns_for", lambda db, u: None)
+    rbac.permissions_for(None, _USER)
+    assert cached == {P.MENU_RESULTS}

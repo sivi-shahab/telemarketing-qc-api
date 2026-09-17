@@ -146,13 +146,38 @@ def permissions_for(db: Session, user) -> set:
     lewat ``effective_campaigns_for``) — dibayar karena campaign efektif adalah
     properti ORANG, bukan properti role, sehingga tidak bisa ikut cache role.
     """
-    base = _role_def(db, getattr(user, "role", None))["permissions"]
+    role = _role_def(db, getattr(user, "role", None))
+    base = role["permissions"]
     collection = collection_campaigns_from_env()
     if not collection:
+        # Menu Collection Results tidak pernah berasal dari role — juga bila (masih)
+        # tersimpan di baris ``roles``. Fitur mati = menunya hilang untuk semua.
+        if perms.MENU_COLLECTION_RESULTS in base:
+            return set(base) - {perms.MENU_COLLECTION_RESULTS}
         return base
-    return collection_adjusted_permissions(
-        base, effective_campaigns_for(db, user), collection
-    )
+    effective = effective_campaigns_for(db, user)
+    out = collection_adjusted_permissions(base, effective, collection)
+    out.discard(perms.MENU_COLLECTION_RESULTS)
+    if collection_results_visible(role["data_scope"], effective, collection):
+        out.add(perms.MENU_COLLECTION_RESULTS)
+    return out
+
+
+def collection_results_visible(data_scope, campaigns, collection_campaigns) -> bool:
+    """Apakah menu Collection Results diberikan (dihitung saat request, tidak
+    pernah disimpan di role).
+
+    Syaratnya: fitur hidup, cakupan BUKAN sales (tiket penagihan tidak punya pemetaan
+    roster sales), dan campaign efektif tidak dibatasi (``None``) atau beririsan
+    dengan campaign Collection. Definisi cakupannya sama dengan
+    ``api.qc_scope.collection_view_scope`` — menu hanya muncul bagi yang memang bisa
+    melihat isinya.
+    """
+    if not collection_campaigns or perms.is_sales_scope(data_scope):
+        return False
+    if campaigns is None:
+        return True
+    return any(is_collection(name, collection_campaigns) for name in campaigns)
 
 
 def data_scope_for(db: Session, user) -> str:
