@@ -231,6 +231,11 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     # endpoint-nya masih bisa dipanggil langsung — gate yang bisa ditembus dengan
     # mengetik URL, persis celah yang pernah ditutup di sisi /tickets-daily.
     QC_ASSIGNMENT_WRITE, QC_MANUAL_CHECK_APPROVE,
+    # Menu Results (17 September 2026): login Collection sudah punya Collection
+    # Results sebagai tempat poin-poin scorecard-nya. Hanya menu/route yang
+    # dicabut — tidak ada endpoint yang di-gate MENU_RESULTS, dan PDF transkrip
+    # tiket Collection memakai cakupan Collection (``ensure_can_view_collection_result``).
+    MENU_RESULTS,
 })
 
 # Keempatnya ada di ``ADMIN_ONLY_PERMISSIONS`` (kebijakan 14 Agustus 2026: seluruh

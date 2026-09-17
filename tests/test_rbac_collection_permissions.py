@@ -31,7 +31,19 @@ def test_menu_alur_assign_dicabut_untuk_campaign_collection():
         ["Collection"],
         COLLECTION,
     )
-    assert out == {P.MENU_RESULTS} | set(P.COLLECTION_ADDED_PERMISSIONS)
+    assert out == set(P.COLLECTION_ADDED_PERMISSIONS)
+
+
+def test_menu_results_dicabut_karena_sudah_ada_collection_results():
+    out = rbac.collection_adjusted_permissions({P.MENU_RESULTS, P.MENU_STATS}, ["Collection"], COLLECTION)
+    assert P.MENU_RESULTS not in out
+    assert P.MENU_COLLECTION_RESULTS in out
+    assert P.MENU_STATS in out
+
+
+def test_login_campuran_tetap_punya_menu_results():
+    before = {P.MENU_RESULTS}
+    assert rbac.collection_adjusted_permissions(before, ["Collection", "Cashline"], COLLECTION) == before
 
 
 def test_aksi_di_balik_menu_yang_dicabut_ikut_hilang():
