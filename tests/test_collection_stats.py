@@ -2,11 +2,14 @@
 
 Tanpa DB — ``rows`` adalah pasangan (result, result_json) tiruan.
 """
+import uuid
 from datetime import datetime
 from types import SimpleNamespace
 
 from compliance.collection_report import REPORT_TYPE
 from compliance.collection_stats import aggregate_collection_stats
+from db import crud
+from db.models import Result, ResultData
 
 
 def _res(status="done", generated_at=None, uploaded_at=datetime(2026, 9, 17, 3, 0)):
@@ -120,3 +123,50 @@ def test_komitmen():
             (_res(), _rep(commit="aneh"))]
     c = aggregate_collection_stats(rows)["commitment"]
     assert (c["COMMITTED_TO_PAY"], c["REFUSED"], c["NOT_STATED"]) == (1, 1, 1)
+
+
+CAMP = "ZZStatsCollection"
+
+
+def _seed(db, *, status="done", campaign=CAMP, n_data=1, uploaded_by_role=None,
+          uploaded_at=datetime(2026, 9, 17, 3, 0)):
+    r = Result(id=uuid.uuid4(), campaign=campaign, status=status, uploaded_by_role=uploaded_by_role,
+               source_files=[f"ZS{uuid.uuid4().hex[:8]}_call.pdf"], uploaded_at=uploaded_at)
+    db.add(r)
+    db.flush()
+    for _ in range(n_data):
+        db.add(ResultData(result_id=r.id, result_json=_rep()))
+    db.flush()
+    return r
+
+
+def test_stats_rows_semua_status_tanpa_duplikat(db):
+    a = _seed(db, n_data=2)
+    b = _seed(db, status="pending", n_data=0)
+    _seed(db, campaign="ZZStatsCashline")
+    rows = crud.collection_stats_rows(db, campaigns=[CAMP])
+    ids = [str(r.id) for r, _ in rows]
+    assert sorted(ids) == sorted([str(a.id), str(b.id)])
+
+
+def test_stats_rows_sepakat_dengan_daftar(db):
+    for _ in range(3):
+        _seed(db)
+    _seed(db, uploaded_by_role="qc_support")
+    kw = {"campaigns": [CAMP], "exclude_uploaded_by_role": "qc_support"}
+    rows = crud.collection_stats_rows(db, **kw)
+    _, total = crud.list_collection_results(db, limit=100, **kw)
+    assert len(rows) == total == 3
+
+
+def test_stats_rows_filter_tanggal_wib(db):
+    _seed(db, uploaded_at=datetime(2026, 9, 16, 18, 30))  # 17 Sep WIB
+    from datetime import date
+    assert len(crud.collection_stats_rows(db, campaigns=[CAMP], date_start=date(2026, 9, 17),
+                                          date_end=date(2026, 9, 17))) == 1
+    assert crud.collection_stats_rows(db, campaigns=[CAMP], date_start=date(2026, 9, 16),
+                                      date_end=date(2026, 9, 16)) == []
+
+
+def test_stats_rows_campaign_kosong(db):
+    assert crud.collection_stats_rows(db, campaigns=[]) == []
