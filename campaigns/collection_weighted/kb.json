@@ -1,0 +1,165 @@
+[
+  {
+    "kb_code": "KB_COL_1_1",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyampaikan salam pembuka secara profesional",
+    "example_phrases": [
+      "Selamat pagi Bapak/Ibu",
+      "Selamat siang, bisa berbicara dengan Bapak/Ibu YYY?",
+      "Selamat sore, mohon waktunya sebentar Pak/Bu"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_1_2",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyebutkan nama lengkap petugas penagih",
+    "example_phrases": [
+      "Perkenalkan saya (Nama Petugas)",
+      "Saya (Nama Petugas) yang menghubungi Bapak/Ibu hari ini"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_1_3",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyebutkan nama institusi/PUJK resmi yang diwakili",
+    "example_phrases": [
+      "dari Bank Mega",
+      "dari tim penagihan Bank Mega",
+      "mewakili (Nama PUJK/Vendor Resmi) yang bekerja sama dengan Bank Mega"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_1_4",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyampaikan tujuan telepon terkait kewajiban pembayaran/tagihan secara jelas di awal percakapan",
+    "example_phrases": [
+      "Saya menghubungi terkait kewajiban pembayaran Bapak/Ibu yang sudah jatuh tempo",
+      "Saya ingin menginformasikan status tagihan Bapak/Ibu yang saat ini tertunggak"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_2_1",
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "requirement": "Agent memverifikasi identitas pihak yang diangkat telepon SEBELUM membahas informasi tunggakan apa pun",
+    "example_phrases": [
+      "Mohon konfirmasi tanggal lahir Bapak/Ibu",
+      "Boleh sebutkan nama ibu kandung untuk verifikasi data",
+      "Apakah benar saya terhubung dengan Bapak/Ibu (Nama Konsumen) sendiri?"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_2_2",
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "requirement": "Agent TIDAK menyampaikan informasi tunggakan/data pribadi kepada pihak selain konsumen (HARD STOP)",
+    "forbidden_phrases": [
+      "Ini terkait tunggakan Bapak (Nama Konsumen) sebesar Rp...",
+      "Tolong sampaikan ke (Nama Konsumen) bahwa utangnya sudah menunggak Rp..."
+    ],
+    "example_phrases": [
+      "Mohon maaf, informasi ini bersifat rahasia dan hanya dapat kami sampaikan langsung kepada (Nama Konsumen)"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_2_3",
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "requirement": "Penagihan hanya dilakukan kepada konsumen bersangkutan, bukan ke kontak darurat/kantor tanpa dasar hukum",
+    "example_phrases": [
+      "Saya perlu berbicara langsung dengan (Nama Konsumen) terkait hal ini"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_3_1",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan tanggal jatuh tempo sesuai perjanjian"
+  },
+  {
+    "kb_code": "KB_COL_3_2",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan jumlah hari keterlambatan pembayaran"
+  },
+  {
+    "kb_code": "KB_COL_3_3",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan outstanding pokok terutang secara akurat"
+  },
+  {
+    "kb_code": "KB_COL_3_4",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan denda dan/atau ganti rugi terutang secara akurat"
+  },
+  {
+    "kb_code": "KB_COL_4_1",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan ancaman, kekerasan, dan/atau tindakan yang mempermalukan konsumen (HARD STOP)"
+  },
+  {
+    "kb_code": "KB_COL_4_2",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan tekanan secara fisik maupun verbal (HARD STOP)"
+  },
+  {
+    "kb_code": "KB_COL_4_3",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK melakukan penagihan terus-menerus yang bersifat mengganggu"
+  },
+  {
+    "kb_code": "KB_COL_5_1",
+    "category": "Waktu & Tempat Penagihan",
+    "requirement": "Penagihan dilakukan pada hari Senin sampai dengan Sabtu, di luar hari libur nasional"
+  },
+  {
+    "kb_code": "KB_COL_5_2",
+    "category": "Waktu & Tempat Penagihan",
+    "requirement": "Penagihan dilakukan pada pukul 08.00-20.00 waktu setempat konsumen"
+  },
+  {
+    "kb_code": "KB_COL_5_3",
+    "category": "Waktu & Tempat Penagihan",
+    "requirement": "Penagihan di luar waktu/tempat ketentuan hanya dilakukan atas persetujuan konsumen terlebih dahulu"
+  },
+  {
+    "kb_code": "KB_COL_6_1",
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "requirement": "Agent menginformasikan hak konsumen untuk mengajukan keberatan/pengaduan"
+  },
+  {
+    "kb_code": "KB_COL_6_2",
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "requirement": "Agent menyampaikan kanal/nomor layanan pengaduan resmi PUJK"
+  },
+  {
+    "kb_code": "KB_COL_6_3",
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "requirement": "Agent menegaskan bahwa layanan pengaduan tidak dikenakan biaya apa pun (HARD STOP jika dilanggar)"
+  },
+  {
+    "kb_code": "KB_COL_7_1",
+    "category": "Penawaran Solusi Penyelesaian",
+    "requirement": "Agent menawarkan opsi penyelesaian/keringanan sesuai kebijakan dan kewenangan PUJK"
+  },
+  {
+    "kb_code": "KB_COL_8_1",
+    "category": "Prosedur Penarikan Agunan",
+    "requirement": "Agent memastikan status wanprestasi & surat peringatan sudah diberikan sebelum membahas penarikan agunan"
+  },
+  {
+    "kb_code": "KB_COL_8_2",
+    "category": "Prosedur Penarikan Agunan",
+    "requirement": "Agent menjelaskan outstanding, manfaat ekonomi, denda, dan biaya terkait penarikan agunan"
+  },
+  {
+    "kb_code": "KB_COL_8_3",
+    "category": "Prosedur Penarikan Agunan",
+    "requirement": "Agent menjelaskan mekanisme penjualan agunan"
+  },
+  {
+    "kb_code": "KB_COL_9_1",
+    "category": "Penutup & Dokumentasi Panggilan",
+    "requirement": "Agent menyampaikan ringkasan kesepakatan/tindak lanjut kepada konsumen"
+  },
+  {
+    "kb_code": "KB_COL_9_2",
+    "category": "Penutup & Dokumentasi Panggilan",
+    "requirement": "Agent menyampaikan salam penutup secara profesional"
+  }
+]

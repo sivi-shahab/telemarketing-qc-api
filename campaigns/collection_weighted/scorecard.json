@@ -1,0 +1,210 @@
+[
+  {
+    "category": "Pembukaan & Identifikasi Petugas",
+    "item_code": "SC_COL_1_1",
+    "requirement": "menyampaikan salam pembuka secara profesional",
+    "kb_reference": "KB_COL_1_1",
+    "tolerable": "YES",
+    "weight": 1
+  },
+  {
+    "category": "Pembukaan & Identifikasi Petugas",
+    "item_code": "SC_COL_1_2",
+    "requirement": "menyebutkan nama lengkap petugas penagih",
+    "kb_reference": "KB_COL_1_2",
+    "tolerable": "YES",
+    "weight": 1
+  },
+  {
+    "category": "Pembukaan & Identifikasi Petugas",
+    "item_code": "SC_COL_1_3",
+    "requirement": "menyebutkan nama institusi/PUJK resmi yang diwakili",
+    "kb_reference": "KB_COL_1_3",
+    "tolerable": "YES",
+    "weight": 2
+  },
+  {
+    "category": "Pembukaan & Identifikasi Petugas",
+    "item_code": "SC_COL_1_4",
+    "requirement": "menyampaikan tujuan telepon terkait kewajiban pembayaran/tagihan",
+    "kb_reference": "KB_COL_1_4",
+    "tolerable": "NO",
+    "weight": 3
+  },
+  {
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "item_code": "SC_COL_2_1",
+    "requirement": "memverifikasi identitas pihak yang diangkat telepon sebelum membahas tunggakan",
+    "kb_reference": "KB_COL_2_1",
+    "tolerable": "NO",
+    "weight": 8
+  },
+  {
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "item_code": "SC_COL_2_2",
+    "requirement": "tidak menyampaikan informasi tunggakan/data pribadi kepada pihak selain konsumen",
+    "kb_reference": "KB_COL_2_2",
+    "tolerable": "NO",
+    "weight": 15
+  },
+  {
+    "category": "Verifikasi Nasabah & Kerahasiaan Data",
+    "item_code": "SC_COL_2_3",
+    "requirement": "penagihan hanya dilakukan kepada konsumen bersangkutan",
+    "kb_reference": "KB_COL_2_3",
+    "tolerable": "NO",
+    "weight": 10
+  },
+  {
+    "category": "Penyampaian Informasi Tunggakan",
+    "item_code": "SC_COL_3_1",
+    "requirement": "menyampaikan tanggal jatuh tempo sesuai perjanjian",
+    "kb_reference": "KB_COL_3_1",
+    "tolerable": "YES",
+    "weight": 2
+  },
+  {
+    "category": "Penyampaian Informasi Tunggakan",
+    "item_code": "SC_COL_3_2",
+    "requirement": "menyampaikan jumlah hari keterlambatan pembayaran",
+    "kb_reference": "KB_COL_3_2",
+    "tolerable": "YES",
+    "weight": 2
+  },
+  {
+    "category": "Penyampaian Informasi Tunggakan",
+    "item_code": "SC_COL_3_3",
+    "requirement": "menyampaikan outstanding pokok terutang secara akurat",
+    "kb_reference": "KB_COL_3_3",
+    "tolerable": "NO",
+    "weight": 4
+  },
+  {
+    "category": "Penyampaian Informasi Tunggakan",
+    "item_code": "SC_COL_3_4",
+    "requirement": "menyampaikan denda dan/atau ganti rugi terutang secara akurat",
+    "kb_reference": "KB_COL_3_4",
+    "tolerable": "NO",
+    "weight": 4
+  },
+  {
+    "category": "Etika & Cara Penagihan",
+    "item_code": "SC_COL_4_1",
+    "requirement": "tidak menggunakan ancaman, kekerasan, dan/atau tindakan yang mempermalukan konsumen",
+    "kb_reference": "KB_COL_4_1",
+    "tolerable": "NO",
+    "weight": 22
+  },
+  {
+    "category": "Etika & Cara Penagihan",
+    "item_code": "SC_COL_4_2",
+    "requirement": "tidak menggunakan tekanan secara fisik maupun verbal",
+    "kb_reference": "KB_COL_4_2",
+    "tolerable": "NO",
+    "weight": 15
+  },
+  {
+    "category": "Etika & Cara Penagihan",
+    "item_code": "SC_COL_4_3",
+    "requirement": "tidak melakukan penagihan terus-menerus yang bersifat mengganggu",
+    "kb_reference": "KB_COL_4_3",
+    "tolerable": "NO",
+    "weight": 8
+  },
+  {
+    "category": "Waktu & Tempat Penagihan",
+    "item_code": "SC_COL_5_1",
+    "requirement": "penagihan dilakukan pada hari Senin s.d. Sabtu di luar hari libur nasional",
+    "kb_reference": "KB_COL_5_1",
+    "tolerable": "NO",
+    "weight": 8
+  },
+  {
+    "category": "Waktu & Tempat Penagihan",
+    "item_code": "SC_COL_5_2",
+    "requirement": "penagihan dilakukan pada pukul 08.00-20.00 waktu setempat",
+    "kb_reference": "KB_COL_5_2",
+    "tolerable": "NO",
+    "weight": 8
+  },
+  {
+    "category": "Waktu & Tempat Penagihan",
+    "item_code": "SC_COL_5_3",
+    "requirement": "penagihan di luar waktu/tempat ketentuan hanya dengan persetujuan konsumen",
+    "kb_reference": "KB_COL_5_3",
+    "tolerable": "NO",
+    "weight": 4
+  },
+  {
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "item_code": "SC_COL_6_1",
+    "requirement": "menginformasikan hak konsumen untuk mengajukan keberatan/pengaduan",
+    "kb_reference": "KB_COL_6_1",
+    "tolerable": "YES",
+    "weight": 3
+  },
+  {
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "item_code": "SC_COL_6_2",
+    "requirement": "menyampaikan kanal/nomor layanan pengaduan resmi PUJK",
+    "kb_reference": "KB_COL_6_2",
+    "tolerable": "YES",
+    "weight": 3
+  },
+  {
+    "category": "Hak Konsumen & Layanan Pengaduan",
+    "item_code": "SC_COL_6_3",
+    "requirement": "tidak mengenakan biaya apa pun kepada konsumen terkait proses pengaduan",
+    "kb_reference": "KB_COL_6_3",
+    "tolerable": "NO",
+    "weight": 4
+  },
+  {
+    "category": "Penawaran Solusi Penyelesaian",
+    "item_code": "SC_COL_7_1",
+    "requirement": "menawarkan opsi penyelesaian/keringanan sesuai kebijakan dan kewenangan PUJK",
+    "kb_reference": "KB_COL_7_1",
+    "tolerable": "YES",
+    "weight": 3
+  },
+  {
+    "category": "Prosedur Penarikan Agunan",
+    "item_code": "SC_COL_8_1",
+    "requirement": "memastikan status wanprestasi & surat peringatan sudah diberikan sebelum membahas penarikan agunan",
+    "kb_reference": "KB_COL_8_1",
+    "tolerable": "NO",
+    "weight": 6
+  },
+  {
+    "category": "Prosedur Penarikan Agunan",
+    "item_code": "SC_COL_8_2",
+    "requirement": "menjelaskan outstanding, manfaat ekonomi, denda, dan biaya terkait penarikan agunan",
+    "kb_reference": "KB_COL_8_2",
+    "tolerable": "NO",
+    "weight": 6
+  },
+  {
+    "category": "Prosedur Penarikan Agunan",
+    "item_code": "SC_COL_8_3",
+    "requirement": "menjelaskan mekanisme penjualan agunan",
+    "kb_reference": "KB_COL_8_3",
+    "tolerable": "NO",
+    "weight": 4
+  },
+  {
+    "category": "Penutup & Dokumentasi Panggilan",
+    "item_code": "SC_COL_9_1",
+    "requirement": "menyampaikan ringkasan kesepakatan/tindak lanjut kepada konsumen",
+    "kb_reference": "KB_COL_9_1",
+    "tolerable": "YES",
+    "weight": 2
+  },
+  {
+    "category": "Penutup & Dokumentasi Panggilan",
+    "item_code": "SC_COL_9_2",
+    "requirement": "menyampaikan salam penutup secara profesional",
+    "kb_reference": "KB_COL_9_2",
+    "tolerable": "YES",
+    "weight": 2
+  }
+]
