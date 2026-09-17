@@ -158,25 +158,31 @@ def permissions_for(db: Session, user) -> set:
     effective = effective_campaigns_for(db, user)
     out = collection_adjusted_permissions(base, effective, collection)
     out.discard(perms.MENU_COLLECTION_RESULTS)
-    if collection_results_visible(role["data_scope"], effective, collection):
+    if collection_results_visible(getattr(user, "role", None), role["data_scope"], effective, collection):
         out.add(perms.MENU_COLLECTION_RESULTS)
     return out
 
 
-def collection_results_visible(data_scope, campaigns, collection_campaigns) -> bool:
+def collection_results_visible(role, data_scope, campaigns, collection_campaigns) -> bool:
     """Apakah menu Collection Results diberikan (dihitung saat request, tidak
     pernah disimpan di role).
 
-    Syaratnya: fitur hidup, cakupan BUKAN sales (tiket penagihan tidak punya pemetaan
-    roster sales), dan campaign efektif tidak dibatasi (``None``) atau beririsan
-    dengan campaign Collection. Definisi cakupannya sama dengan
-    ``api.qc_scope.collection_view_scope`` — menu hanya muncul bagi yang memang bisa
-    melihat isinya.
+    Keputusan 17 September 2026: sama dengan aturan Stats Collection (Task 3/4) —
+    Admin (``ADMIN_LIKE_ROLES``) SELALU melihatnya (selama fitur hidup dan cakupan
+    bukan sales), sedangkan login non-Admin hanya melihatnya bila campaign
+    efektifnya DIBATASI (bukan ``None``) dan berisi campaign Collection. Login
+    non-Admin tanpa batas campaign (``campaigns`` ``None``, mis. SPQ Head / TL QC
+    pusat) TIDAK LAGI mendapat menu ini — sebelumnya diperlakukan sama dengan
+    Admin, sekarang harus di-assign campaign Collection secara eksplisit.
+    Definisi cakupannya sama dengan ``api.qc_scope.collection_view_scope`` — menu
+    hanya muncul bagi yang memang bisa melihat isinya.
     """
     if not collection_campaigns or perms.is_sales_scope(data_scope):
         return False
-    if campaigns is None:
+    if role in perms.ADMIN_LIKE_ROLES:
         return True
+    if campaigns is None:
+        return False
     return any(is_collection(name, collection_campaigns) for name in campaigns)
 
 
@@ -191,21 +197,24 @@ def stats_views(role, permissions, data_scope, campaigns, collection_campaigns) 
     login yang di-assign campaign Collection sekaligus non-Collection. Login non-Admin
     tanpa batas campaign tetap Cashline saja. Env kosong = perilaku lama (Cashline).
     Cakupan sales tidak pernah mendapat Collection (tidak ada pemetaan roster sales).
+
+    Bagian Collection satu-satunya sumber kebenarannya adalah
+    ``collection_results_visible`` — sama persis dengan syarat menu Collection
+    Results, supaya login yang mendapat "collection" di sini adalah login yang
+    juga melihat menunya (lihat ``stats_views_for``).
     """
     if perms.MENU_STATS not in permissions:
         return []
     if not collection_campaigns:
         return [STATS_CASHLINE]
-    if role in perms.ADMIN_LIKE_ROLES:
-        return [STATS_CASHLINE, STATS_COLLECTION]
-    if campaigns is None:
-        return [STATS_CASHLINE]
-    has_collection = any(is_collection(c, collection_campaigns) for c in campaigns)
-    has_other = any(not is_collection(c, collection_campaigns) for c in campaigns)
     views = []
-    if has_other:
+    if role in perms.ADMIN_LIKE_ROLES:
         views.append(STATS_CASHLINE)
-    if has_collection and not perms.is_sales_scope(data_scope):
+    elif campaigns is None:
+        views.append(STATS_CASHLINE)
+    elif any(not is_collection(c, collection_campaigns) for c in campaigns):
+        views.append(STATS_CASHLINE)
+    if collection_results_visible(role, data_scope, campaigns, collection_campaigns):
         views.append(STATS_COLLECTION)
     return views
 

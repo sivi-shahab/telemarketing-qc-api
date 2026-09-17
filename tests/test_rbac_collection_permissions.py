@@ -202,11 +202,31 @@ def _fake_role(monkeypatch, *, permissions, scope, effective):
 _USER = object()
 
 
-@pytest.mark.parametrize("role_key", ["team_leader_qc", "spq_head", "admin", "telesales_head"])
-def test_role_tanpa_batas_campaign_sisi_non_sales_mendapat_menu(monkeypatch, collection_env, role_key):
+class _FakeUser:
+    """Beda dengan ``_USER`` (``object()``): ``permissions_for`` sekarang butuh
+    ``role`` sungguhan untuk memeriksa ``ADMIN_LIKE_ROLES``."""
+
+    def __init__(self, role):
+        self.role = role
+
+
+@pytest.mark.parametrize("role_key", ["team_leader_qc", "spq_head", "telesales_head"])
+def test_role_non_admin_tanpa_batas_campaign_tidak_mendapat_menu(monkeypatch, collection_env, role_key):
+    """Keputusan 17 September 2026: login non-Admin tanpa batas campaign
+    (``effective_campaigns_for`` None, mis. SPQ Head / TL QC pusat) tidak lagi
+    melihat Collection Results — sebelumnya test ini mengharapkan sebaliknya."""
     role = P.DEFAULT_ROLES[role_key]
     _fake_role(monkeypatch, permissions=role["permissions"], scope=role["data_scope"], effective=None)
-    assert P.MENU_COLLECTION_RESULTS in rbac.permissions_for(None, _USER)
+    assert P.MENU_COLLECTION_RESULTS not in rbac.permissions_for(None, _FakeUser(role_key))
+
+
+@pytest.mark.parametrize("role_key", ["admin", "demo"])
+def test_role_admin_like_tanpa_batas_campaign_mendapat_menu(monkeypatch, collection_env, role_key):
+    """Admin & demo (``ADMIN_LIKE_ROLES``) tetap mendapat menu tanpa perlu
+    di-assign campaign Collection secara eksplisit."""
+    role = P.DEFAULT_ROLES[role_key]
+    _fake_role(monkeypatch, permissions=role["permissions"], scope=role["data_scope"], effective=None)
+    assert P.MENU_COLLECTION_RESULTS in rbac.permissions_for(None, _FakeUser(role_key))
 
 
 def test_env_kosong_tidak_ada_menu_bahkan_untuk_admin(monkeypatch):

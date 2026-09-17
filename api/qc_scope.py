@@ -252,6 +252,13 @@ def collection_view_scope(db, current_user):
         return None
     effective = effective_campaigns_for(db, current_user)
     if effective is None:
+        # Keputusan 17 September 2026: tanpa batas campaign, hanya Admin
+        # (``ADMIN_LIKE_ROLES``) yang dianggap "mengurus semuanya". Login
+        # non-Admin tanpa batas (mis. SPQ Head / TL QC pusat) harus di-assign
+        # campaign Collection secara eksplisit lewat tab "Assign Role" — sama
+        # dengan syarat ``rbac.collection_results_visible``.
+        if getattr(current_user, "role", None) not in P.ADMIN_LIKE_ROLES:
+            return None
         campaigns = sorted(env)
     else:
         campaigns = sorted(env & {(c or "").strip().casefold() for c in effective})

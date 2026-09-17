@@ -245,3 +245,31 @@ def test_stats_cashline_menolak_collection_only(db, env_on):
 
 def test_stats_cashline_tetap_melayani_admin(db, env_on):
     assert "overview" in st.stats_overview(db=db, current_user=_user(db, "admin"))
+
+
+# --------------------------------------------------------------------------
+# Stats Collection == menu Collection Results (keputusan 17 September 2026)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("role,campaigns", [
+    ("admin", ()),
+    ("demo", ()),
+    ("spq_head", ()),  # non-Admin tanpa batas campaign
+    ("qc", [CAMP]),  # QC Collection-only
+    ("qc", [CAMP, "ZZStatsCashline"]),  # QC campuran
+    ("qc", ["ZZStatsCashline"]),  # QC Cashline-only
+    ("sales_agent", [CAMP, "ZZStatsCashline"]),  # sales campuran
+], ids=["admin", "demo", "spq_head_tanpa_campaign", "qc_collection_only",
+        "qc_campuran", "qc_cashline_only", "sales_campuran"])
+def test_stats_collection_sepakat_dengan_menu_collection_results(db, env_on, role, campaigns):
+    """``stats_views_for`` memberi "collection" persis untuk login yang juga
+    mendapat MENU_COLLECTION_RESULTS di ``permissions_for`` — keduanya memakai
+    ``collection_results_visible`` yang sama (Task 7)."""
+    from api.permissions import MENU_COLLECTION_RESULTS, MENU_STATS
+    from api.rbac import permissions_for, stats_views_for
+
+    user = _user(db, role, campaigns)
+    perms = permissions_for(db, user)
+    assert MENU_STATS in perms
+    views = stats_views_for(db, user)
+    assert ("collection" in views) == (MENU_COLLECTION_RESULTS in perms)

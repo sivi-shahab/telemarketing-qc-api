@@ -121,14 +121,36 @@ def test_pdf_tiket_cashline_tetap_aturan_lama(db, env):
 # Cakupan lain
 # --------------------------------------------------------------------------
 
-def test_cakupan_all_tanpa_batas_campaign_melihat_collection(db, env):
-    tlqc = _user(db, "team_leader_qc")
+def test_cakupan_all_admin_tanpa_batas_campaign_melihat_collection(db, env):
+    """Admin (``ADMIN_LIKE_ROLES``) tanpa batas campaign tetap melihat seluruh
+    Collection — keputusan 17 September 2026 tidak menyentuh Admin."""
+    admin = _user(db, "admin")
     r = _result(db)
     support = _result(db, uploaded_by_role="qc_support")
-    ids = _list(db, tlqc)
+    ids = _list(db, admin)
     assert str(r.id) in ids and str(support.id) not in ids
-    assert col.get_collection_result(str(r.id), db=db, current_user=tlqc)["result_id"] == str(r.id)
-    assert _pdf_gate(db, tlqc, r) == "lolos"
+    assert col.get_collection_result(str(r.id), db=db, current_user=admin)["result_id"] == str(r.id)
+    assert _pdf_gate(db, admin, r) == "lolos"
+
+
+def test_cakupan_all_non_admin_tanpa_batas_campaign_tidak_melihat_collection(db, env):
+    """Keputusan 17 September 2026: login non-Admin tanpa batas campaign (mis. SPQ
+    Head pusat, ``data_scope: all``) tidak lagi melihat Collection di mana pun —
+    sebelumnya diperlakukan sama dengan Admin lewat test ini."""
+    spq = _user(db, "spq_head")
+    r = _result(db)
+    assert qc_scope.collection_view_scope(db, spq) is None
+    # Menu Collection Results itu sendiri sudah hilang (MENU_COLLECTION_RESULTS
+    # tidak lagi diberikan), jadi daftar/detail ditolak 403 sebelum sempat
+    # membaca cakupan campaign-nya.
+    with pytest.raises(HTTPException) as exc:
+        _list(db, spq)
+    assert exc.value.status_code == 403
+    with pytest.raises(HTTPException) as exc:
+        col.get_collection_result(str(r.id), db=db, current_user=spq)
+    assert exc.value.status_code in (403, 404)
+    assert _pdf_gate(db, spq, r) in (403, 404)
+    assert qc_scope.collection_can_view(db, spq, r) is False
 
 
 def test_qc_support_hanya_melihat_upload_qc_support(db, env):
@@ -196,3 +218,19 @@ def test_batas_campaign_diiris_dengan_env(monkeypatch):
 def test_cakupan_tak_dikenal_ditolak(monkeypatch):
     _patch_scope(monkeypatch, env_value=CAMPAIGN, scope="cakupan_baru", effective=None)
     assert qc_scope.collection_can_view(None, object(), _fake()) is False
+
+
+def test_efektif_none_non_admin_tidak_melihat_apa_pun(monkeypatch):
+    """Keputusan 17 September 2026: ``effective`` None + role non-Admin -> tidak
+    ada tiket Collection yang terlihat (sebelumnya campaigns = seluruh env)."""
+    _patch_scope(monkeypatch, env_value=CAMPAIGN, scope="all", effective=None)
+    assert qc_scope.collection_view_scope(None, SimpleNamespace(role="spq_head")) is None
+    assert qc_scope.collection_view_scope(None, object()) is None  # tanpa atribut role sama saja
+    assert qc_scope.collection_can_view(None, SimpleNamespace(role="spq_head"), _fake()) is False
+
+
+def test_efektif_none_admin_melihat_semua_campaign_env(monkeypatch):
+    _patch_scope(monkeypatch, env_value=CAMPAIGN, scope="all", effective=None)
+    for role in ("admin", "demo"):
+        assert qc_scope.collection_view_scope(None, SimpleNamespace(role=role)) == {
+            "campaigns": [CAMPAIGN.casefold()], "exclude_uploaded_by_role": "qc_support"}
