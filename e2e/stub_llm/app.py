@@ -42,6 +42,51 @@ def _klasifikasi(berkas):
     return {"recordings": out}
 
 
+def _teks(content):
+    """Ratakan isi pesan jadi teks.
+
+    Penilaian mengirim ``content`` berupa string, sedangkan ekstraksi RIPLAY
+    mengirim LIST bagian (teks + ``image_url``) karena ia panggilan vision. Tanpa
+    perataan ini, regex di bawah kena ``TypeError`` begitu RIPLAY diuji.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return ""
+
+
+def _riplay():
+    """Ekstraksi RIPLAY tetap — bentuknya mengikuti ``RIPLAY_SCHEMA``.
+
+    Angkanya sengaja dibuat khas supaya test bisa membedakannya dari nilai bawaan
+    apa pun: kalau "Rp 2.000.000" muncul di blok TNC PRODUCT pada prompt, ia hanya
+    bisa berasal dari sini.
+    """
+    return {
+        "nama_produk": "Mega Cash Line",
+        "jenis_produk": "Personal Loan",
+        "penerbit": "PT Bank Mega, Tbk.",
+        "limit_pencairan": {"minimum": "Rp 2.000.000", "maksimum": "Rp 200.000.000"},
+        "tenor_cicilan": {"pilihan_bulan": [12, 24, 36], "keterangan": None},
+        "nominal_cicilan": {"rumus": "(Jumlah Pinjaman Pokok / Tenor) + (Jumlah pinjaman pokok x bunga)"},
+        "suku_bunga": {"cicilan": "Mulai dari 1,75% (Flat per bulan)", "revolving": "0,1% / hari"},
+        "biaya_provisi": "2% (dua persen) dari limit kredit",
+        "pelunasan_dipercepat": "7% (tujuh persen) dari sisa pokok pinjaman",
+        "biaya_admin": {
+            "tiering": [
+                {"rentang_pencairan": "<= 20.000.000", "biaya": "Rp 150.000"},
+                {"rentang_pencairan": "> 20.000.000 - <= 50.000.000", "biaya": "Rp 300.000"},
+                {"rentang_pencairan": "> 50.000.000", "biaya": "Rp 500.000"},
+            ],
+            "keterangan": None,
+        },
+    }
+
+
 def _item(code, kategori, status, weight, tolerable="YES", skor=None):
     return {
         "item_code": code,
@@ -102,24 +147,43 @@ def reset():
 async def chat(path: str, request: Request):
     body = await request.json()
     pesan = body.get("messages") or []
-    system = next((m.get("content", "") for m in pesan if m.get("role") == "system"), "")
-    user = next((m.get("content", "") for m in pesan if m.get("role") == "user"), "")
+    system = _teks(next((m.get("content", "") for m in pesan if m.get("role") == "system"), ""))
+    user_raw = next((m.get("content", "") for m in pesan if m.get("role") == "user"), "")
+    user = _teks(user_raw)
 
+    # Ekstraksi RIPLAY: panggilan vision TANPA system prompt, dikenali dari kalimat
+    # pembuka RIPLAY_PROMPT. Harus dicek SEBELUM cabang penilaian, sebab cabang itu
+    # `else` dan akan menelan RIPLAY — mengembalikan objek evaluasi yang lolos parse
+    # JSON tetapi tidak punya "nama_produk", sehingga gate nama produk menolak 422
+    # dan penyebabnya sulit ditebak.
+    riplay = "ekstraktor dokumen RIPLAY" in user
     klasifikasi = "TEPAT SATU label jenis" in system
-    if klasifikasi:
+    if riplay:
+        isi = json.dumps(_riplay(), ensure_ascii=False)
+    elif klasifikasi:
         berkas = re.findall(r"^\s*-\s*([^\s|]+\.pdf)", user, re.M) or re.findall(r"([\w.-]+\.pdf)", user)
         isi = json.dumps(_klasifikasi(list(dict.fromkeys(berkas))), ensure_ascii=False)
     else:
         isi = json.dumps(_evaluasi(), ensure_ascii=False)
 
     PANGGILAN.append({
-        "jenis": "klasifikasi" if klasifikasi else "penilaian",
+        "jenis": "riplay" if riplay else ("klasifikasi" if klasifikasi else "penilaian"),
+        # Berapa gambar yang benar-benar terkirim — membuktikan PDF sungguh dirender,
+        # bukan sekadar prompt teks yang lewat.
+        "jumlah_gambar": sum(
+            1 for b in (user_raw if isinstance(user_raw, list) else [])
+            if isinstance(b, dict) and b.get("type") == "image_url"
+        ),
         "path": path,
         "model": body.get("model"),
         # Urutan blok pada user message — inilah yang membuktikan penataan Batch 8
         # benar-benar sampai ke permintaan, bukan cuma ada di kode.
         "urutan_blok": re.findall(r"^([A-Z][A-Z ]+):$", user, re.M),
         "panjang_user": len(user),
+        # Potongan awal user message apa adanya. ``urutan_blok`` hanya menyimpan NAMA
+        # blok, sehingga isinya tak bisa diperiksa — padahal untuk TnC Product yang
+        # penting justru nilainya sampai atau tidak, bukan judul bloknya ada.
+        "blok_mentah": user[:20000],
     })
 
     return {
