@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     # disamakan dengan worker supaya kedua proses memakai angka yang sama.
     llm_timeout: float = float(os.getenv("LLM_TIMEOUT", "1800.0"))
     llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "1.0"))
+    # Endpoint-nya Azure, dan Azure mewajibkan api-version di setiap permintaan.
+    # Disamakan dengan worker/config.py:60 supaya kedua proses bicara dengan versi
+    # API yang sama.
+    llm_api_version: str = os.getenv("LLM_API_VERSION", "2025-04-01-preview")
     llm_seed: int = int(os.getenv("LLM_SEED", "42"))
     llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "medium")
 
@@ -242,19 +246,32 @@ _llm_client = None
 
 
 def get_llm_client():
-    """OpenAI-compatible client for the API's own LLM calls (RIPLAY extraction).
+    """Azure OpenAI client for the API's own LLM calls (RIPLAY extraction).
 
     Transcript evaluation runs in the worker; the API only needs this for the
     synchronous RIPLAY pass on campaign upload.
+
+    Harus ``AzureOpenAI``, bukan ``OpenAI``. Endpoint kita
+    (``*.cognitiveservices.azure.com``) hanya melayani
+    ``/openai/deployments/{deployment}/chat/completions?api-version=...``; klien
+    ``OpenAI`` biasa menembak ``<base_url>/chat/completions`` sehingga Azure menjawab
+    **404 "Resource not found"**, yang lalu muncul sebagai 502 "Ekstraksi RIPLAY gagal
+    dihubungi" dan mudah dikira masalah jaringan/kuota. Bentuknya disamakan dengan
+    jalur worker yang sudah terbukti (``worker/tasks/process_transcript.py:127-139``).
     """
     global _llm_client
     if _llm_client is None:
-        from openai import OpenAI
+        from openai import AzureOpenAI
 
         settings = get_settings()
-        _llm_client = OpenAI(
-            base_url=settings.llm_base_url,
+        _llm_client = AzureOpenAI(
+            azure_endpoint=settings.llm_base_url,
             api_key=settings.llm_api_key,
+            api_version=settings.llm_api_version,
+            azure_deployment=settings.riplay_model or settings.llm_model,
+            # Tanpa ini SDK memakai bawaan 600 detik per percobaan (+2 retry), jadi
+            # LLM_TIMEOUT tidak berlaku. Ekstraksi RIPLAY itu panggilan vision
+            # multi-halaman yang bisa lama.
             timeout=settings.llm_timeout,
         )
     return _llm_client
