@@ -58,4 +58,7 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 # kalau load test menunjukkan masih ada headroom (17 September 2026,
 # improvement.md item 1.2). --timeout dinaikkan dari default gunicorn 30s karena
 # endpoint stats/export bisa menghitung ulang snapshot yang berat.
-CMD ["sh", "-c", "alembic upgrade head && gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:4000 --timeout 300"]
+# --access-logfile -: gunicorn TIDAK mencatat request secara bawaan, jadi sejak pindah
+# dari uvicorn polos (21 September 2026) docker logs kehilangan baris akses HTTP.
+# Dengan flag ini UvicornWorker kembali menulis log akses uvicorn ke stdout.
+CMD ["sh", "-c", "alembic upgrade head && gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:4000 --timeout 300 --access-logfile -"]
