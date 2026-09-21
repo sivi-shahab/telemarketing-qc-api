@@ -759,7 +759,7 @@ def list_results(
     rjson_map = crud.result_json_map(db, rid_list)
     # Which results are "missing required documents" (TMS data changed or limit >= 50jt
     # but nothing uploaded) — drives the AI-status default + Manual Status "pending".
-    mdocs_page = _missing_docs_map(db, results)
+    mdocs_page = _missing_docs_map(db, results, rjson_map)
     gaps_page = data_gap_map(db, results)
     # Keterangan LENGKAP di kolom AI Status hanya untuk pemegang capability-nya
     # (divisi QC + Admin). Empat role sisi sales hanya menerima keterangan

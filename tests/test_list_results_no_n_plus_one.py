@@ -78,3 +78,23 @@ def test_field_dari_result_json_tetap_benar(db, viewer):
         assert it.recording_types == j.get("recording_types")
         diperiksa += 1
     assert diperiksa > 0, "prasyarat: minimal satu baris punya result_json"
+
+
+def test_result_json_map_dibaca_sekali_per_halaman(db, viewer, monkeypatch):
+    """``_missing_docs_map`` memakai ``rjson_map`` milik route, bukan membacanya ulang.
+
+    Tanpa ``eval_by_id``, ``_missing_docs_map`` memanggil ``result_json_map`` lagi
+    untuk tiket yang kena band similarity — blob yang sama ditarik dua kali, ~1
+    detik per halaman 100 baris (diukur 21 September 2026).
+    """
+    calls = []
+    asli = crud.result_json_map
+
+    def _tercatat(*a, **k):
+        calls.append(len(a[1]) if len(a) > 1 else None)
+        return asli(*a, **k)
+
+    monkeypatch.setattr(crud, "result_json_map", _tercatat)
+    out = st.list_results(db=db, current_user=viewer, **_DEFAULTS)
+    assert out.total > 0, "prasyarat: halaman harus berisi baris"
+    assert len(calls) == 1, "result_json_map dipanggil %d kali: %r" % (len(calls), calls)
