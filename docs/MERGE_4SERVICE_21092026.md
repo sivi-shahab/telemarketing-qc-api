@@ -264,7 +264,7 @@ Perlu cek route nginx host untuk `/export_categories`.
 | A — aman | diterapkan |
 | B — definisi angka Stats | **diterapkan** |
 | C — cache stats ber-scope | **diterapkan** ("sedang tidak digunakan oleh users") — termasuk perbaikan bug kunci `None`/`[]` |
-| D — penilaian scorecard | **diterapkan**; campaign Cashline production WAJIB di-update saat deploy (§7) |
+| D — penilaian scorecard | **diterapkan**; campaign Cashline diunggah user **paling akhir**, setelah deploy (§7 langkah 7) |
 | E — pipeline multi-rekaman | **diterapkan**, dengan perbaikan DWH (§8.2) dan maks 3 panggilan paralel per tiket |
 | F — Export Agregat fase + RBAC | **diterapkan**; login Collection **ikut** mendapat Export Agregat (tidak ditambahkan ke `COLLECTION_REMOVED_PERMISSIONS`) |
 | G — tampilan dashboard | **diterapkan** |
@@ -276,20 +276,28 @@ Perlu cek route nginx host untuk `/export_categories`.
    api/worker/core (image dibangun dari folder, termasuk perubahan yang belum di-commit).
 2. Tag image yang sedang berjalan untuk rollback:
    `docker tag local/qc-api:latest local/qc-api:pre-merge-4service` (sama untuk `qc-worker`, `qc-dashboard`).
-3. **Update campaign Cashline di DB production** (schema `dashboard`) — syarat Kelompok D:
-   prompt v82 (`agent_name_said`, blok AGENT REFERENCE DATA), KB v38 (KB_CL_2, KB_CL_14),
-   scorecard dengan SC_CL_43. Sumber: `4-service-telemarketing-qc-system/docs/prompt_cashline_mus_v82.txt`,
-   `cashline_kb_v38.txt`, `cashline_scorecard_v31.txt`. Bandingkan dulu dengan isi DB saat ini
-   (bisa saja sudah diedit lewat UI setelah v79) — pembacaan DB production dari sesi ini ditolak
-   classifier izin, jadi perbandingan ini belum dilakukan.
-4. `docker compose up -d --build` **api dan worker bersamaan** (nama stage `klasifikasi_llm` →
+3. `docker compose up -d --build` **api dan worker bersamaan** (nama stage `klasifikasi_llm` →
    `cek_nama_agent`; worker lama mengimpor fungsi yang dihapus). Container api menjalankan
    `alembic upgrade head` → 0054–0057. `pip install gunicorn` butuh akses jaringan saat build.
-5. Dashboard: `docker compose up -d --build` di `telemarketing-qc-dashboard`.
-6. Env opsional worker: `PARALLEL_RECORDING_EVAL` (default `true`), `PARALLEL_RECORDING_MAX_WORKERS`
+4. Dashboard: `docker compose up -d --build` di `telemarketing-qc-dashboard`.
+5. Env opsional worker: `PARALLEL_RECORDING_EVAL` (default `true`), `PARALLEL_RECORDING_MAX_WORKERS`
    (default `3`), `DWH_API_FAIL_TTL_SEC` (default `60`).
-7. Setelah deploy: SPQ Head tekan Refresh di Stats (signature `v25` membuang cache lama otomatis);
+6. Setelah deploy: SPQ Head tekan Refresh di Stats (signature `v25` membuang cache lama otomatis);
    cek satu tiket multi-rekaman dan satu tiket tunggal.
+7. **Upload campaign Cashline — TERAKHIR** (keputusan user 21 Sep 2026: diunggah lewat menu campaign
+   setelah deploy). Isi yang diunggah: prompt v82 (`agent_name_said`, blok AGENT REFERENCE DATA),
+   KB v38 (KB_CL_2, KB_CL_14), scorecard dengan SC_CL_43. Sumber:
+   `4-service-telemarketing-qc-system/docs/prompt_cashline_mus_v82.txt`, `cashline_kb_v38.txt`,
+   `cashline_scorecard_v31.txt`.
+   **Selama jeda antara langkah 3 dan 7** kode baru berjalan dengan campaign lama:
+   * aturan nama on-air (SC_CL_2/B29) tidak ditegakkan — regex lama sudah dihapus, dan prompt lama
+     belum meminta `agent_name_said`;
+   * bobot MUS sudah 36,75 tetapi SC_CL_43 belum dinilai → tiket MUS mendapat 1,25 poin tanpa dinilai.
+   Karena itu tiket yang diproses selama jeda harus **di-reprocess** setelah campaign diunggah.
+   Jeda sebaiknya dibuat sesingkat mungkin, atau upload tiket ditahan sampai langkah 7 selesai.
+   Catatan: skor dihitung saat BACA, jadi ini juga berlaku untuk tiket MUS **historis** yang dinilai
+   sebelum SC_CL_43 ada — mereka ikut mendapat +1,25 (batas lulus hanya naik 1,125), sehingga vonis
+   hanya bisa bergeser FAIL→PASS. Reprocess tiket historis bila angka lama perlu dipertahankan.
 8. Rollback: jalankan image `pre-merge-4service`, lalu `alembic downgrade 0053`
    (0057 → 0054 punya downgrade; 0055 membuat ulang index yang di-drop). **Teruji di stack e2e**
    (§8.3): image `main` berjalan normal di atas DB hasil downgrade. Downgrade 0054 menghapus baris
