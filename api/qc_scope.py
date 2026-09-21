@@ -19,6 +19,29 @@ def ticket_id_for_result(result) -> str | None:
     return None
 
 
+def split_ticket_ids(raw: str | None) -> list[str] | None:
+    """Query param ``ticket_ids`` (dipisah koma) -> daftar id, atau ``None``.
+
+    Bedanya tiga keadaan dijaga di sini, karena dua di antaranya mudah tertukar dan
+    tertukarnya mahal:
+
+    * ``None`` (parameter tidak dikirim) -> ``None`` = TANPA batas id;
+    * ``""`` atau hanya koma -> ``[]` = TIDAK ADA id yang diminta, sehingga hasilnya
+      kosong. Kalau ini ikut jadi ``None``, sebuah permintaan kosong akan diam-diam
+      mengembalikan seluruh tabel — persis beban yang parameter ini hendak hapus;
+    * ada isinya -> daftar id yang sudah di-trim dan unik, urutan tidak penting
+      karena pemakainya mengiriskannya dengan cakupan RBAC.
+    """
+    if raw is None:
+        return None
+    seen = {}
+    for part in str(raw).split(","):
+        t = part.strip()
+        if t:
+            seen[t] = None
+    return list(seen)
+
+
 def ensure_qc_assigned_to_result(db, current_user, result) -> None:
     """Raise 403 if a ticket-assigned user acts on a ticket not assigned to them.
 

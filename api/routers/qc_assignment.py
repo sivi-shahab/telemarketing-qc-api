@@ -4,15 +4,16 @@ One ticket -> one QC (reassignable). Managed by Team Leader QC (and SPQ Head). A
 is then scoped to only their assigned tickets for Results / Statistics / appeals.
 """
 import random
+from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE
-from api.qc_scope import scoped_customer_ids, ticket_id_for_result
+from api.qc_scope import scoped_customer_ids, split_ticket_ids, ticket_id_for_result
 from api.rbac import collection_campaigns_from_env, effective_campaigns_for
 from api.rbac import require
 from db import crud
@@ -64,6 +65,7 @@ def list_qc_users(
 
 @router.get("/qc_assignments")
 def list_assignments(
+    ticket_ids: Optional[str] = Query(None, description="Ticket id dipisah koma — hanya assignment ticket itu. Kosong = tidak ada yang diminta, BUKAN semua"),
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
@@ -71,12 +73,22 @@ def list_assignments(
 
     Dulu selalu seluruh tabel: seorang pengawas yang dipersempit ke satu campaign
     tetap membaca daftar ticket id campaign lain dari sini, padahal menu Results-nya
-    sudah kosong."""
+    sudah kosong.
+
+    ``ticket_ids`` mempersempit lagi ke ticket yang benar-benar dibutuhkan pemanggil
+    — menu Assign Ticket hanya menampilkan tiket satu hari, jadi tidak ada alasan
+    mengirim seluruh riwayat assignment ke browser."""
     allowed = scoped_customer_ids(db, current_user)
+    wanted = split_ticket_ids(ticket_ids)
+    if wanted is not None and not wanted:
+        return []
     rows = crud.list_qc_assignments(db)
     if allowed is not None:
         allowed_set = set(allowed)
         rows = [a for a in rows if (a.ticket_id or "").strip() in allowed_set]
+    if wanted is not None:
+        wanted_set = set(wanted)
+        rows = [a for a in rows if (a.ticket_id or "").strip() in wanted_set]
     return [_assignment_dict(a) for a in rows]
 
 
