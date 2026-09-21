@@ -57,6 +57,7 @@ from api.rbac import (
     has_perm,
     reject_collection_only_stats,
     require,
+    with_user_campaigns_memo,
 )
 from api.qc_scope import ensure_can_view_result, scoped_customer_ids, split_ticket_ids
 from db import crud
@@ -677,6 +678,7 @@ def results_latest_date(
 
 
 @router.get("/list_results", response_model=ResultListResponse)
+@with_user_campaigns_memo
 def list_results(
     status: Optional[str] = Query(None),
     campaign: Optional[str] = Query(None),
@@ -723,6 +725,12 @@ def list_results(
     # isinya tidak cocok dengan acuan bank (kolom Document), dan untuk mengenali
     # konfirmasi pengecualian MUS.
     doc_ocr_map = crud.document_ocr_by_result(db, rid_list)
+    # Jenis dokumen terunggah & indeks submit_time/agent_id dari snapshot — dibaca
+    # SEKALI di sini lalu dioper ke _missing_docs_map/document_status_map, yang
+    # tanpa itu membacanya ulang sendiri. cashline_agent_index memindai seluruh
+    # result_data (~0,2 detik) — dua kali per halaman sebelum 21 September 2026.
+    doc_types_map = crud.document_types_by_result(db, rid_list)
+    agent_index = crud.cashline_agent_index(db)
     # QC-proposed AI-status changes for this page (single grouped query, no N+1).
     qc_map = crud.qc_status_requests_for(db, rid_list)
     # Error Code appeals for this page (single grouped query, no N+1). Approved
@@ -734,7 +742,7 @@ def list_results(
     change_map = crud.get_tms_cashline_change_flags(db, [c for c in cids if c])
     # TMS submit_time per cid — basis for the Pending Check H+2 SLA timer (counts
     # from the disbursement submission time, not the transcript's generated_at).
-    submit_map = crud.tms_submit_time_map(db, [c for c in cids if c])
+    submit_map = crud.tms_submit_time_map(db, [c for c in cids if c], agent_index)
     # QC ticket -> (assignee, assigned_at). Team Leader QC / SPQ Head see who a
     # ticket is assigned to and when ("Assign Date").
     assignment_map = crud.assignment_map_for_tickets(db, [c for c in cids if c])
@@ -759,7 +767,9 @@ def list_results(
     rjson_map = crud.result_json_map(db, rid_list)
     # Which results are "missing required documents" (TMS data changed or limit >= 50jt
     # but nothing uploaded) — drives the AI-status default + Manual Status "pending".
-    mdocs_page = _missing_docs_map(db, results, rjson_map)
+    mdocs_page = _missing_docs_map(
+        db, results, rjson_map, types_by_rid=doc_types_map, ocr_by_rid=doc_ocr_map
+    )
     gaps_page = data_gap_map(db, results)
     # Keterangan LENGKAP di kolom AI Status hanya untuk pemegang capability-nya
     # (divisi QC + Admin). Empat role sisi sales hanya menerima keterangan
@@ -767,7 +777,10 @@ def list_results(
     # sendiri. Disaring di SINI, bukan di Vue: alasan yang disembunyikan tidak ikut
     # terkirim ke browser sama sekali.
     show_full_reason = has_perm(db, current_user, RESULTS_STATUS_REASON_FULL)
-    doc_status_page = document_status_map(db, results)
+    doc_status_page = document_status_map(
+        db, results,
+        types_by_rid=doc_types_map, ocr_by_rid=doc_ocr_map, agent_index=agent_index,
+    )
     _now_status = datetime.now()  # basis tenggat H+2 untuk status PENDING
     items = []
     for r in results:
