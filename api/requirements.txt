@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+gunicorn
 celery[redis]
 sqlalchemy
 alembic

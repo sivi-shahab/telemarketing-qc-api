@@ -7,17 +7,16 @@ import requests
 @allure.feature("Field respons baru")
 class TestFieldBaru:
 
-    @allure.story("recording_types terisi dari hasil klasifikasi worker")
+    @allure.story("recording_types terisi dari validasi rekaman worker")
     @allure.severity(allure.severity_level.NORMAL)
-    @allure.description("""Ditulis worker lewat `compliance.recording_type` (W1) dan
-    dialirkan ke respons oleh A6. Stub melabeli rekaman pertama `recording_utama` dan
-    sisanya `recording_perbaikan`.""")
+    @allure.description("""Ditulis worker dari `compliance.recording_validation` (merge
+    4-service 21 September 2026): tepat satu `recording_utama`; sisanya
+    `recording_perbaikan` atau label alasan rekaman itu tidak dinilai.""")
     def test_recording_types(self, tiket, api, auth):
         it = self._baris(api, auth, tiket[0])
         rt = it.get("recording_types")
         allure.attach(str(rt), "recording_types", allure.attachment_type.TEXT)
         assert rt, "recording_types kosong — worker tidak menuliskannya"
-        assert {r["tag"] for r in rt} <= {"recording_utama", "recording_perbaikan"}
         assert sum(1 for r in rt if r["tag"] == "recording_utama") == 1
 
     @allure.story("Kolom baru ada di payload, dengan bawaan yang benar")

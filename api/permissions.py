@@ -407,7 +407,7 @@ DEFAULT_ROLES = {
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_SPQ,
             ERROR_CODE_DIRECT_EDIT, ERROR_CODE_REVIEW_SPQ,
             DOCUMENT_VIEW, DOCUMENT_VERIFICATION_TABLE,
-            RESULTS_EXPORT_TICKETS,
+            RESULTS_EXPORT_TICKETS, RESULTS_EXPORT_VERIFICATION,
             STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
             STATS_RISK_SYSTEM_NEW,
             # Tanpa MENU_MANAGE_USER / MENU_MANAGE_ROLE / ADMIN_USER_WRITE /
@@ -417,9 +417,11 @@ DEFAULT_ROLES = {
             # (14 Agustus 2026).
             # Tanpa ADMIN_TICKET_DELETE: tombol Delete di Results dicabut dari SPQ
             # Head pada tanggal yang sama; menghapus tiket tinggal milik Admin.
-            # Tanpa RESULTS_EXPORT_VERIFICATION: export agregat per kategori
-            # verifikasi juga pindah ke Admin. Gantinya RESULTS_EXPORT_TICKETS —
-            # export SEMUA tiket pada rentang tanggal yang sedang dipilih.
+            # RESULTS_EXPORT_VERIFICATION sempat dicabut (14 Agustus 2026, migrasi
+            # 0041) dan digantikan RESULTS_EXPORT_TICKETS — lalu DIKEMBALIKAN pada
+            # 21 September 2026 (migrasi 0057; 0059 di repo 4-service). SPQ Head kini memegang KEDUANYA:
+            # Export Tiket (semua tiket pada rentang) dan Export Agregat (temuan per
+            # kategori verifikasi / fase percakapan).
             # MENU_ASSIGN_TICKET / MENU_MANUAL_CHECK / MENU_PENDING_CHECK sempat
             # dicabut (1 September 2026, migrasi 0050) dengan alasan mengurus
             # antrean adalah pekerjaan Team Leader QC & QC — lalu DIKEMBALIKAN
@@ -478,6 +480,8 @@ DEFAULT_ROLES = {
             RESULTS_CATEGORY_SCORE,
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_TL,
             ERROR_CODE_DIRECT_EDIT, ERROR_CODE_REVIEW_TL, RESULTS_FILTER_QC_SIDE,
+            # Export Agregat (21 September 2026, migrasi 0057; 0059 di repo 4-service). Tanpa RESULTS_EXPORT_TICKETS.
+            RESULTS_EXPORT_VERIFICATION,
             STATS_QC_PERFORMANCE, STATS_RISK_BASE, STATS_RISK_SYSTEM_NEW,
             QC_ASSIGNMENT_WRITE,
         ],

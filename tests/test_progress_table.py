@@ -19,7 +19,7 @@ from compliance.processing_stages import PROCESSING_STAGES, stage_table
 def test_respons_pending_membawa_seluruh_tahap():
     r = ResultResponse(
         result_id="r-1", status="processing",
-        current_stage="klasifikasi_llm", stages=stage_table("klasifikasi_llm"),
+        current_stage="cek_nama_agent", stages=stage_table("cek_nama_agent"),
     )
     assert len(r.stages) == len(PROCESSING_STAGES)
     assert all(isinstance(s, ProcessingStageInfo) for s in r.stages)
@@ -28,10 +28,10 @@ def test_respons_pending_membawa_seluruh_tahap():
 def test_tahap_berjalan_adalah_SATU_SESUDAH_current_stage():
     r = ResultResponse(
         result_id="r-1", status="processing",
-        current_stage="klasifikasi_llm", stages=stage_table("klasifikasi_llm"),
+        current_stage="cek_nama_agent", stages=stage_table("cek_nama_agent"),
     )
     state = {s.key: s.state for s in r.stages}
-    assert state["klasifikasi_llm"] == "selesai"
+    assert state["cek_nama_agent"] == "selesai"
     assert state["rangkai_transkrip"] == "berjalan"
 
 

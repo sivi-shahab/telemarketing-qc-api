@@ -34,12 +34,12 @@ class TestBentukPrompt:
         assert "REFERENCE DATA" in urutan
         assert urutan.index("SCORECARD") < urutan.index("REFERENCE DATA") < urutan.index("TRANSCRIPT")
 
-    @allure.story("Klasifikasi jenis rekaman dipanggil sekali untuk satu tiket")
-    @allure.description("Satu panggilan untuk SELURUH rekaman, bukan satu per rekaman — "
-                        "label 'perbaikan' hanya berarti bila model melihat rekaman yang "
-                        "diperbaikinya.")
-    def test_klasifikasi_sekali(self, tiket):
+    @allure.story("Klasifikasi jenis rekaman oleh LLM tidak lagi dipanggil")
+    @allure.description("Merge 4-service 21 September 2026 (ec28dac/e98d2c9): jenis rekaman "
+                        "ditentukan validasi PDF berbasis regex, bukan panggilan LLM. "
+                        "Panggilan klasifikasi yang muncul berarti jalur lama masih hidup.")
+    def test_tanpa_klasifikasi_llm(self, tiket):
         jejak = requests.get(f"{STUB}/_jejak", timeout=30).json()["panggilan"]
         klas = [p for p in jejak if p["jenis"] == "klasifikasi"]
         allure.attach(str(len(klas)), "jumlah panggilan klasifikasi", allure.attachment_type.TEXT)
-        assert len(klas) == 1, f"klasifikasi dipanggil {len(klas)}x, seharusnya 1x"
+        assert len(klas) == 0, f"klasifikasi LLM masih dipanggil {len(klas)}x"

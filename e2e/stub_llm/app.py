@@ -103,8 +103,8 @@ def _item(code, kategori, status, weight, tolerable="YES", skor=None):
 def _evaluasi():
     """Evaluasi tetap: cashline+MUS diminati, satu item gagal supaya skornya tidak bulat.
 
-    Dua produk diminati -> max_score v4 = 100 + 35,5 = 135,5.
-    Satu item bobot 10 BELUM_SESUAI -> skor 125,5. Angka itulah yang di-assert test.
+    Dua produk diminati -> max_score v4 = 100 + 36,75 = 136,75.
+    Satu item bobot 10 BELUM_SESUAI -> skor 126,75. Angka itulah yang di-assert test.
     """
     return {
         "ai_summary": "stub evaluation",
@@ -120,6 +120,10 @@ def _evaluasi():
             _item("SC_CL_19", "penjelasan mega ultima shield", "SESUAI", 3),
             _item("SC_CL_33", "legal statement mega ultima shield", "SESUAI", 2.25),
         ],
+        # Wajib ada sejak merge 4-service (required_keys, 31a3746): worker menuntut
+        # keempat kunci Task B/C/D bila DWH mengembalikan baris acuan.
+        "cashline_data_extraction": {},
+        "card_holder_extraction": {},
         "card_holder_verification": [],
         "cashline_data_verification": [],
         "error_codes": [],
@@ -135,6 +139,22 @@ def health():
 def jejak():
     """Dibaca test untuk memeriksa BENTUK prompt yang benar-benar dikirim worker."""
     return {"panggilan": PANGGILAN}
+
+
+@app.get("/campaign/{jalur}/{result_id}")
+def dwh(jalur: str, result_id: str):
+    """Stub DWH API Aplikasi A (``DWH_API_BASE_URL`` menunjuk ke sini).
+
+    Sejak merge 4-service 21 September 2026 worker TIDAK menilai tiket tanpa baris
+    TMS/Ascend (langsung PENDING), dan menggagalkan tiket bila DWH tidak menjawab.
+    Tanpa route GET ini catch-all POST di bawah membalas 405, sehingga setiap tiket
+    e2e berakhir ``failed``. Balasan minimal: dua baris tidak kosong.
+    """
+    return {
+        "cashline": {"agent_id": "E2E01", "cust_name": "Budi Santoso",
+                     "jenis-kartu-yang-dikehendaki": "Cashline Umum"},
+        "customer": {"cust_name": "Budi Santoso", "no-ktpkitas": "3100000000000001"},
+    }
 
 
 @app.post("/_reset")
