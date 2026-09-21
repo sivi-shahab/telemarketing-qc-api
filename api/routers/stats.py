@@ -751,6 +751,12 @@ def list_results(
     # Riwayat Manual Status per tiket (append-only) — hanya jumlahnya yang dikirim ke
     # tabel; detailnya diambil per tiket lewat GET /qc_status_events/{result_id}.
     ms_events_map = crud.qc_status_events_for_results(db, [str(r.id) for r in results])
+    # ``result_json`` seluruh halaman dalam SATU query. Sebelumnya dibaca per baris
+    # dengan crud.get_result_data di dalam loop di bawah — 100 query terpisah yang
+    # masing-masing menarik blob penuh, ~3 detik untuk satu halaman 100 baris
+    # (diukur 21 September 2026; versi batched-nya 1,1 detik). Aturan "baris
+    # result_data TERBARU per result_id" sama persis di kedua fungsi.
+    rjson_map = crud.result_json_map(db, rid_list)
     # Which results are "missing required documents" (TMS data changed or limit >= 50jt
     # but nothing uploaded) — drives the AI-status default + Manual Status "pending".
     mdocs_page = _missing_docs_map(db, results)
@@ -781,15 +787,15 @@ def list_results(
         raw_result_json = None  # pre-appeal JSON — basis for the similarity-band doc triggers
         recording_types = None
         if r.status == "done":
-            data = crud.get_result_data(db, str(r.id))
-            if data is not None:
-                raw_result_json = data.result_json
-                if isinstance(data.result_json, dict):
-                    audio_duration = data.result_json.get("audio_duration")
-                    audio_durations = data.result_json.get("audio_durations")
-                    excluded_calls = data.result_json.get("excluded_calls")
-                    recording_types = data.result_json.get("recording_types")
-                evaluation = _evaluation_dict(data.result_json)
+            result_json = rjson_map.get(str(r.id))
+            if result_json is not None:
+                raw_result_json = result_json
+                if isinstance(result_json, dict):
+                    audio_duration = result_json.get("audio_duration")
+                    audio_durations = result_json.get("audio_durations")
+                    excluded_calls = result_json.get("excluded_calls")
+                    recording_types = result_json.get("recording_types")
+                evaluation = _evaluation_dict(result_json)
                 if evaluation is not None:
                     # Terapkan banding yang di-approve (baris error code dihapus &
                     # item scorecard -> SESUAI) sebelum menghitung skor/status.
