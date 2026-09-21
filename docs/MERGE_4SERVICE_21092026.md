@@ -291,8 +291,9 @@ Perlu cek route nginx host untuk `/export_categories`.
 7. Setelah deploy: SPQ Head tekan Refresh di Stats (signature `v25` membuang cache lama otomatis);
    cek satu tiket multi-rekaman dan satu tiket tunggal.
 8. Rollback: jalankan image `pre-merge-4service`, lalu `alembic downgrade 0053`
-   (0057 → 0054 punya downgrade; 0055 membuat ulang index yang di-drop). Downgrade belum diuji —
-   uji di stack e2e sebelum dijadikan jalur rollback.
+   (0057 → 0054 punya downgrade; 0055 membuat ulang index yang di-drop). **Teruji di stack e2e**
+   (§8.3): image `main` berjalan normal di atas DB hasil downgrade. Downgrade 0054 menghapus baris
+   `stats_snapshots` ber-scope — itu cache, dibangun ulang otomatis.
 
 ## 8. Hasil merge
 
@@ -334,7 +335,18 @@ dipertahankan).
 | Smoke worker (DB/S3/LLM/DWH palsu, PDF asli) | 1 PDF → 1 panggilan; 5 PDF → 4 dibuang, 1 panggilan; 4 PDF → 1 dibuang, 3 panggilan bersamaan; data acuan kosong → PENDING, 0 panggilan; **DWH down → `failed`, 0 panggilan** |
 | Dashboard | `vite build` OK, `npm test` **51/51**, `nginx -t` OK |
 | E2E `e2e/jalankan.sh` (stack terisolasi, 4 repo dari branch merge) | **34 passed** |
+| Rollback `downgrade 0053` + image `main` | **34 passed** (rincian di bawah) |
 | Smoke API di stack e2e | `/export_categories`, `/stats`, `/stats/my_overview`, `/stats/failure_reasons(_hierarchy)`, `/stats/ai_status_timeseries` → 200; `stats_snapshots.scope_key` terisi; `spq_head`/`team_leader_qc` memegang `results.export.verification`; gunicorn 2 worker berjalan |
+
+**Uji rollback (stack e2e, 21 September 2026):**
+
+| Langkah | Hasil |
+|---|---|
+| Kepala 0057, e2e branch merge | 34 passed |
+| `alembic downgrade 0053` (tabel snapshot kosong) | OK — `scope_key` hilang, constraint `stats_snapshots_snapshot_date_key` kembali, `idx_campaigns_name` & `ix_qc_assignments_ticket_id` dibuat ulang, 2 expression index hilang, `results.export.verification` dicabut dari `spq_head`/`team_leader_qc` (admin tetap) |
+| `upgrade head` → 4 snapshot ber-scope terisi lewat `/stats/*` → `downgrade 0053` | OK — baris ber-scope terhapus, tanpa bentrok constraint |
+| `upgrade head` lagi | OK — skema identik dengan sebelumnya |
+| DB di-downgrade ke 0053 + image & e2e dari `main` (simulasi rollback) | **34 passed** |
 
 E2E pertama gagal (2 failed, 17 error) — semuanya karena e2e belum mengikuti perilaku baru, bukan
 bug kode: stub LLM tidak mengirim `cashline_data_extraction`/`card_holder_extraction` (kini wajib
