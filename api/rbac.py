@@ -21,8 +21,11 @@ memanggil ``invalidate()`` supaya perubahan langsung terasa. TTL-nya tetap ada
 sebagai jaring pengaman kalau API dijalankan lebih dari satu proses — cache basi
 paling lama sepuluh detik.
 """
+import functools
 import os
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -262,19 +265,57 @@ def campaigns_for(db: Session, user) -> list:
     return list(_role_def(db, getattr(user, "role", None))["campaigns"])
 
 
+# Memo ``user_campaigns_for`` yang hidup SELAMA SATU request saja — aktif hanya di
+# dalam ``memo_user_campaigns()``. ``None`` = tidak aktif (perilaku biasa).
+_USER_CAMPAIGNS_MEMO: ContextVar[Optional[dict]] = ContextVar(
+    "_USER_CAMPAIGNS_MEMO", default=None
+)
+
+
+@contextmanager
+def memo_user_campaigns():
+    """Selama blok ini, ``user_campaigns_for`` membaca DB sekali per user.
+
+    Satu permintaan /list_results memanggilnya 5x lewat ``effective_campaigns_for``
+    (filter, cakupan QC, dua kali ``has_perm``). Hanya untuk route yang tidak
+    mengubah ``user_campaigns`` di tengah jalan: memo tidak tahu bila barisnya
+    berubah."""
+    token = _USER_CAMPAIGNS_MEMO.set({})
+    try:
+        yield
+    finally:
+        _USER_CAMPAIGNS_MEMO.reset(token)
+
+
+def with_user_campaigns_memo(fn):
+    """Dekorator route: jalankan ``fn`` di dalam ``memo_user_campaigns()``."""
+    @functools.wraps(fn)
+    def _wrapped(*args, **kwargs):
+        with memo_user_campaigns():
+            return fn(*args, **kwargs)
+    return _wrapped
+
+
 def user_campaigns_for(db: Session, user) -> list:
     """Campaign yang di-assign ke ORANG ini lewat tab "Assign Role" (tabel
     ``user_campaigns``). List KOSONG = tidak dibatasi di tingkat orang.
 
     Sengaja TIDAK ikut cache role: ini milik user, bukan role, dan jumlahnya kecil
-    (satu query berindeks per pemanggilan)."""
+    (satu query berindeks per pemanggilan). Satu-satunya pengecualian adalah memo
+    per request di dalam ``memo_user_campaigns()``."""
     from db.models import UserCampaign
 
     uid = getattr(user, "id", None)
     if uid is None:
         return []
+    memo = _USER_CAMPAIGNS_MEMO.get()
+    if memo is not None and uid in memo:
+        return list(memo[uid])
     rows = db.query(UserCampaign.campaign).filter(UserCampaign.user_id == uid).all()
-    return [r[0] for r in rows]
+    out = [r[0] for r in rows]
+    if memo is not None:
+        memo[uid] = list(out)
+    return out
 
 
 def effective_campaigns_for(db: Session, user):

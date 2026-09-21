@@ -98,3 +98,69 @@ def test_result_json_map_dibaca_sekali_per_halaman(db, viewer, monkeypatch):
     out = st.list_results(db=db, current_user=viewer, **_DEFAULTS)
     assert out.total > 0, "prasyarat: halaman harus berisi baris"
     assert len(calls) == 1, "result_json_map dipanggil %d kali: %r" % (len(calls), calls)
+
+
+@pytest.mark.parametrize("modul, nama", [
+    ("db.crud", "cashline_agent_index"),
+    ("db.crud", "document_ocr_by_result"),
+    ("db.crud", "document_types_by_result"),
+])
+def test_lookup_halaman_dibaca_sekali(db, viewer, monkeypatch, modul, nama):
+    """Data yang sama untuk satu halaman tidak dibaca ulang oleh fungsi di hilirnya.
+
+    Sebelumnya route dan ``document_status_map``/``_missing_docs_map`` masing-masing
+    membaca sendiri: ``cashline_agent_index`` 2x (tiap kali memindai seluruh
+    result_data), ``document_ocr_by_result`` 3x, ``document_types_by_result`` 2x,
+    ~0,3 detik per halaman 100 baris (diukur 21 September 2026).
+    """
+    import importlib
+
+    mod = importlib.import_module(modul)
+    calls = []
+    asli = getattr(mod, nama)
+
+    def _tercatat(*a, **k):
+        calls.append(1)
+        return asli(*a, **k)
+
+    monkeypatch.setattr(mod, nama, _tercatat)
+    out = st.list_results(db=db, current_user=viewer, **_DEFAULTS)
+    assert out.total > 0, "prasyarat: halaman harus berisi baris"
+    assert len(calls) == 1, "%s dipanggil %d kali" % (nama, len(calls))
+
+
+def test_user_campaigns_dibaca_sekali_per_request(db, viewer):
+    """``effective_campaigns_for`` dipanggil 5x per /list_results (filter, cakupan QC,
+    dua kali ``has_perm``); tiap kali membaca tabel ``user_campaigns`` lagi.
+
+    Yang dikunci jumlah QUERY, bukan jumlah panggilan: memo per request ada di dalam
+    ``user_campaigns_for`` sendiri.
+    """
+    from sqlalchemy import event
+
+    stmts = []
+
+    def _catat(conn, cursor, statement, params, context, executemany):
+        if "user_campaigns" in statement:
+            stmts.append(statement)
+
+    engine = db.get_bind().engine
+    event.listen(engine, "before_cursor_execute", _catat)
+    try:
+        out = st.list_results(db=db, current_user=viewer, **_DEFAULTS)
+    finally:
+        event.remove(engine, "before_cursor_execute", _catat)
+    assert out.total > 0, "prasyarat: halaman harus berisi baris"
+    assert len(stmts) == 1, "user_campaigns dibaca %d kali" % len(stmts)
+
+
+def test_memo_user_campaigns_tidak_bocor_keluar_request(db, viewer):
+    """Di luar ``memo_user_campaigns()`` setiap panggilan membaca DB lagi — perubahan
+    assign campaign harus langsung terlihat di request berikutnya."""
+    from api import rbac
+
+    with rbac.memo_user_campaigns():
+        pertama = rbac.user_campaigns_for(db, viewer)
+        pertama.append("__diubah_pemanggil__")
+        assert "__diubah_pemanggil__" not in rbac.user_campaigns_for(db, viewer)
+    assert rbac._USER_CAMPAIGNS_MEMO.get() is None
