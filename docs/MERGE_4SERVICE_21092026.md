@@ -1,8 +1,7 @@
 # Merge `4-service-telemarketing-qc-system` → repo production (21 September 2026)
 
-Status: **MERGE SELESAI DI BRANCH `merge/4service-21092026` (4 repo) — BELUM DI-DEPLOY.**
-Semua kelompok disetujui user 21 Sep 2026 (§6). Deploy ke production menunggu konfirmasi
-terpisah; langkahnya di §7, hasil verifikasi di §8.
+Status: **DI-DEPLOY KE PRODUCTION 21 September 2026 ±16:28 WIB** (§9). Tinggal langkah 7:
+upload campaign Cashline (prompt v82 / KB v38 / scorecard SC_CL_43) oleh user.
 
 Repo target (production): `telemarketing-qc-api`, `telemarketing-qc-core`,
 `telemarketing-qc-worker`, `telemarketing-qc-dashboard`.
@@ -270,7 +269,7 @@ Perlu cek route nginx host untuk `/export_categories`.
 | G — tampilan dashboard | **diterapkan** |
 | H — gunicorn 2 worker | **diterapkan**; pool DB tetap 10+20 (usulan 5+5 dari A ditolak) |
 
-## 7. Langkah deploy (BELUM dijalankan — butuh konfirmasi)
+## 7. Langkah deploy
 
 1. Merge PR keempat repo ke `main`, lalu `git pull` di folder production. Cek `git status` bersih di
    api/worker/core (image dibangun dari folder, termasuk perubahan yang belum di-commit).
@@ -371,3 +370,29 @@ campaign; di e2e daftarnya kosong karena KB stub minimal.
 * Dokumen `docs/` milik A (API_REFERENCE, ERROR_CODE_CATALOG, CAMPAIGN_SCORING, dll.) tidak disalin
   utuh — isinya menggambarkan arsitektur A (tms_cashline lokal, dsb.).
 * Temuan di luar delta (§5) dibiarkan.
+
+---
+
+## 9. Hasil deploy (21 September 2026)
+
+| Langkah | Hasil |
+|---|---|
+| 1. PR merged | core #8 `a822871`, api #14 `6150027`, worker #10 `7a83206`, dashboard #11 `9d8d76a`; `git pull --ff-only` di keempat folder production, `git status` bersih |
+| 2. Tag image lama | `local/qc-api:pre-merge-4service` (`e7a8c28c5876`), `local/qc-worker:pre-merge-4service` (`1327b6447ca4`), `local/qc-dashboard:pre-merge-4service` (`a84e8a19b334`) |
+| 3. api + worker | image dibangun dulu, lalu di-restart berurutan dalam hitungan detik; worker Celery sedang kosong (tidak ada task aktif) saat restart. Migrasi `0053 → 0054 → 0055 → 0056 → 0057` sukses; gunicorn 2 worker; `/health` healthy; worker `ready` |
+| 4. dashboard | di-rebuild, `/` → 200 |
+| 5. Env | tidak ada yang ditambahkan — default berlaku: PARALEL aktif, maks 3 per tiket |
+| 6. Verifikasi | hash `stats.py`, `recording_validation.py`, `crud.py`, `data_dwh.py` (api) dan `process_transcript.py`, `parallel_pass.py` (worker) di container = `git HEAD`; `/export_categories` & `/stats/my_overview` → 401 (route ada, butuh login) baik langsung maupun lewat nginx host `/api-b/`; log api tanpa error |
+| 7. Campaign Cashline | **belum** — diunggah user paling akhir |
+
+Yang belum dicek dari sesi ini: tampilan dashboard setelah login, dan satu tiket nyata yang diproses
+pipeline baru (sebaiknya setelah langkah 7).
+
+**Rollback** bila perlu:
+```
+cd telemarketing-qc-api && docker compose run --rm api alembic downgrade 0053
+docker tag local/qc-api:pre-merge-4service local/qc-api:latest       # sama untuk qc-worker, qc-dashboard
+docker compose up -d --no-build api   # lalu worker (worker, flower) dan dashboard
+```
+Downgrade dijalankan dengan image BARU (hanya image baru yang punya skrip 0054–0057), baru
+kemudian image lama dinaikkan.
