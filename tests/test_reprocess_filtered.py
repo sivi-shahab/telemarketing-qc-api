@@ -43,7 +43,7 @@ def _call_list_results(db, user, **over):
         status=None, campaign=None, ticket_id=None, ai_status=None,
         manual_status=None, am_nip=None, tl_nip=None, agent_nip=None,
         qc_username=None, qc_support_username=None, date_start=None,
-        date_end=None, banding_pending=False, manual_status_pending=False,
+        date_end=None, ticket_ids=None, banding_pending=False, manual_status_pending=False,
         page=1, limit=100,
     )
     kw.update(over)

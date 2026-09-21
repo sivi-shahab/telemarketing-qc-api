@@ -58,7 +58,7 @@ from api.rbac import (
     reject_collection_only_stats,
     require,
 )
-from api.qc_scope import ensure_can_view_result, scoped_customer_ids
+from api.qc_scope import ensure_can_view_result, scoped_customer_ids, split_ticket_ids
 from db import crud
 from compliance.badwords import badword_fail_reason, badword_rows, has_badword
 from compliance.error_codes import (
@@ -427,6 +427,7 @@ def _resolve_filtered_results(
     agent_nip=None,
     qc_username=None,
     qc_support_username=None,
+    ticket_ids=None,
     date_start=None,
     date_end=None,
     banding_pending=False,
@@ -450,6 +451,12 @@ def _resolve_filtered_results(
     """
     d_start = _parse_ymd(date_start)
     d_end = _parse_ymd(date_end)
+    # ``ticket_ids`` = pengayaan untuk ticket TERTENTU (menu Assign Ticket meminta
+    # kolom lokal hanya untuk baris yang tampil di tabelnya). List KOSONG berarti
+    # "tidak ada id yang diminta", bukan "tanpa batas" — bedanya dijaga di sini
+    # supaya permintaan kosong tidak diam-diam mengembalikan seluruh tabel.
+    if ticket_ids is not None and not ticket_ids:
+        return [], 0
     # Pembatasan CAMPAIGN milik role: mempersempit, tidak pernah memperlebar. Role
     # tanpa daftar campaign (bawaan semua role sistem, termasuk qc) tidak terpengaruh.
     # Kalau user memfilter campaign di luar cakupannya, hasilnya sengaja kosong
@@ -474,6 +481,14 @@ def _resolve_filtered_results(
         scoped_cids = (
             list(set(scoped_cids) & set(filter_cids)) if scoped_cids is not None
             else list(filter_cids)
+        )
+    if ticket_ids is not None:
+        # MEMPERSEMPIT, tidak pernah memperlebar — sama seperti filter hierarki di
+        # atas. Daftar yang dikirim browser tidak dipercaya: yang menentukan adalah
+        # irisannya dengan cakupan role, bukan daftarnya.
+        wanted = {str(t).strip() for t in ticket_ids if str(t).strip()}
+        scoped_cids = (
+            list(set(scoped_cids) & wanted) if scoped_cids is not None else list(wanted)
         )
     # QC Support is a standalone, isolated result set: it sees ONLY its own uploads
     # (all complaint tickets); every other role EXCLUDES QC Support's uploads.
@@ -627,6 +642,40 @@ def _resolve_filtered_results(
     return results, total
 
 
+@router.get("/list_results/latest_date")
+def results_latest_date(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Tanggal tiket TERBARU yang ada dalam cakupan pemanggil, ``{"date": ...}``.
+
+    Menu Results memakainya untuk mengisi filter tanggal saat halaman dibuka.
+    Tanpa itu, sekali buka menu berarti menarik SELURUH riwayat ter-scope halaman
+    demi halaman (sampai 20.000 baris) dan mengulanginya tiap 7 detik selama ada
+    tiket yang masih diproses.
+
+    Cakupannya dihitung dengan helper RBAC yang SAMA dengan
+    ``_resolve_filtered_results`` — kalau tidak, tanggal ini bisa berasal dari
+    tiket yang justru tidak boleh dilihat pemanggilnya. Yang sengaja TIDAK ikut:
+    filter pilihan user (campaign, hierarki, status) — ini "tanggal data terakhir
+    yang Anda punya", bukan "tanggal terakhir untuk filter yang sedang aktif".
+    """
+    from api.rbac import collection_campaigns_from_env
+
+    scope_kwargs = {
+        "campaigns": effective_campaigns_for(db, current_user),
+        "customer_ids": _scoped_customer_ids(db, current_user),
+        "exclude_campaigns": sorted(collection_campaigns_from_env()) or None,
+    }
+    # Isolasi QC Support, sama persis dengan ``_resolve_filtered_results``.
+    if data_scope_for(db, current_user) == SCOPE_QC_SUPPORT_OWN:
+        scope_kwargs["uploaded_by_role"] = "qc_support"
+    else:
+        scope_kwargs["exclude_uploaded_by_role"] = "qc_support"
+    d = crud.latest_result_date(db, **scope_kwargs)
+    return {"date": d.isoformat() if d else None}
+
+
 @router.get("/list_results", response_model=ResultListResponse)
 def list_results(
     status: Optional[str] = Query(None),
@@ -639,6 +688,7 @@ def list_results(
     agent_nip: Optional[str] = Query(None, description="Hierarchy filter: Sales Agent (TLO) NIP"),
     qc_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets assigned to this QC (NIP)"),
     qc_support_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets uploaded by this QC Support (NIP)"),
+    ticket_ids: Optional[str] = Query(None, description="Ticket id dipisah koma — batasi ke ticket TERTENTU (menu Assign Ticket). Kosong = tidak ada id yang diminta, BUKAN tanpa batas"),
     date_start: Optional[str] = Query(None, description="Transcript-date lower bound (YYYY-MM-DD, WIB)"),
     date_end: Optional[str] = Query(None, description="Transcript-date upper bound (YYYY-MM-DD, WIB)"),
     banding_pending: bool = Query(False, description="Keep only tickets with an appeal awaiting the caller's review tier"),
@@ -653,6 +703,7 @@ def list_results(
         status=status, campaign=campaign, ticket_id=ticket_id, ai_status=ai_status,
         manual_status=manual_status, am_nip=am_nip, tl_nip=tl_nip, agent_nip=agent_nip,
         qc_username=qc_username, qc_support_username=qc_support_username,
+        ticket_ids=split_ticket_ids(ticket_ids),
         date_start=date_start, date_end=date_end, banding_pending=banding_pending,
         manual_status_pending=manual_status_pending, page=page, limit=limit,
     )
