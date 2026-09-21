@@ -53,4 +53,9 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -f http://localhost:4000/health || exit 1
 
 # API adalah satu-satunya pemilik migrasi Alembic — worker tidak menjalankannya.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 4000"]
+# 2 worker process (bukan 4, seperti disarankan umum): host ini juga menjalankan
+# stack lama (telemarketing-qc-system) berdampingan, jadi CPU/RAM dibagi. Naikkan
+# kalau load test menunjukkan masih ada headroom (17 September 2026,
+# improvement.md item 1.2). --timeout dinaikkan dari default gunicorn 30s karena
+# endpoint stats/export bisa menghitung ulang snapshot yang berat.
+CMD ["sh", "-c", "alembic upgrade head && gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:4000 --timeout 300"]

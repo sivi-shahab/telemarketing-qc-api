@@ -1,4 +1,6 @@
+import hashlib
 import io
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -1120,6 +1122,29 @@ def get_daily_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
 # All three endpoints read the same once-per-day snapshot (overview, per-agent,
 # campaign month-to-month, org hierarchy); see crud.get_or_build_stats_snapshot.
 
+def _scope_key_for(scope: str, cids, roster_uids=None, extra: str = "") -> str:
+    """Stable cache key for a scoped Statistics snapshot (17 September 2026).
+
+    Two callers with the IDENTICAL access (same allowed ticket ids / roster) hash
+    to the same key and share one cached row; anyone else gets their own. Prefixed
+    with ``scope`` so, e.g., a QC-scope and a sales-scope caller can never collide
+    even if their id sets happened to match by coincidence.
+
+    ``extra`` (added for the AI-status-timeseries / Failure-Reason caches, item
+    2.1/2.2) folds in request PARAMETERS that also change the payload shape
+    (granularity, date range, campaign filter, ...) — without it, two requests
+    with the same access but different params would wrongly share one cached row.
+    """
+    # ``None`` (TIDAK dibatasi) dan ``[]`` (dibatasi ke NOL tiket/campaign) harus
+    # menghasilkan kunci BERBEDA — kalau disamakan, pemanggil tanpa batas bisa menerima
+    # payload kosong milik pemanggil berbatas-kosong, atau sebaliknya membocorkan
+    # payload seluruh organisasi (lihat effective_campaigns_for di api/rbac.py).
+    cids_part = "*" if cids is None else ",".join(sorted(str(c) for c in cids))
+    roster_part = "*" if roster_uids is None else ",".join(sorted(str(u) for u in roster_uids))
+    raw = f"{scope}|{cids_part}|{roster_part}|{extra}"
+    return f"{scope[:12]}:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
+
+
 def _snapshot_for(db: Session, current_user) -> dict:
     """Statistics snapshot sesuai scope pemakainya.
 
@@ -1127,8 +1152,11 @@ def _snapshot_for(db: Session, current_user) -> dict:
     sehingga KPI, donut, Performa Sales, Performa Campaign dan hierarki semuanya
     konsisten satu sama lain. Role lain memakai snapshot global yang di-cache.
 
-    Catatan: versi scoped TIDAK di-cache — dihitung per request. Bebannya
-    terbatas karena query-nya sudah difilter di sisi DB ke tiket area tersebut.
+    Sejak 17 September 2026 versi scoped IKUT di-cache (``scope_key`` di
+    ``crud.get_or_build_stats_snapshot``, kunci dari himpunan tiket/roster
+    pemakainya) — sebelumnya selalu dihitung ulang tiap request, dan satu buka
+    halaman Statistics memanggil fungsi ini 3x (overview/campaigns_monthly/
+    hierarchy) plus auto-refresh 30 detik selama tab terbuka.
     """
     scope = data_scope_for(db, current_user)
     if scope in (SCOPE_QC_SUPPORT_OWN, SCOPE_QC_ASSIGNED):
@@ -1141,8 +1169,11 @@ def _snapshot_for(db: Session, current_user) -> dict:
         # ``roster_uids`` sengaja himpunan KOSONG supaya tidak ada seorang pun di-seed
         # dari roster: tabel Performa Sales-nya hanya boleh memuat agent yang benar-benar
         # muncul di tiketnya (kalau tidak, 262 baris agent seluruh organisasi ikut tampil).
-        return compute_stats_snapshot(
-            db, _scoped_customer_ids(db, current_user) or [], roster_uids=set()
+        cids = _scoped_customer_ids(db, current_user) or []
+        return crud.get_or_build_stats_snapshot(
+            db,
+            scope_key=_scope_key_for(scope, cids, set()),
+            compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=set()),
         )
     if not is_sales_scope(scope):
         # Cakupan non-sales yang DIBATASI CAMPAIGN ikut dihitung ulang: snapshot
@@ -1154,7 +1185,11 @@ def _snapshot_for(db: Session, current_user) -> dict:
         cids = _scoped_customer_ids(db, current_user)
         if cids is None:
             return crud.get_or_build_stats_snapshot(db)
-        return compute_stats_snapshot(db, cids, roster_uids=set())
+        return crud.get_or_build_stats_snapshot(
+            db,
+            scope_key=_scope_key_for(scope, cids, set()),
+            compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=set()),
+        )
 
     # KETIGA cakupan sales dihitung ulang dari tiketnya sendiri. Sebelumnya hanya
     # ``sales_am`` yang di-scope, sehingga Team Leader & Sales Agent menerima snapshot
@@ -1173,10 +1208,11 @@ def _snapshot_for(db: Session, current_user) -> dict:
 
     # Seeding roster dibatasi ke agent dalam cakupan ini saja — tanpa itu, Performa
     # Sales & pohon hierarki akan memuat orang di luar cakupannya (dengan angka nol).
-    return compute_stats_snapshot(
+    cids = _scoped_customer_ids(db, current_user) or []
+    return crud.get_or_build_stats_snapshot(
         db,
-        _scoped_customer_ids(db, current_user) or [],
-        roster_uids=roster_uids,
+        scope_key=_scope_key_for(scope, cids, roster_uids),
+        compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=roster_uids),
     )
 
 
@@ -1340,14 +1376,29 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
     scope = data_scope_for(db, current_user)
     campaigns = effective_campaigns_for(db, current_user)
     cids = _scoped_customer_ids(db, current_user)
-    resp = {"overview": compute_scoped_overview(db, cids or [])}
-    if scope == SCOPE_SALES_AM:
-        roster = compute_team_agents(db, agent_ids_for_am(db, username, campaigns))
-        resp["agents"] = roster
-        resp["hierarchy"] = compute_scoped_hierarchy(roster)
-    elif scope == SCOPE_SALES_TL:
-        resp["agents"] = compute_team_agents(db, agent_ids_for_tl(db, username, campaigns))
-    return resp
+    roster_uids = (
+        agent_ids_for_am(db, username, campaigns) if scope == SCOPE_SALES_AM
+        else agent_ids_for_tl(db, username, campaigns) if scope == SCOPE_SALES_TL
+        else set()
+    )
+
+    def _compute():
+        resp = {"overview": compute_scoped_overview(db, cids or [])}
+        if scope == SCOPE_SALES_AM:
+            roster = compute_team_agents(db, roster_uids)
+            resp["agents"] = roster
+            resp["hierarchy"] = compute_scoped_hierarchy(roster)
+        elif scope == SCOPE_SALES_TL:
+            resp["agents"] = compute_team_agents(db, roster_uids)
+        return resp
+
+    # Sebelum 17 September 2026 endpoint ini SELALU hitung ulang — dan StatsView
+    # meng-poll-nya tiap 30 detik selama tab terbuka (lihat improvement.md item 2.1).
+    # roster_uids diikutkan di scope_key: dua AM/TL dengan cids sama tapi roster
+    # berbeda (jarang, tapi mungkin) tidak boleh berbagi cache "agents"/"hierarchy".
+    return crud.get_or_build_stats_snapshot(
+        db, scope_key=_scope_key_for(f"myov:{scope}", cids, roster_uids), compute_fn=_compute,
+    )
 
 
 @router.get("/stats/failure_reasons")
@@ -1362,7 +1413,16 @@ def stats_failure_reasons(
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
     from compliance.stats_aggregate import compute_failure_reasons
-    return compute_failure_reasons(db, campaign, effective_campaigns_for(db, current_user))
+    # Di-cache sejak 17 September 2026 (improvement.md item 2.2) — sebelumnya scan
+    # penuh JSON semua tiket Not Qualified tiap panggilan. Restriksi campaign role
+    # dipakai sebagai "cids" slot scope_key (nama field tidak penting, isinya cukup
+    # unik per kombinasi restriksi+filter); ``campaign`` (query param) masuk ``extra``.
+    campaigns = effective_campaigns_for(db, current_user)
+    return crud.get_or_build_stats_snapshot(
+        db,
+        scope_key=_scope_key_for("fr", campaigns, extra=str(campaign)),
+        compute_fn=lambda: compute_failure_reasons(db, campaign, campaigns),
+    )
 
 
 @router.get("/stats/failure_reasons_hierarchy")
@@ -1378,8 +1438,12 @@ def stats_failure_reasons_hierarchy(
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
     from compliance.stats_aggregate import compute_failure_reasons_hierarchy
-    return compute_failure_reasons_hierarchy(db, campaign,
-                                             effective_campaigns_for(db, current_user))
+    campaigns = effective_campaigns_for(db, current_user)
+    return crud.get_or_build_stats_snapshot(
+        db,
+        scope_key=_scope_key_for("frh", campaigns, extra=str(campaign)),
+        compute_fn=lambda: compute_failure_reasons_hierarchy(db, campaign, campaigns),
+    )
 
 
 @router.get("/stats/ai_status_timeseries")
@@ -1406,16 +1470,38 @@ def stats_ai_status_timeseries(
     # jadi tidak perlu daftar role di sini — dan dengan begitu pembatasan CAMPAIGN
     # (yang juga berlaku pada ``data_scope: all``) ikut terbawa.
     customer_ids = _scoped_customer_ids(db, current_user)
-    return compute_ai_status_timeseries(db, customer_ids, campaign, granularity, start, end, offset)
+    # Di-cache sejak 17 September 2026 (improvement.md item 2.1) — StatsView
+    # meng-poll endpoint ini tiap 30 detik selama tab Stats terbuka, dan sebelum ini
+    # tiap panggilan menghitung ulang dari nol. Parameter request (granularity/
+    # start/end/campaign/offset) WAJIB ikut di scope_key: dua request beda parameter
+    # dari user yang sama harus dapat cache terpisah, bukan saling menimpa.
+    scope = data_scope_for(db, current_user)
+    extra = f"{granularity}|{start}|{end}|{campaign}|{offset}"
+    return crud.get_or_build_stats_snapshot(
+        db,
+        scope_key=_scope_key_for(f"ts:{scope}", customer_ids, extra=extra),
+        compute_fn=lambda: compute_ai_status_timeseries(
+            db, customer_ids, campaign, granularity, start, end, offset
+        ),
+    )
 
 
 @router.post("/stats/refresh")
 def stats_refresh(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    """Force-recompute today's Statistics snapshot (SPQ Head only)."""
+    """Force-recompute today's Statistics snapshot (SPQ Head only) — GLOBAL dan
+    seluruh snapshot ter-scope (AM/TL/Agent/QC/campaign-tag/failure-reason).
+
+    Sampai 17 September 2026 hanya snapshot global yang dipaksa hitung ulang;
+    scope lain baru ikut menyesuaikan saat data berubah (lewat ``_stats_signature``)
+    atau paling lambat keesokan harinya, sehingga tombol refresh SPQ Head tidak
+    terasa efeknya bagi role lain. Scope non-global dihapus (bukan dihitung ulang
+    langsung di sini) supaya request berikutnya dari tiap scope yang menghitung —
+    endpoint ini sendiri tidak tahu scope siapa saja yang aktif hari ini."""
     reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak dapat me-refresh statistik")
     crud.get_or_build_stats_snapshot(db, force=True)
+    crud.invalidate_scoped_stats_snapshots(db)
     return {"status": "ok"}
 
 
@@ -1612,14 +1698,29 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
         phase3 = int(phase3) if phase3 == int(phase3) else phase3
     else:
         phase3 = None
-    passing = _to_num(evaluation.get("passing_grade"))
-    # max_score diturunkan dari breakdown produk yang diminati (bagian 1),
-    # fallback ke maximum_score saat tidak ada produk yang diminati.
+
+    # Batas lulus diturunkan (90% x skor maksimal), bukan dibaca apa adanya: sejak
+    # aturan MUS 8 September 2026 skor maksimal bisa berubah setelah hasil ditulis,
+    # dan angka bawaan LLM ikut basi bersamanya. Lihat scoring.passing_grade.
+    passing = _passing_grade(evaluation)
+
+    # max_score diturunkan dari breakdown produk yang diminati (bagian 1), cermin
+    # persis compliance/scoring.py::max_score() (revisi 18 September 2026:
+    # Mega Cashline 100, Mega Ultima Shield 36.75, MUS Kartu Kredit 13.25 —
+    # aditif murni, lihat docstring max_score()), fallback ke maximum_score saat
+    # tidak ada produk yang diminati.
+    mus_wajib = _mus_wajib_tidak_dipenuhi(evaluation)
     breakdown = []
     if (evaluation.get("cashline_interest") or {}).get("status") == "INTERESTED":
-        breakdown.append(("Mega Cashline", 108.75))
+        breakdown.append(("Mega Cashline", 100))
     if (evaluation.get("mus_interest") or {}).get("status") == "INTERESTED":
-        breakdown.append(("Mega Ultima Shield", 41.25))
+        breakdown.append(("Mega Ultima Shield", 36.75))
+    elif mus_wajib:
+        # Bobot MUS TETAP masuk penyebut saat MUS wajib tetapi tidak dipenuhi —
+        # menurunkannya ke 100 persis kekeliruan aturan lama.
+        breakdown.append(("Mega Ultima Shield (wajib, tidak dipenuhi)", 36.75))
+    if (evaluation.get("mus_cc_interest") or {}).get("status") == "INTERESTED":
+        breakdown.append(("MUS Kartu Kredit", 13.25))
     if breakdown:
         max_score = sum(s for _, s in breakdown)
         max_score = int(max_score) if max_score == int(max_score) else max_score
@@ -1647,7 +1748,7 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
         desc = f'{category_label(it.get("category")) or "—"} - {it.get("item_code") or "—"} - {it.get("requirement") or "—"}'
         sheet.append([desc, change, blank])
     # ZERO-SCORE RULE diberi barisnya sendiri: tanpa ini kolom "Perubahan" tidak
-    # menjumlah ke "Hasil" (skor maksimal 108,75, pengurangan scorecard hanya -7,5,
+    # menjumlah ke "Hasil" (skor maksimal 100, pengurangan scorecard hanya -7,5,
     # tetapi hasilnya 0), sehingga terbaca seperti salah hitung.
     if _no_product_interest(evaluation) and max_score is not None:
         belum_weight = sum(
@@ -1832,7 +1933,7 @@ def export_result_xlsx(
     dependencies=[Depends(require(RESULTS_EXPORT_VERIFICATION))],
 )
 def export_verification_xlsx(
-    category: str = Query(..., description="verifikasi_statik | verifikasi_dinamik | cashline_verification | cardholder_verification"),
+    category: str = Query(..., description="verifikasi_statik | verifikasi_dinamik | cashline_verification | cardholder_verification | fase:<nama fase percakapan>"),
     campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -1848,19 +1949,31 @@ def export_verification_xlsx(
     Results yang sudah dibatasi.
     """
     from compliance.stats_aggregate import (
+        PHASE_EXPORT_PREFIX,
         VERIFICATION_EXPORT_CATEGORIES,
+        compute_phase_export,
         compute_verification_export,
+        export_phase_labels,
     )
-    if category not in VERIFICATION_EXPORT_CATEGORIES:
-        raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
-    data = compute_verification_export(db, category, campaign,
-                                       effective_campaigns_for(db, current_user))
+    scope = effective_campaigns_for(db, current_user)
+    if category.startswith(PHASE_EXPORT_PREFIX):
+        # Kategori fase percakapan (18 September 2026): namanya dinamis mengikuti
+        # ``conversation_phases`` KB, jadi divalidasi terhadap daftar milik cakupan
+        # pemanggil — bukan terhadap daftar tetap.
+        phase = category[len(PHASE_EXPORT_PREFIX):]
+        if phase not in export_phase_labels(db, campaign, scope):
+            raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
+        data = compute_phase_export(db, phase, campaign, scope)
+    else:
+        if category not in VERIFICATION_EXPORT_CATEGORIES:
+            raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
+        data = compute_verification_export(db, category, campaign, scope)
 
     workbook = Workbook()
     sheet = workbook.active
     # Judul sheet dibatasi 31 karakter oleh format XLSX; label kategori masih jauh
     # di bawahnya, jadi dipakai apa adanya.
-    sheet.title = data["label"][:31]
+    sheet.title = re.sub(r"[\\/?*\[\]:]", " ", data["label"])[:31]
     sheet.append([title for _key, title in data["columns"]])
     for row in data["rows"]:
         cells = [row.get(key) for key, _title in data["columns"]]
@@ -1877,12 +1990,44 @@ def export_verification_xlsx(
     workbook.save(buffer)
     buffer.seek(0)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"{category}_{timestamp}.xlsx"
+    # Nama kategori fase memuat spasi/huruf besar ("fase:Final Konfirmasi ..."), tidak
+    # cocok jadi nama berkas di header — dipadatkan jadi slug ASCII.
+    slug = re.sub(r"[^a-z0-9]+", "_", category.lower()).strip("_")
+    filename = f"{slug}_{timestamp}.xlsx"
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get(
+    "/export_categories",
+    dependencies=[Depends(require(RESULTS_EXPORT_VERIFICATION))],
+)
+def export_categories(
+    campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Daftar menu Export Agregat: kategori verifikasi (tetap) + fase percakapan
+    (dinamis, urut seperti ``conversation_phases`` KB campaign yang berlaku).
+
+    Fase dibaca dari KB, bukan ditulis mati di dashboard, supaya campaign lain atau
+    revisi KB langsung terlihat di menu tanpa deploy dashboard. Key fase berawalan
+    ``fase:`` dan dikirim balik apa adanya ke ``/export_verification_xlsx``."""
+    from compliance.stats_aggregate import (
+        PHASE_EXPORT_PREFIX,
+        VERIFICATION_EXPORT_CATEGORIES,
+        export_phase_labels,
+    )
+    scope = effective_campaigns_for(db, current_user)
+    return {
+        "verification": [{"key": k, "label": v["label"]}
+                         for k, v in VERIFICATION_EXPORT_CATEGORIES.items()],
+        "phases": [{"key": PHASE_EXPORT_PREFIX + label, "label": label}
+                   for label in export_phase_labels(db, campaign, scope)],
+    }
 
 
 @router.get(

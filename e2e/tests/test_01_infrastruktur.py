@@ -16,12 +16,13 @@ class TestInfrastruktur:
     @allure.story("Migrasi alembic sampai kepala terbaru")
     @allure.severity(allure.severity_level.BLOCKER)
     @allure.description("""Migrasi dijalankan dari NOL di skema `dashboard`, sama seperti
-    produksi. `0053` adalah migrasi `results.current_stage` yang datang bersama Batch 9;
-    kalau rantainya bercabang (dua migrasi mengaku `0052`), langkah ini gagal.""")
-    def test_alembic_di_kepala_0053(self, q):
+    produksi. `0053` adalah migrasi `results.current_stage` (Batch 9); `0054`-`0057`
+    datang dari merge 4-service 21 September 2026 (A 0056-0059, dinomori ulang). Kalau
+    rantainya bercabang (dua migrasi mengaku nomor yang sama), langkah ini gagal.""")
+    def test_alembic_di_kepala_0057(self, q):
         [(v,)] = q("select version_num from alembic_version")
         allure.attach(v, "alembic_version", allure.attachment_type.TEXT)
-        assert v == "0053"
+        assert v == "0057"
 
     @allure.story("Kolom current_stage ada dan bentuknya benar")
     @allure.severity(allure.severity_level.CRITICAL)

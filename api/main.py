@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from api.dependencies import ensure_buckets
 # qc_database dinonaktifkan (bucket qc-database di-comment di api/dependencies.py)
@@ -32,6 +33,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Stats snapshot & list responses are large JSON (hierarki bisa ratusan KB) —
+# gzip memangkasnya ~80-90% saat client kirim Accept-Encoding: gzip. Kalau nanti
+# ada reverse proxy di depan yang sudah mengompres, ini jadi no-op (tidak
+# dobel-compress: GZipMiddleware skip response yang sudah ber-Content-Encoding).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(auth.router)
 app.include_router(role.router)
