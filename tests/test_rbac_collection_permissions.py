@@ -145,8 +145,12 @@ def test_permissions_for_user_collection_kehilangan_menu_alur_assign(db, collect
     assert P.MENU_PENDING_CHECK not in perms
     assert P.MENU_UPLOAD_AUDIO in perms
     assert P.MENU_UPLOAD_TRANSCRIPT in perms
+    # Menu Results ikut dicabut sejak 17 September 2026 (069a13f): tempat poin
+    # scorecard login Collection adalah Collection Results.
+    assert P.MENU_RESULTS not in perms
+    assert P.MENU_COLLECTION_RESULTS in perms
     # Yang tersisa tetap utuh — ini penyesuaian, bukan pencabutan menyeluruh.
-    assert P.MENU_RESULTS in perms
+    assert P.MENU_STATS in perms
 
 
 def test_permissions_for_user_cashline_role_sama_tidak_berubah(db, collection_env):
