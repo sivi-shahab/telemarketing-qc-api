@@ -353,6 +353,15 @@ def reprocess_filtered(
     Admin membaca modal dan menekan tombolnya, dan job baru bisa muncul di sela itu.
     """
     plan, _skipped = _plan_for_filtered(db, current_user, body.model_dump(exclude_none=True))
+    return start_filtered_job(db, current_user, plan)
+
+
+def start_filtered_job(db: Session, current_user, plan: list[dict]) -> ReprocessJobResponse:
+    """Buat job massal (``scope="campaign"``) dari ``plan`` lalu kirim task-nya.
+
+    Dipakai Reprocess All menu Results dan menu Collection Results — hanya cara
+    memilih tiketnya yang berbeda; pengaman dan jalannya job harus sama persis.
+    """
     if not plan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

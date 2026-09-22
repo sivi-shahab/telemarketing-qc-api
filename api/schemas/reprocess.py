@@ -46,6 +46,20 @@ class ReprocessFilterRequest(BaseModel):
     date_end: Optional[str] = None
 
 
+class CollectionFilterRequest(BaseModel):
+    """Filter menu Collection Results, apa adanya — tombol Reprocess All / Delete All.
+
+    Sama alasannya dengan ``ReprocessFilterRequest``: nama field-nya persis parameter
+    ``GET /collection/results``, jadi layar mengirim filternya tanpa pemetaan ulang.
+    """
+
+    status: Optional[str] = None
+    ai_status: Optional[str] = None
+    ticket_id: Optional[str] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+
+
 class ReprocessFilterPreviewResponse(BaseModel):
     """Ongkos yang menanti, dihitung dengan jalur yang sama dengan job-nya."""
 
