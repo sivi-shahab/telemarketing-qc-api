@@ -19,9 +19,18 @@ jadi menyaring per kode akan salah untuk sebagian barisnya.
 Pemetaannya konfigurasi, bukan konstanta, karena daftar context dimiliki App C dan
 bisa bertambah tanpa perubahan di repo ini::
 
-    CAMPAIGN_CONTEXT_MAP=Cashline:cashline,Collection:collection
+    CAMPAIGN_CONTEXT_MAP=Telemarketing:*,Collection:collection
 
 Beberapa context untuk satu campaign dipisah ``|`` (``Cashline:cashline|usage``).
+
+Context ``*`` berarti SELURUH baris App C — campaign itu tidak disaring sama
+sekali, sama seperti Admin. Itulah bawaan untuk grup ``Telemarketing`` (lihat
+``api.campaign_groups``): App C seluruhnya berisi tiket telemarketing, jadi tidak
+ada baris App C yang di luar cakupannya. Sebelumnya cakupan telemarketing
+dinyatakan sebagai ``Cashline:cashline``; sejak load_date 2026-09-17 App C mengisi
+``context`` dengan KODE campaign (``CLENTB``, ``011``) dan menaruh nama produk di
+``campaign``, sehingga peta itu membuang setiap baris dan menu Transkrip / Assign
+Ticket kosong bagi semua login ber-tag Cashline.
 
 GAGAL TERTUTUP: campaign App B yang TIDAK ada di peta tidak menyumbang context
 apa pun, sehingga login yang dibatasi ke campaign itu tidak melihat satu baris
@@ -58,12 +67,15 @@ def parse_context_map(raw: Optional[str]) -> dict:
     return out
 
 
+# Context pengganti "seluruh baris App C" (lihat docstring modul).
+ALL_CONTEXTS = "*"
+
 # Bawaan yang membuat sistem tetap jalan pada deploy yang belum menyetel env var.
-# ``Cashline:cashline`` terverifikasi dari data App C; ``Collection:collection``
+# ``Telemarketing:*`` — lihat docstring modul; ``Collection:collection``
 # masih PENANDA — per 2026-08-28 App C belum pernah mengirim baris collection sama
 # sekali, jadi nilai context-nya harus dikonfirmasi ke pemilik App C dan disetel
 # lewat env begitu diketahui.
-_DEFAULT_MAP = "Cashline:cashline,Collection:collection"
+_DEFAULT_MAP = "Telemarketing:*,Collection:collection"
 
 
 def context_map_from_env() -> dict:
@@ -82,12 +94,18 @@ def contexts_for(campaigns: Optional[Iterable[str]], mapping: dict) -> Optional[
     Selain itu sebuah set — termasuk set KOSONG, yang berarti "tidak melihat baris
     apa pun". Perbedaan None vs kosong dipegang sampai ke pemanggil, sama seperti
     di ``api.rbac.effective_campaigns_for``.
+
+    Satu saja campaign yang dipetakan ke ``*`` membuat hasilnya ``None``: campaign
+    itu sudah mencakup seluruh baris, jadi campaign lain tidak bisa menambah apa pun.
     """
     if campaigns is None:
         return None
     allowed: frozenset = frozenset()
     for name in campaigns:
-        allowed |= mapping.get(_norm(name), frozenset())
+        contexts = mapping.get(_norm(name), frozenset())
+        if ALL_CONTEXTS in contexts:
+            return None
+        allowed |= contexts
     return allowed
 
 

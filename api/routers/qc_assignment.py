@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from api import campaign_context as cc
 from api.dependencies import get_current_user, get_db
-from api.permissions import QC_ASSIGNMENT_WRITE
+from api.permissions import QC_ASSIGNMENT_WRITE, SCOPE_ALL
 from api.qc_scope import scoped_customer_ids, split_ticket_ids, ticket_id_for_result
-from api.rbac import collection_campaigns_from_env, effective_campaigns_for
+from api.rbac import collection_campaigns_from_env, data_scope_for, effective_campaigns_for
 from api.rbac import require
 from db import crud
 from db.models import QcAssignment, User
@@ -31,17 +32,36 @@ def _assignment_dict(a) -> dict:
     }
 
 
-def _ensure_ticket_in_scope(db: Session, current_user, ticket_id: str) -> None:
-    """403 bila ``ticket_id`` di luar cakupan pemanggil.
+def _assignment_scope(db: Session, current_user):
+    """Ticket id yang boleh di-assign / dibaca assignment-nya; ``None`` = tanpa batas.
 
     Assignment memakai ticket id (prefix customer), sedangkan cakupan role sudah
     dinyatakan sebagai daftar ticket id yang sama oleh ``scoped_customer_ids`` —
     termasuk pembatasan CAMPAIGN. ``None`` = tanpa batas (SPQ Head / TL QC tanpa tag).
+
+    Pengecualiannya: cakupan ``all`` yang campaign-nya melihat SELURUH baris App C
+    (grup ``Telemarketing``, lihat ``api.campaign_groups``) diperlakukan seperti Admin.
+    Tiket di menu Assign Ticket berasal dari App C dan biasanya belum ada di tabel
+    ``results``, jadi daftar ``scoped_customer_ids`` (yang dibangun dari ``results``)
+    menolak setiap tiket yang ditampilkan menu itu sendiri. Cakupan lain
+    (``qc_assigned`` dsb.) tidak dilebarkan.
     """
     allowed = scoped_customer_ids(db, current_user)
     if allowed is None:
+        return None
+    if data_scope_for(db, current_user) == SCOPE_ALL and cc.contexts_for(
+        effective_campaigns_for(db, current_user), cc.context_map_from_env()
+    ) is None:
+        return None
+    return set(allowed)
+
+
+def _ensure_ticket_in_scope(db: Session, current_user, ticket_id: str) -> None:
+    """403 bila ``ticket_id`` di luar cakupan pemanggil (``_assignment_scope``)."""
+    allowed = _assignment_scope(db, current_user)
+    if allowed is None:
         return
-    if (ticket_id or "").strip() not in set(allowed):
+    if (ticket_id or "").strip() not in allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ticket ini di luar campaign yang menjadi cakupan Anda",
@@ -78,14 +98,13 @@ def list_assignments(
     ``ticket_ids`` mempersempit lagi ke ticket yang benar-benar dibutuhkan pemanggil
     — menu Assign Ticket hanya menampilkan tiket satu hari, jadi tidak ada alasan
     mengirim seluruh riwayat assignment ke browser."""
-    allowed = scoped_customer_ids(db, current_user)
+    allowed = _assignment_scope(db, current_user)
     wanted = split_ticket_ids(ticket_ids)
     if wanted is not None and not wanted:
         return []
     rows = crud.list_qc_assignments(db)
     if allowed is not None:
-        allowed_set = set(allowed)
-        rows = [a for a in rows if (a.ticket_id or "").strip() in allowed_set]
+        rows = [a for a in rows if (a.ticket_id or "").strip() in allowed]
     if wanted is not None:
         wanted_set = set(wanted)
         rows = [a for a in rows if (a.ticket_id or "").strip() in wanted_set]
@@ -288,8 +307,7 @@ def auto_assign(
     # pratinjau ``GET /qc_assignment/unassigned``.
     scope_ticket_ids = None
     if ticket_ids:
-        allowed = scoped_customer_ids(db, current_user)
-        allowed_set = None if allowed is None else set(allowed)
+        allowed_set = _assignment_scope(db, current_user)
         requested = [(t or "").strip() for t in ticket_ids]
         taken = {
             row.ticket_id

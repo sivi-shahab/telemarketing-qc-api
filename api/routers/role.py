@@ -18,6 +18,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from api import campaign_groups as cg
 from api import permissions as P
 from api.dependencies import get_db
 from api.rbac import invalidate, require
@@ -150,11 +151,12 @@ def _validate_scope(scope: str) -> str:
 
 def _validate_campaigns(db: Session, campaigns: list) -> list:
     """Campaign harus ada di tabel ``campaigns`` — daftar itulah yang terkendali,
-    karena hanya SPQ Head / Admin yang bisa meng-upload campaign."""
+    karena hanya SPQ Head / Admin yang bisa meng-upload campaign — atau grup
+    ``Telemarketing`` (``api.campaign_groups``)."""
     campaigns = [c.strip() for c in campaigns if (c or "").strip()]
     if not campaigns:
         return []
-    known = {c.name for c in db.query(Campaign).all()}
+    known = {c.name for c in db.query(Campaign).all()} | {cg.TELEMARKETING}
     unknown = [c for c in campaigns if c not in known]
     if unknown:
         raise HTTPException(
@@ -191,7 +193,7 @@ def permission_catalog(_=Depends(require(P.ADMIN_ROLE_WRITE)), db: Session = Dep
     return PermissionCatalog(
         groups=[g for g in groups if g["items"]],
         data_scopes=[{"key": k, "label": lbl} for k, lbl in P.DATA_SCOPES],
-        campaigns=sorted(c.name for c in db.query(Campaign).all()),
+        campaigns=cg.with_group_option(c.name for c in db.query(Campaign).all()),
         campaigns_with_roster=sorted({
             c for idx in (
                 roster_campaign_index(db, scope)
@@ -376,7 +378,7 @@ def list_user_campaigns(
     users = db.query(User).order_by(User.username).all()
     return UserCampaignListResponse(
         users=[_user_campaign_item(db, u, by_user.get(u.id, [])) for u in users],
-        campaigns=[c.name for c in db.query(Campaign).order_by(Campaign.name).all()],
+        campaigns=cg.with_group_option(c.name for c in db.query(Campaign).all()),
     )
 
 
@@ -392,7 +394,7 @@ def set_user_campaigns(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
 
-    known = {c.name for c in db.query(Campaign).all()}
+    known = {c.name for c in db.query(Campaign).all()} | {cg.TELEMARKETING}
     wanted, seen = [], set()
     for raw in body.campaigns or []:
         name = (raw or "").strip()
