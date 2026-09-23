@@ -192,9 +192,8 @@ def test_menu_collection_results_punya_label_manage_role():
 
 
 def test_menu_collection_results_admin_only():
-    """Sama seperti MENU_UPLOAD_AUDIO/MENU_UPLOAD_TRANSCRIPT/AUDIO_UPLOAD/
-    TRANSCRIPT_UPLOAD (sibling di COLLECTION_ADDED_PERMISSIONS): harus tetap
-    ADMIN_ONLY supaya tidak bisa disimpan langsung ke role bersama (qc,
+    """Harus tetap ADMIN_ONLY (berbeda dari sibling Upload Audio/Transcript di
+    COLLECTION_ADDED_PERMISSIONS, yang dilepas 23 September 2026) supaya tidak bisa disimpan langsung ke role bersama (qc,
     team_leader_qc, spq_head) lewat Manage Role — satu-satunya jalan capability
     ini boleh muncul di luar role admin-like adalah penyesuaian per-request di
     ``collection_adjusted_permissions`` untuk login yang efektif Collection."""
@@ -334,3 +333,40 @@ ALL = {P.MENU_STATS}
 ])
 def test_stats_views(role, perms_, scope, campaigns, env, expected):
     assert rbac.stats_views(role, perms_, scope, campaigns, env) == expected
+
+
+# --------------------------------------------------------------------------
+# Upload Audio / Upload Transcript untuk SPQ Head & TL QC (23 September 2026)
+# --------------------------------------------------------------------------
+
+_UPLOAD_PERMS = (P.MENU_UPLOAD_AUDIO, P.MENU_UPLOAD_TRANSCRIPT,
+                 P.AUDIO_UPLOAD, P.TRANSCRIPT_UPLOAD)
+
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc", "admin", "demo"])
+def test_upload_audio_transkrip_ada_di_role(role):
+    perms = P.DEFAULT_ROLES[role]["permissions"]
+    for p in _UPLOAD_PERMS:
+        assert p in perms, (role, p)
+
+
+def test_upload_audio_transkrip_bukan_admin_only():
+    """Kalau masih ADMIN_ONLY, menyimpan SPQ Head / TL QC lewat Manage Role akan
+    mencabutnya diam-diam (form tidak mengirimnya, dan hanya role admin-like yang
+    membawanya dari DB) — atau ditolak 422."""
+    for p in _UPLOAD_PERMS:
+        assert p not in P.ADMIN_ONLY_PERMISSIONS, p
+    # Menu Upload Data lainnya tetap milik Admin.
+    for p in (P.MENU_UPLOAD_CAMPAIGN, P.MENU_GET_RESULT,
+              P.MENU_UPLOAD_QC_DATABASE,
+              P.MENU_REPROCESS_TICKETS):
+        assert p in P.ADMIN_ONLY_PERMISSIONS, p
+
+
+def test_upload_database_sales_tl_qc_tidak_admin_only():
+    """Diberikan ke TL QC sejak migrasi 0052; kalau masih ADMIN_ONLY, menyimpan
+    role itu lewat Manage Role mencabutnya diam-diam."""
+    for p in (P.MENU_UPLOAD_SALES_DATABASE, P.ADMIN_SALES_DATABASE_WRITE):
+        assert p not in P.ADMIN_ONLY_PERMISSIONS, p
+        assert p in P.DEFAULT_ROLES["team_leader_qc"]["permissions"], p
+    assert P.MENU_SALES_DATABASE in P.ADMIN_ONLY_PERMISSIONS
