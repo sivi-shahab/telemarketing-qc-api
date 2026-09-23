@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -89,6 +89,9 @@ class PermissionCatalog(BaseModel):
     # bercakupan sales ke campaign di luar daftar ini membuat user-nya tidak melihat
     # tiket apa pun (campaign efektif = roster ∩ role), jadi UI perlu memperingatkan.
     campaigns_with_roster: List[str] = []
+    # Grup campaign -> anggotanya (mis. {"Telemarketing": ["Cashline"]}); anggota
+    # ditampilkan sebagai subset grupnya, bukan pilihan setara.
+    campaign_groups: Dict[str, List[str]] = {}
 
 
 class UserCampaignItem(BaseModel):
@@ -117,6 +120,7 @@ class UserCampaignItem(BaseModel):
 class UserCampaignListResponse(BaseModel):
     users: List[UserCampaignItem]
     campaigns: List[str]
+    campaign_groups: Dict[str, List[str]] = {}
 
 
 class UserCampaignUpdate(BaseModel):

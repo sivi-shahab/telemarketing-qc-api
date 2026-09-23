@@ -187,3 +187,25 @@ def test_qc_assigned_scope_is_not_widened(monkeypatch):
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: ["mine"])
     with pytest.raises(HTTPException):
         qa._ensure_ticket_in_scope(object(), object(), "220229Qxz5")
+
+
+# --- Assign Role: Cashline adalah SUBSET Telemarketing ---------------------
+
+def test_members_are_every_non_collection_config():
+    assert cg.members(["Collection", "NTB", "Cashline", "Telemarketing"], COLLECTION) == ["Cashline", "NTB"]
+
+
+def test_tree_for_the_form():
+    assert cg.tree(["Cashline", "Collection"], COLLECTION) == {"Telemarketing": ["Cashline"]}
+
+
+def test_normalize_drops_members_already_covered_by_the_group():
+    """Centang Telemarketing + Cashline disimpan sebagai Telemarketing saja."""
+    assert cg.normalize(["Cashline", "Telemarketing", "Collection"], COLLECTION) == [
+        "Telemarketing", "Collection",
+    ]
+
+
+def test_normalize_keeps_a_lone_member():
+    """Cashline tanpa Telemarketing = sengaja dipersempit ke satu produk."""
+    assert cg.normalize(["Cashline"], COLLECTION) == ["Cashline"]

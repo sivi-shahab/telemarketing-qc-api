@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from api import campaign_groups as cg
 from api import permissions as P
 from api.dependencies import get_db
-from api.rbac import invalidate, require
+from api.rbac import collection_campaigns_from_env, invalidate, require
 from sales_lookup import roster_campaign_index
 from api.schemas.role import (
     RoleCreate,
@@ -163,7 +163,7 @@ def _validate_campaigns(db: Session, campaigns: list) -> list:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Campaign tidak ditemukan: {', '.join(sorted(unknown))}",
         )
-    return list(dict.fromkeys(campaigns))
+    return cg.normalize(list(dict.fromkeys(campaigns)), collection_campaigns_from_env())
 
 
 def _set_campaigns(db: Session, role: Role, campaigns: list) -> None:
@@ -190,10 +190,12 @@ def permission_catalog(_=Depends(require(P.ADMIN_ROLE_WRITE)), db: Session = Dep
         }
         for title, items in P.PERMISSION_GROUPS
     ]
+    names = [c.name for c in db.query(Campaign).all()]
     return PermissionCatalog(
         groups=[g for g in groups if g["items"]],
         data_scopes=[{"key": k, "label": lbl} for k, lbl in P.DATA_SCOPES],
-        campaigns=cg.with_group_option(c.name for c in db.query(Campaign).all()),
+        campaigns=cg.with_group_option(names),
+        campaign_groups=cg.tree(names, collection_campaigns_from_env()),
         campaigns_with_roster=sorted({
             c for idx in (
                 roster_campaign_index(db, scope)
@@ -376,9 +378,11 @@ def list_user_campaigns(
     for r in rows:
         by_user.setdefault(r.user_id, []).append(r.campaign)
     users = db.query(User).order_by(User.username).all()
+    names = [c.name for c in db.query(Campaign).all()]
     return UserCampaignListResponse(
         users=[_user_campaign_item(db, u, by_user.get(u.id, [])) for u in users],
-        campaigns=cg.with_group_option(c.name for c in db.query(Campaign).all()),
+        campaigns=cg.with_group_option(names),
+        campaign_groups=cg.tree(names, collection_campaigns_from_env()),
     )
 
 
@@ -408,6 +412,7 @@ def set_user_campaigns(
         seen.add(name)
         wanted.append(name)
 
+    wanted = cg.normalize(wanted, collection_campaigns_from_env())
     db.query(UserCampaign).filter(UserCampaign.user_id == user.id).delete()
     for name in wanted:
         db.add(UserCampaign(user_id=user.id, campaign=name))

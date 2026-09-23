@@ -66,3 +66,31 @@ def allows(allowed: set, name, collection_campaigns) -> bool:
 def with_group_option(names) -> list:
     """Pilihan campaign untuk form Assign Role / Manage Role: grup lebih dulu."""
     return [TELEMARKETING] + sorted(n for n in names if not is_group(n))
+
+
+def members(known_campaigns, collection_campaigns) -> list:
+    """Config campaign yang menjadi bagian grup ``Telemarketing`` (urut nama)."""
+    return sorted(
+        c for c in known_campaigns or []
+        if not is_group(c) and not is_collection(c, collection_campaigns)
+    )
+
+
+def tree(known_campaigns, collection_campaigns) -> dict:
+    """``{grup: [anggota]}`` untuk form Assign Role / Manage Role, supaya UI bisa
+    menampilkan Cashline dkk. sebagai SUBSET Telemarketing, bukan pilihan setara."""
+    return {TELEMARKETING: members(known_campaigns, collection_campaigns)}
+
+
+def normalize(names, collection_campaigns) -> list:
+    """Buang anggota yang sudah tercakup grupnya sebelum disimpan.
+
+    ``Telemarketing`` + ``Cashline`` disimpan sebagai ``Telemarketing`` saja —
+    menyimpan keduanya tidak menambah cakupan apa pun dan hanya membuat tag orang
+    tampak seperti dua hal yang berbeda. ``Cashline`` tanpa grupnya dipertahankan:
+    itu pembatasan sengaja ke satu produk.
+    """
+    names = list(names or [])
+    if not any(is_group(n) for n in names):
+        return names
+    return [n for n in names if is_group(n) or is_collection(n, collection_campaigns)]
