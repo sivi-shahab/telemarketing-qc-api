@@ -18,9 +18,10 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from api import campaign_groups as cg
 from api import permissions as P
 from api.dependencies import get_db
-from api.rbac import invalidate, require
+from api.rbac import collection_campaigns_from_env, invalidate, require
 from sales_lookup import roster_campaign_index
 from api.schemas.role import (
     RoleCreate,
@@ -148,20 +149,31 @@ def _validate_scope(scope: str) -> str:
     return scope
 
 
+def _assignable_campaigns(db: Session) -> set:
+    """Nama yang boleh di-assign: config campaign, grup ``Telemarketing``, dan
+    produk telemarketing master TMS (anggota grup itu)."""
+    return (
+        {c.name for c in db.query(Campaign).all()}
+        | {cg.TELEMARKETING}
+        | set(cg.telemarketing_products(db))
+    )
+
+
 def _validate_campaigns(db: Session, campaigns: list) -> list:
     """Campaign harus ada di tabel ``campaigns`` — daftar itulah yang terkendali,
-    karena hanya SPQ Head / Admin yang bisa meng-upload campaign."""
+    karena hanya SPQ Head / Admin yang bisa meng-upload campaign — atau grup
+    ``Telemarketing`` beserta produk master TMS-nya (``api.campaign_groups``)."""
     campaigns = [c.strip() for c in campaigns if (c or "").strip()]
     if not campaigns:
         return []
-    known = {c.name for c in db.query(Campaign).all()}
+    known = _assignable_campaigns(db)
     unknown = [c for c in campaigns if c not in known]
     if unknown:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Campaign tidak ditemukan: {', '.join(sorted(unknown))}",
         )
-    return list(dict.fromkeys(campaigns))
+    return cg.normalize(list(dict.fromkeys(campaigns)), collection_campaigns_from_env())
 
 
 def _set_campaigns(db: Session, role: Role, campaigns: list) -> None:
@@ -188,10 +200,12 @@ def permission_catalog(_=Depends(require(P.ADMIN_ROLE_WRITE)), db: Session = Dep
         }
         for title, items in P.PERMISSION_GROUPS
     ]
+    names = [c.name for c in db.query(Campaign).all()]
     return PermissionCatalog(
         groups=[g for g in groups if g["items"]],
         data_scopes=[{"key": k, "label": lbl} for k, lbl in P.DATA_SCOPES],
-        campaigns=sorted(c.name for c in db.query(Campaign).all()),
+        campaigns=cg.with_group_option(names),
+        campaign_groups=cg.tree(names, cg.telemarketing_products(db), collection_campaigns_from_env()),
         campaigns_with_roster=sorted({
             c for idx in (
                 roster_campaign_index(db, scope)
@@ -374,9 +388,11 @@ def list_user_campaigns(
     for r in rows:
         by_user.setdefault(r.user_id, []).append(r.campaign)
     users = db.query(User).order_by(User.username).all()
+    names = [c.name for c in db.query(Campaign).all()]
     return UserCampaignListResponse(
         users=[_user_campaign_item(db, u, by_user.get(u.id, [])) for u in users],
-        campaigns=[c.name for c in db.query(Campaign).order_by(Campaign.name).all()],
+        campaigns=cg.with_group_option(names),
+        campaign_groups=cg.tree(names, cg.telemarketing_products(db), collection_campaigns_from_env()),
     )
 
 
@@ -392,7 +408,7 @@ def set_user_campaigns(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
 
-    known = {c.name for c in db.query(Campaign).all()}
+    known = _assignable_campaigns(db)
     wanted, seen = [], set()
     for raw in body.campaigns or []:
         name = (raw or "").strip()
@@ -406,6 +422,7 @@ def set_user_campaigns(
         seen.add(name)
         wanted.append(name)
 
+    wanted = cg.normalize(wanted, collection_campaigns_from_env())
     db.query(UserCampaign).filter(UserCampaign.user_id == user.id).delete()
     for name in wanted:
         db.add(UserCampaign(user_id=user.id, campaign=name))

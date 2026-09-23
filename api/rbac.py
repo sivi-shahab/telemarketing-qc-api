@@ -32,6 +32,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import get_current_user, get_db
+from api import campaign_groups as cg
 from api import permissions as perms
 from compliance.campaign_kind import is_collection, parse_collection_campaigns
 
@@ -351,6 +352,18 @@ def effective_campaigns_for(db: Session, user):
     declared = campaigns_for(db, user)
     scope = data_scope_for(db, user)
     assigned = user_campaigns_for(db, user)
+    collection = collection_campaigns_from_env()
+
+    # Grup ``Telemarketing`` (lihat ``api.campaign_groups``) diekspansi menjadi
+    # setiap config campaign non-Collection, supaya penyaring ``results`` di hilir
+    # tidak perlu mengenal grup. Tabel ``campaigns`` hanya dibaca bila grupnya ada.
+    def _expand(names):
+        if not any(cg.is_group(n) for n in names or []):
+            return names
+        return cg.expand(names, _campaign_names(db), collection)
+
+    declared = _expand(declared)
+    assigned = _expand(assigned)
 
     def _narrow(current):
         """Iris dengan assign per ORANG (tab "Assign Role"). Assign hanya boleh
@@ -360,8 +373,8 @@ def effective_campaigns_for(db: Session, user):
             return current
         if current is None:
             return list(assigned)
-        allowed = {(c or "").strip().casefold() for c in assigned}
-        return [c for c in current if (c or "").strip().casefold() in allowed]
+        allowed = cg.allowed_set(assigned)
+        return [c for c in current if cg.allows(allowed, c, collection)]
 
     if not perms.is_sales_scope(scope):
         return _narrow(declared or None)
@@ -371,8 +384,15 @@ def effective_campaigns_for(db: Session, user):
     roster = roster_campaigns_for(db, getattr(user, "username", "") or "", scope)
     if not declared:
         return _narrow(roster)
-    allowed = {(c or "").strip().casefold() for c in declared}
-    return _narrow([c for c in roster if c in allowed])
+    allowed = cg.allowed_set(declared)
+    return _narrow([c for c in roster if cg.allows(allowed, c, collection)])
+
+
+def _campaign_names(db: Session) -> list:
+    """Nama seluruh config campaign (tabel ``campaigns``), untuk ekspansi grup."""
+    from db.models import Campaign
+
+    return [name for (name,) in db.query(Campaign.name).order_by(Campaign.name).all()]
 
 
 def role_label_for(db: Session, user) -> str:

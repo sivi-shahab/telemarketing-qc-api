@@ -62,12 +62,12 @@ def list_tickets_daily(
     tiket_id = (tiket_id or "").strip() or None
     load_date = (load_date or "").strip() or None
 
-    allowed = cc.contexts_for(
-        effective_campaigns_for(db, current_user), cc.context_map_from_env()
-    )
+    campaigns = effective_campaigns_for(db, current_user)
+    allowed = cc.contexts_for(campaigns, cc.context_map_from_env())
+    names = cc.names_for(campaigns)
     # Cakupan kosong: tidak ada baris yang bisa lolos, jadi App C tidak perlu
     # ditembak sama sekali.
-    if allowed is not None and not allowed:
+    if allowed is not None and not allowed and not names:
         return {"mode": None, "load_date": load_date, "items": [], "total": 0, "truncated": False}
 
     max_pages = MAX_PAGES_SEARCH if tiket_id else MAX_PAGES_DEFAULT
@@ -81,7 +81,7 @@ def list_tickets_daily(
             detail=f"Gagal memuat data tiket dari App C: {exc}",
         ) from exc
 
-    items = cc.filter_items(payload["items"], allowed)
+    items = cc.filter_items(payload["items"], allowed, names)
     return {
         "mode": payload["mode"],
         "load_date": payload["load_date"],
