@@ -21,6 +21,12 @@ from fastapi import HTTPException
 from api.routers import tickets_daily_pdf as tp
 
 
+@pytest.fixture(autouse=True)
+def _ticket_scope_all(monkeypatch):
+    """Cakupan data ``all`` (tanpa penyempitan per tiket) kecuali test menimpanya."""
+    monkeypatch.setattr(tp, "app_c_ticket_scope", lambda db, u: None)
+
+
 PDF_BYTES = b"%PDF-1.4 dummy"
 
 # Baris App C untuk tiket yang diminta. `context` inilah jembatan ke nama campaign

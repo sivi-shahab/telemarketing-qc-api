@@ -145,6 +145,12 @@ from api.routers import tickets_daily as td  # noqa: E402
 from services import tickets_daily as tms  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _ticket_scope_all(monkeypatch):
+    """Cakupan data ``all`` (tanpa penyempitan per tiket) kecuali test menimpanya."""
+    monkeypatch.setattr(td, "app_c_ticket_scope", lambda db, u: None)
+
+
 UPSTREAM = {
     "mode": "yesterday",
     "load_date": "2026-08-27",

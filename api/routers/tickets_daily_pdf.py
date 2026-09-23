@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from api import campaign_context as cc
 from api.dependencies import get_current_user, get_db
+from api.qc_scope import app_c_row_in, app_c_ticket_scope
 from api.rbac import effective_campaigns_for
 from services import tickets_daily as tms
 from services import view_streams as vs
@@ -42,14 +43,17 @@ MAX_PAGES_LOOKUP = 10
 _NOT_FOUND = "Transkrip tidak ditemukan atau di luar cakupan campaign Anda."
 
 
-def _in_scope(tiket_id: str, allowed: frozenset, names: frozenset = frozenset()) -> bool:
-    """True bila baris App C milik ``tiket_id`` ber-context di dalam ``allowed``.
+def _in_scope(tiket_id: str, allowed, names: frozenset = frozenset(), tickets=None) -> bool:
+    """True bila baris App C milik ``tiket_id`` lolos cakupan campaign (``allowed``
+    / ``names``, lihat ``api.campaign_context``) DAN cakupan data role
+    (``tickets``, lihat ``api.qc_scope.app_c_ticket_scope``).
 
-    ``allowed`` di sini SELALU sebuah set (pemanggil menangani kasus "tidak
-    dibatasi" lebih dulu), termasuk set kosong yang berarti "tidak melihat apa
-    pun".
+    ``allowed`` ``None`` = campaign tidak dibatasi; set kosong tanpa ``names`` =
+    tidak melihat apa pun. ``tickets`` ``None`` = tidak disempitkan per tiket.
     """
-    if not allowed and not names:
+    if allowed is not None and not allowed and not names:
+        return False
+    if tickets is not None and not tickets:
         return False
     try:
         payload = tms.fetch_all(tiket_id=tiket_id, max_pages=MAX_PAGES_LOOKUP)
@@ -63,7 +67,7 @@ def _in_scope(tiket_id: str, allowed: frozenset, names: frozenset = frozenset())
     # tiket lain. Yang dipakai hanya baris yang tiket_id-nya sama persis —
     # pencocokan longgar di sini akan meloloskan PDF milik tiket bertetangga.
     rows = [it for it in payload["items"] if str(it.get("tiket_id") or "") == tiket_id]
-    return bool(cc.filter_items(rows, allowed, names))
+    return any(app_c_row_in(it, tickets) for it in cc.filter_items(rows, allowed, names))
 
 
 @router.get("/tickets_daily_pdf/{tiket_id}")
@@ -75,7 +79,10 @@ def get_tickets_daily_pdf(
     """PDF transkrip ``tiket_id``, bila tiket itu ada di cakupan campaign pemanggil."""
     campaigns = effective_campaigns_for(db, current_user)
     allowed = cc.contexts_for(campaigns, cc.context_map_from_env())
-    if allowed is not None and not _in_scope(tiket_id, allowed, cc.names_for(campaigns)):
+    tickets = app_c_ticket_scope(db, current_user)
+    if (allowed is not None or tickets is not None) and not _in_scope(
+        tiket_id, allowed, cc.names_for(campaigns), tickets
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
 
     try:

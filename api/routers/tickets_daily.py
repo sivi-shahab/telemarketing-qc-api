@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from api import campaign_context as cc
 from api.dependencies import get_current_user, get_db
+from api.qc_scope import app_c_row_in, app_c_ticket_scope
 from api.rbac import effective_campaigns_for
 from services import tickets_daily as tms
 
@@ -65,9 +66,11 @@ def list_tickets_daily(
     campaigns = effective_campaigns_for(db, current_user)
     allowed = cc.contexts_for(campaigns, cc.context_map_from_env())
     names = cc.names_for(campaigns)
+    # Cakupan data role (``qc_assigned`` = hanya tiket yang di-assign kepadanya).
+    tickets = app_c_ticket_scope(db, current_user)
     # Cakupan kosong: tidak ada baris yang bisa lolos, jadi App C tidak perlu
     # ditembak sama sekali.
-    if allowed is not None and not allowed and not names:
+    if (allowed is not None and not allowed and not names) or tickets == set():
         return {"mode": None, "load_date": load_date, "items": [], "total": 0, "truncated": False}
 
     max_pages = MAX_PAGES_SEARCH if tiket_id else MAX_PAGES_DEFAULT
@@ -81,7 +84,10 @@ def list_tickets_daily(
             detail=f"Gagal memuat data tiket dari App C: {exc}",
         ) from exc
 
-    items = cc.filter_items(payload["items"], allowed, names)
+    items = [
+        it for it in cc.filter_items(payload["items"], allowed, names)
+        if app_c_row_in(it, tickets)
+    ]
     return {
         "mode": payload["mode"],
         "load_date": payload["load_date"],
