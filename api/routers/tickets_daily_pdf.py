@@ -42,14 +42,14 @@ MAX_PAGES_LOOKUP = 10
 _NOT_FOUND = "Transkrip tidak ditemukan atau di luar cakupan campaign Anda."
 
 
-def _in_scope(tiket_id: str, allowed: frozenset) -> bool:
+def _in_scope(tiket_id: str, allowed: frozenset, names: frozenset = frozenset()) -> bool:
     """True bila baris App C milik ``tiket_id`` ber-context di dalam ``allowed``.
 
     ``allowed`` di sini SELALU sebuah set (pemanggil menangani kasus "tidak
     dibatasi" lebih dulu), termasuk set kosong yang berarti "tidak melihat apa
     pun".
     """
-    if not allowed:
+    if not allowed and not names:
         return False
     try:
         payload = tms.fetch_all(tiket_id=tiket_id, max_pages=MAX_PAGES_LOOKUP)
@@ -63,7 +63,7 @@ def _in_scope(tiket_id: str, allowed: frozenset) -> bool:
     # tiket lain. Yang dipakai hanya baris yang tiket_id-nya sama persis —
     # pencocokan longgar di sini akan meloloskan PDF milik tiket bertetangga.
     rows = [it for it in payload["items"] if str(it.get("tiket_id") or "") == tiket_id]
-    return bool(cc.filter_items(rows, allowed))
+    return bool(cc.filter_items(rows, allowed, names))
 
 
 @router.get("/tickets_daily_pdf/{tiket_id}")
@@ -73,10 +73,9 @@ def get_tickets_daily_pdf(
     current_user=Depends(get_current_user),
 ) -> Response:
     """PDF transkrip ``tiket_id``, bila tiket itu ada di cakupan campaign pemanggil."""
-    allowed = cc.contexts_for(
-        effective_campaigns_for(db, current_user), cc.context_map_from_env()
-    )
-    if allowed is not None and not _in_scope(tiket_id, allowed):
+    campaigns = effective_campaigns_for(db, current_user)
+    allowed = cc.contexts_for(campaigns, cc.context_map_from_env())
+    if allowed is not None and not _in_scope(tiket_id, allowed, cc.names_for(campaigns)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
 
     try:

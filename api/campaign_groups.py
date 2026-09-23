@@ -17,6 +17,8 @@ bekerja tanpa perubahan. Untuk baris App C, ``Telemarketing`` dipetakan ke ``*``
 "Non-Collection" mengikuti ``COLLECTION_CAMPAIGNS`` — sumber kebenaran yang sama
 dengan pemisahan Collection di seluruh sistem.
 """
+import re
+
 from compliance.campaign_kind import is_collection
 
 TELEMARKETING = "Telemarketing"
@@ -68,18 +70,63 @@ def with_group_option(names) -> list:
     return [TELEMARKETING] + sorted(n for n in names if not is_group(n))
 
 
-def members(known_campaigns, collection_campaigns) -> list:
-    """Config campaign yang menjadi bagian grup ``Telemarketing`` (urut nama)."""
-    return sorted(
-        c for c in known_campaigns or []
-        if not is_group(c) and not is_collection(c, collection_campaigns)
-    )
+# Nama campaign uji di master TMS ("campaign test", "... test", "Aktivasi CC tes")
+# bukan produk dan tidak ditawarkan sebagai pilihan.
+_TEST_NAME = re.compile(r"\b(test|tes)\b", re.IGNORECASE)
 
 
-def tree(known_campaigns, collection_campaigns) -> dict:
+def clean_products(names) -> list:
+    return [n for n in names or [] if isinstance(n, str) and n.strip() and not _TEST_NAME.search(n)]
+
+
+def telemarketing_products(db) -> list:
+    """Nama produk telemarketing AKTIF dari master TMS (tabel ``tms_campaign``).
+
+    Nama inilah yang dibawa kolom ``campaign`` baris App C sejak load_date
+    2026-09-17 (``Activation CC New``, ``Megapay``, ``Personal Loan``, ...).
+    Tabelnya milik DWH; bila tidak terbaca (mis. DB uji tanpa tabel itu) daftarnya
+    kosong — grupnya tetap berfungsi, hanya pilihan produknya yang tidak tampil.
+    """
+    from sqlalchemy import text
+
+    try:
+        rows = db.execute(text(
+            "SELECT DISTINCT name FROM tms_campaign "
+            "WHERE status = 1 AND upper(product) = 'TELEMARKETING'"
+        )).all()
+    except Exception:
+        db.rollback()
+        return []
+    return clean_products(r[0] for r in rows)
+
+
+def members(known_campaigns, products, collection_campaigns) -> list:
+    """Anggota grup ``Telemarketing``: config campaign non-Collection (Cashline)
+    ditambah produk master TMS. Urut nama, bebas duplikat (case-insensitive)."""
+    out, seen = [], set()
+    for c in list(known_campaigns or []) + list(products or []):
+        key = _norm(c)
+        if not key or key in seen or is_group(c) or is_collection(c, collection_campaigns):
+            continue
+        seen.add(key)
+        out.append(c)
+    return sorted(out, key=_norm)
+
+
+def tree(known_campaigns, products, collection_campaigns) -> dict:
     """``{grup: [anggota]}`` untuk form Assign Role / Manage Role, supaya UI bisa
     menampilkan Cashline dkk. sebagai SUBSET Telemarketing, bukan pilihan setara."""
-    return {TELEMARKETING: members(known_campaigns, collection_campaigns)}
+    return {TELEMARKETING: members(known_campaigns, products, collection_campaigns)}
+
+
+def collapse(names, collection_campaigns) -> list:
+    """Bentuk TAMPILAN campaign efektif: anggota yang tercakup grupnya disembunyikan.
+
+    ``effective_campaigns_for`` mengekspansi ``Telemarketing`` menjadi
+    ``['Telemarketing', 'Cashline', ...]`` demi penyaring ``results``; yang
+    ditunjukkan ke orangnya cukup ``Telemarketing``.
+    """
+    return normalize(names, collection_campaigns)
 
 
 def normalize(names, collection_campaigns) -> list:

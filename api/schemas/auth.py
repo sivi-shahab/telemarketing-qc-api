@@ -88,6 +88,10 @@ class MeResponse(UserResponse):
     data_scope: str = "all"
     # Kosong = SEMUA campaign (bawaan setiap role sistem, termasuk ``qc``).
     campaigns: list[str] = []
+    # ``campaigns`` untuk DITAMPILKAN: anggota grup yang tercakup disembunyikan
+    # (Telemarketing, bukan "Telemarketing, Cashline"). ``campaigns`` tetap bentuk
+    # ekspansinya karena dipakai menyaring dropdown campaign di dashboard.
+    campaigns_display: list[str] = []
     # Tampilan menu Stats yang boleh dibuka: subset ["cashline", "collection"].
     # Dua nilai = dashboard menampilkan toggle. Lihat ``api.rbac.stats_views``.
     stats_views: list[str] = []

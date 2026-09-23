@@ -149,14 +149,24 @@ def _validate_scope(scope: str) -> str:
     return scope
 
 
+def _assignable_campaigns(db: Session) -> set:
+    """Nama yang boleh di-assign: config campaign, grup ``Telemarketing``, dan
+    produk telemarketing master TMS (anggota grup itu)."""
+    return (
+        {c.name for c in db.query(Campaign).all()}
+        | {cg.TELEMARKETING}
+        | set(cg.telemarketing_products(db))
+    )
+
+
 def _validate_campaigns(db: Session, campaigns: list) -> list:
     """Campaign harus ada di tabel ``campaigns`` — daftar itulah yang terkendali,
     karena hanya SPQ Head / Admin yang bisa meng-upload campaign — atau grup
-    ``Telemarketing`` (``api.campaign_groups``)."""
+    ``Telemarketing`` beserta produk master TMS-nya (``api.campaign_groups``)."""
     campaigns = [c.strip() for c in campaigns if (c or "").strip()]
     if not campaigns:
         return []
-    known = {c.name for c in db.query(Campaign).all()} | {cg.TELEMARKETING}
+    known = _assignable_campaigns(db)
     unknown = [c for c in campaigns if c not in known]
     if unknown:
         raise HTTPException(
@@ -195,7 +205,7 @@ def permission_catalog(_=Depends(require(P.ADMIN_ROLE_WRITE)), db: Session = Dep
         groups=[g for g in groups if g["items"]],
         data_scopes=[{"key": k, "label": lbl} for k, lbl in P.DATA_SCOPES],
         campaigns=cg.with_group_option(names),
-        campaign_groups=cg.tree(names, collection_campaigns_from_env()),
+        campaign_groups=cg.tree(names, cg.telemarketing_products(db), collection_campaigns_from_env()),
         campaigns_with_roster=sorted({
             c for idx in (
                 roster_campaign_index(db, scope)
@@ -382,7 +392,7 @@ def list_user_campaigns(
     return UserCampaignListResponse(
         users=[_user_campaign_item(db, u, by_user.get(u.id, [])) for u in users],
         campaigns=cg.with_group_option(names),
-        campaign_groups=cg.tree(names, collection_campaigns_from_env()),
+        campaign_groups=cg.tree(names, cg.telemarketing_products(db), collection_campaigns_from_env()),
     )
 
 
@@ -398,7 +408,7 @@ def set_user_campaigns(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
 
-    known = {c.name for c in db.query(Campaign).all()} | {cg.TELEMARKETING}
+    known = _assignable_campaigns(db)
     wanted, seen = [], set()
     for raw in body.campaigns or []:
         name = (raw or "").strip()

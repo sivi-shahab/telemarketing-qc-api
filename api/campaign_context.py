@@ -109,8 +109,14 @@ def contexts_for(campaigns: Optional[Iterable[str]], mapping: dict) -> Optional[
     return allowed
 
 
-def filter_items(items: Iterable[dict], contexts: Optional[frozenset]) -> list:
+def filter_items(items: Iterable[dict], contexts: Optional[frozenset], names: Optional[frozenset] = None) -> list:
     """Saring baris /tickets-daily ke ``contexts``. ``None`` = tanpa penyaringan.
+
+    ``names`` (nama campaign yang sudah di-:func:`_norm`) meloloskan baris yang
+    kolom ``campaign``-nya sama — bentuk App C sejak load_date 2026-09-17, di mana
+    ``campaign`` membawa nama produk master TMS (``Megapay``, ``Personal Loan``).
+    Dengan itu login yang di-assign SATU produk telemarketing hanya melihat baris
+    produk itu.
 
     Baris yang field ``context``-nya kosong DIBUANG saat penyaringan aktif: tidak
     ada bukti baris itu masuk cakupan, dan meloloskannya berarti satu field kosong
@@ -118,4 +124,14 @@ def filter_items(items: Iterable[dict], contexts: Optional[frozenset]) -> list:
     """
     if contexts is None:
         return list(items)
-    return [it for it in items if _norm(it.get("context")) in contexts]
+    names = names or frozenset()
+    return [
+        it for it in items
+        if _norm(it.get("context")) in contexts or (names and _norm(it.get("campaign")) in names)
+    ]
+
+
+def names_for(campaigns: Optional[Iterable[str]]) -> frozenset:
+    """Nama campaign efektif yang di-:func:`_norm`, pasangan ``names`` di
+    :func:`filter_items`."""
+    return frozenset(v for v in (_norm(c) for c in campaigns or []) if v)

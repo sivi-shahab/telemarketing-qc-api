@@ -167,7 +167,9 @@ def delete_user(
 
 @router.get("/me", response_model=MeResponse)
 def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    from api.campaign_groups import collapse
     from api.rbac import (
+        collection_campaigns_from_env,
         data_scope_for,
         effective_campaigns_for,
         permissions_for,
@@ -175,6 +177,7 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
         stats_views_for,
     )
 
+    campaigns = effective_campaigns_for(db, current_user) or []
     return MeResponse(
         id=current_user.id,
         username=current_user.username,
@@ -189,6 +192,10 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
         # Campaign EFEKTIF (tag roster untuk sisi sales), bukan yang dideklarasikan
         # role — inilah yang benar-benar dilihat user, jadi itu pula yang ditampilkan.
         # ``None`` (tanpa pembatasan) dikirim sebagai list kosong.
-        campaigns=effective_campaigns_for(db, current_user) or [],
+        campaigns=campaigns,
+        # Bentuk TAMPILAN: anggota yang tercakup grup disembunyikan, jadi login
+        # ber-tag Telemarketing tampil sebagai "Telemarketing", bukan
+        # "Telemarketing, Cashline" (lihat ``api.campaign_groups.collapse``).
+        campaigns_display=collapse(campaigns, collection_campaigns_from_env()),
         stats_views=stats_views_for(db, current_user),
     )

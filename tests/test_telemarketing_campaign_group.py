@@ -191,12 +191,40 @@ def test_qc_assigned_scope_is_not_widened(monkeypatch):
 
 # --- Assign Role: Cashline adalah SUBSET Telemarketing ---------------------
 
-def test_members_are_every_non_collection_config():
-    assert cg.members(["Collection", "NTB", "Cashline", "Telemarketing"], COLLECTION) == ["Cashline", "NTB"]
+def test_members_are_non_collection_configs_plus_tms_products():
+    assert cg.members(
+        ["Collection", "Cashline", "Telemarketing"], ["Megapay", "Activation CC New", "megapay"], COLLECTION
+    ) == ["Activation CC New", "Cashline", "Megapay"]
 
 
 def test_tree_for_the_form():
-    assert cg.tree(["Cashline", "Collection"], COLLECTION) == {"Telemarketing": ["Cashline"]}
+    assert cg.tree(["Cashline", "Collection"], ["Megapay"], COLLECTION) == {
+        "Telemarketing": ["Cashline", "Megapay"],
+    }
+
+
+def test_test_campaigns_are_not_products():
+    assert cg.clean_products(
+        ["Megapay", "campaign test", "LOC Transactor Never Taker test", "Aktivasi CC tes", "", None]
+    ) == ["Megapay"]
+
+
+def test_collapse_shows_only_the_group_for_display():
+    """SPQ Head ber-tag Telemarketing tampil sebagai Telemarketing saja."""
+    assert cg.collapse(["Telemarketing", "Cashline"], COLLECTION) == ["Telemarketing"]
+    assert cg.collapse(["Telemarketing", "Cashline", "Collection"], COLLECTION) == ["Telemarketing", "Collection"]
+    assert cg.collapse(["Cashline"], COLLECTION) == ["Cashline"]
+
+
+# --- produk tunggal: disaring lewat NAMA campaign di baris App C -----------
+
+def test_product_tag_sees_only_its_app_c_rows(monkeypatch, default_map):
+    assert [i["id"] for i in _list(monkeypatch, ["Personal Loan"])["items"]] == ["c"]
+
+
+def test_product_names_match_case_insensitively():
+    rows = [{"id": "x", "campaign": "MEGAPAY", "context": "MP01"}]
+    assert cc.filter_items(rows, frozenset(), names=frozenset({"megapay"})) == rows
 
 
 def test_normalize_drops_members_already_covered_by_the_group():
