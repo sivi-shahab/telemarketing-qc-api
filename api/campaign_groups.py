@@ -71,8 +71,10 @@ def with_group_option(names) -> list:
 
 
 # Nama campaign uji di master TMS ("campaign test", "... test", "Aktivasi CC tes")
-# bukan produk dan tidak ditawarkan sebagai pilihan.
-_TEST_NAME = re.compile(r"\b(test|tes)\b", re.IGNORECASE)
+# dan campaign yang ditandai salah setup oleh pembuatnya ("LOC High Rate eror",
+# "LOC Transactor Never Takers Eror" — kembaran LCHR/LCNT, nol tiket 9–22 Sep
+# 2026) bukan produk dan tidak ditawarkan sebagai pilihan.
+_TEST_NAME = re.compile(r"\b(test|tes|eror|error)\b", re.IGNORECASE)
 
 
 def clean_products(names) -> list:

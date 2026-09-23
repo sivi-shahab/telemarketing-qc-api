@@ -205,7 +205,8 @@ def test_tree_for_the_form():
 
 def test_test_campaigns_are_not_products():
     assert cg.clean_products(
-        ["Megapay", "campaign test", "LOC Transactor Never Taker test", "Aktivasi CC tes", "", None]
+        ["Megapay", "campaign test", "LOC Transactor Never Taker test", "Aktivasi CC tes",
+         "LOC High Rate eror", "LOC Transactor Never Takers Eror", "", None]
     ) == ["Megapay"]
 
 
