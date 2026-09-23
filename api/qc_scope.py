@@ -114,6 +114,45 @@ def scoped_customer_ids(db, current_user):
     return narrow_to_campaigns(db, base, campaigns)
 
 
+def app_c_ticket_scope(db, current_user):
+    """Id tiket App C yang boleh dilihat di Transkrip / Assign Ticket, atau ``None``
+    (tanpa penyempitan selain campaign).
+
+    ``/tickets_daily`` dulu hanya menerapkan pembatasan CAMPAIGN, jadi QC
+    (``qc_assigned``) melihat seluruh tiket telemarketing, bukan hanya yang
+    di-assign kepadanya. Di sini cakupan data role ikut dipasang:
+
+    - ``all``         -> ``None``.
+    - ``qc_assigned`` -> ticket id di ``qc_assignments`` milik QC ini. SENGAJA tidak
+      lewat ``scoped_customer_ids``: fungsi itu mengiris dengan tabel ``results``,
+      padahal tiket App C yang di-assign biasanya belum diproses di sana.
+    - cakupan lain    -> daftar ``scoped_customer_ids`` (gagal tertutup).
+
+    Id yang dicocokkan adalah ``id`` baris App C (atau ``tiket_id`` bila ``id``
+    kosong) — kunci yang sama dengan yang dipakai menu Assign Ticket saat meng-assign.
+    """
+    from api.rbac import data_scope_for
+    from api import permissions as P
+
+    scope = data_scope_for(db, current_user)
+    if scope == P.SCOPE_ALL:
+        return None
+    if scope == P.SCOPE_QC_ASSIGNED:
+        username = getattr(current_user, "username", "") or ""
+        return {str(t).strip() for t in crud.assigned_ticket_ids_for_qc(db, username)}
+    ids = scoped_customer_ids(db, current_user)
+    return None if ids is None else {str(t).strip() for t in ids}
+
+
+def app_c_row_in(row, ticket_ids) -> bool:
+    """True bila baris App C termasuk ``ticket_ids`` (hasil ``app_c_ticket_scope``)."""
+    if ticket_ids is None:
+        return True
+    return any(
+        str(row.get(k) or "").strip() in ticket_ids for k in ("id", "tiket_id")
+    )
+
+
 def narrow_to_campaigns(db, customer_ids, campaigns):
     """Iris daftar cakupan dengan campaign yang boleh dilihat role.
 

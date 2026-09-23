@@ -22,6 +22,12 @@ from api import rbac
 from api.routers import qc_assignment as qa
 from api.routers import tickets_daily as td
 
+
+@pytest.fixture(autouse=True)
+def _ticket_scope_all(monkeypatch):
+    """Cakupan data ``all`` (tanpa penyempitan per tiket) kecuali test menimpanya."""
+    monkeypatch.setattr(td, "app_c_ticket_scope", lambda db, u: None)
+
 COLLECTION = frozenset({"collection"})
 
 
@@ -238,3 +244,67 @@ def test_normalize_drops_members_already_covered_by_the_group():
 def test_normalize_keeps_a_lone_member():
     """Cashline tanpa Telemarketing = sengaja dipersempit ke satu produk."""
     assert cg.normalize(["Cashline"], COLLECTION) == ["Cashline"]
+
+
+# --- Transkrip: QC hanya melihat tiket yang di-assign kepadanya ------------
+
+from api import qc_scope  # noqa: E402
+from api.routers import tickets_daily_pdf as tp  # noqa: E402
+
+ROWS = [
+    {"id": "A1", "tiket_id": "A1_20260922", "campaign": "Megapay", "context": "MP01"},
+    {"id": "B2", "tiket_id": "B2_20260922", "campaign": "Personal Loan", "context": "011"},
+]
+
+
+def test_qc_sees_only_assigned_rows(monkeypatch, default_map):
+    """Laporan 23 Sep 2026: QC ber-tag Telemarketing melihat SEMUA tiket App C."""
+    monkeypatch.setattr(td.tms, "fetch_all", lambda **kw: {
+        "mode": "yesterday", "load_date": "2026-09-22", "items": list(ROWS), "total": 2, "truncated": False,
+    })
+    monkeypatch.setattr(td, "app_c_ticket_scope", lambda db, u: {"B2"})
+    out = _list(monkeypatch, ["Telemarketing", "Cashline"])
+    assert [i["id"] for i in out["items"]] == ["B2"]
+    assert out["total"] == 1
+
+
+def test_qc_without_assignment_sees_nothing_and_skips_app_c(monkeypatch, default_map):
+    calls = []
+    monkeypatch.setattr(td.tms, "fetch_all", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(td, "app_c_ticket_scope", lambda db, u: set())
+    assert _list(monkeypatch, ["Telemarketing"])["items"] == []
+    assert calls == []
+
+
+def test_scope_helper_uses_assignments_not_results(monkeypatch):
+    """qc_assigned memakai qc_assignments apa adanya — tiket App C yang di-assign
+    belum tentu ada di tabel results, jadi irisan dengan results akan membuangnya."""
+    monkeypatch.setattr("api.rbac.data_scope_for", lambda db, u: P.SCOPE_QC_ASSIGNED)
+    monkeypatch.setattr(qc_scope.crud, "assigned_ticket_ids_for_qc", lambda db, name: [" B2 "])
+    monkeypatch.setattr(qc_scope, "scoped_customer_ids", lambda db, u: pytest.fail("tidak boleh dipanggil"))
+    assert qc_scope.app_c_ticket_scope(object(), type("U", (), {"username": "qc1"})()) == {"B2"}
+
+
+def test_scope_helper_all_is_unrestricted(monkeypatch):
+    monkeypatch.setattr("api.rbac.data_scope_for", lambda db, u: P.SCOPE_ALL)
+    assert qc_scope.app_c_ticket_scope(object(), object()) is None
+
+
+def test_row_matches_on_id_or_tiket_id():
+    assert qc_scope.app_c_row_in(ROWS[0], {"A1"})
+    assert qc_scope.app_c_row_in(ROWS[0], {"A1_20260922"})
+    assert not qc_scope.app_c_row_in(ROWS[0], {"B2"})
+    assert qc_scope.app_c_row_in(ROWS[0], None)
+
+
+def test_qc_cannot_open_pdf_of_unassigned_ticket(monkeypatch):
+    from fastapi import HTTPException as _H
+    monkeypatch.delenv("CAMPAIGN_CONTEXT_MAP", raising=False)
+    monkeypatch.setattr(tp, "effective_campaigns_for", lambda db, u: ["Telemarketing"])
+    monkeypatch.setattr(tp, "app_c_ticket_scope", lambda db, u: {"B2"})
+    monkeypatch.setattr(tp.tms, "fetch_all", lambda **kw: {"items": list(ROWS)})
+    monkeypatch.setattr(tp.vs, "fetch_pdf", lambda t: b"%PDF")
+    with pytest.raises(_H) as exc:
+        tp.get_tickets_daily_pdf(tiket_id="A1_20260922", db=object(), current_user=object())
+    assert exc.value.status_code == 404
+    assert tp.get_tickets_daily_pdf(tiket_id="B2_20260922", db=object(), current_user=object()).body == b"%PDF"
