@@ -24,6 +24,8 @@ itu yang membuat layar "Reprocess All Ticket" tidak ikut menempel pada job satu-
 milik orang lain, sementara pengaman "satu job massal pada satu waktu" tetap melihat
 kedua jenis job.
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -40,6 +42,8 @@ from api.schemas.reprocess import (
     ReprocessStartRequest,
 )
 from db import crud
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require(ADMIN_TICKET_REPROCESS))])
 
@@ -76,12 +80,14 @@ def _job_response(db: Session, job, with_items: bool = True) -> ReprocessJobResp
                 "new_result_id": str(it.new_result_id) if it.new_result_id else None,
                 "deleted_old": it.deleted_old or 0,
                 "error_message": it.error_message,
+                "started_at": it.started_at,
                 "finished_at": it.finished_at,
                 "current_stage": current_stage,
             })
     return ReprocessJobResponse(
         job_id=str(job.id),
         campaigns=list(job.campaigns or []),
+        scope=job.scope,
         status=job.status,
         total_tickets=job.total_tickets or 0,
         counts=counts,
@@ -429,3 +435,104 @@ def cancel_reprocess_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job tidak ditemukan")
     job = crud.cancel_reprocess_job(db, job_id)
     return _job_response(db, job)
+
+
+# --- Kill (khusus role admin) ------------------------------------------------
+#
+# "Batalkan" di atas membiarkan item ``processing`` selesai. Selama worker-nya
+# hidup itu benar; tetapi item ``processing`` tidak pernah kedaluwarsa, jadi
+# worker yang mati/hang mengunci tiketnya selamanya. Kill menutup job SEKARANG
+# JUGA (lihat ``crud.kill_reprocess_job``) lalu mencoba menghentikan task-nya.
+#
+# Dijaga ``role == "admin"``, bukan capability: ``demo`` memegang seluruh
+# capability admin (``_ADMIN_PERMISSIONS``) dan tidak boleh ikut mematikan job.
+
+_REPROCESS_TASK = "worker.tasks.reprocess_ticket.reprocess_ticket"
+
+
+def _require_admin_role(current_user) -> None:
+    if (getattr(current_user, "role", None) or "") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya role admin yang boleh menghentikan job reproses.",
+        )
+
+
+def _revoke_item_tasks(item_ids: list[int]) -> int:
+    """Hentikan task Celery yang sedang mengerjakan item-item ini (best effort).
+
+    ID task tidak disimpan di DB, jadi dicari lewat ``inspect().active()`` dari
+    argumennya (satu task = satu ``item_id``). Worker yang sudah mati tidak
+    menjawab — tidak apa: status item di DB sudah ditutup, dan itulah yang
+    melepas kunci tiketnya. Mengembalikan jumlah task yang di-revoke.
+    """
+    if not item_ids:
+        return 0
+    from api.celery_client import celery_app
+
+    wanted = {int(i) for i in item_ids}
+    revoked = 0
+    try:
+        active = celery_app.control.inspect(timeout=2.0).active() or {}
+        for tasks in active.values():
+            for t in tasks or []:
+                if t.get("name") != _REPROCESS_TASK:
+                    continue
+                args = t.get("args") or []
+                if isinstance(args, str):  # celery lama mengirim repr()
+                    args = [a for a in args.strip("[]() ").split(",") if a.strip()]
+                try:
+                    item_id = int(args[0]) if args else None
+                except (TypeError, ValueError):
+                    item_id = None
+                if item_id in wanted:
+                    celery_app.control.revoke(t["id"], terminate=True)
+                    revoked += 1
+    except Exception:  # noqa: BLE001 — broker/worker tak terjangkau bukan alasan gagal
+        logger.exception("gagal menghentikan task reproses %s", sorted(wanted))
+    return revoked
+
+
+@router.get("/reprocess_jobs/open", response_model=ReprocessJobListResponse)
+def list_open_reprocess_jobs(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Semua job yang belum tertutup — massal DAN satu-tiket — untuk panel Kill.
+
+    ``items`` hanya memuat item yang sedang ``processing`` (beserta
+    ``started_at``, untuk menilai umurnya): job massal bisa berisi ribuan item
+    ``pending`` yang tidak perlu dikirim; jumlahnya sudah ada di ``counts``.
+    """
+    _require_admin_role(current_user)
+    jobs = []
+    for job in crud.list_open_reprocess_jobs(db):
+        res = _job_response(db, job)
+        res.items = [i for i in res.items if i.status == "processing"]
+        jobs.append(res)
+    return ReprocessJobListResponse(jobs=jobs)
+
+
+@router.post("/reprocess_job/{job_id}/kill", response_model=ReprocessJobResponse)
+def kill_reprocess_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Hentikan paksa job yang belum selesai (khusus role admin).
+
+    Item ``pending`` dilewati, item ``processing`` ditandai ``failed`` dan row
+    barunya dibuang — row lama tiket tetap utuh — lalu task Celery-nya dihentikan.
+    """
+    _require_admin_role(current_user)
+    job = crud.get_reprocess_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job tidak ditemukan")
+    if job.finished_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job ini sudah selesai; tidak ada yang bisa dihentikan.",
+        )
+    killed = crud.kill_reprocess_job(db, job_id, getattr(current_user, "username", None))
+    _revoke_item_tasks(killed)
+    return _job_response(db, crud.get_reprocess_job(db, job_id))
