@@ -78,6 +78,7 @@ class ReprocessItem(BaseModel):
     new_result_id: Optional[str] = None
     deleted_old: int = 0
     error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     # Checkpoint pipeline TERAKHIR yang selesai untuk ``new_result_id`` (14
     # September 2026 — lihat results.current_stage dan
@@ -98,6 +99,7 @@ class ReprocessCounts(BaseModel):
 class ReprocessJobResponse(BaseModel):
     job_id: str
     campaigns: list[str]
+    scope: Optional[str] = None  # "campaign" (massal) | "ticket" (satu tiket)
     status: str
     total_tickets: int
     counts: ReprocessCounts
