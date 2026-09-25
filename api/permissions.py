@@ -199,16 +199,26 @@ ALL_PERMISSIONS = [
 # Konsekuensi yang disadari & dikonfirmasi: `qc_support` kehilangan Upload Audio /
 # Upload Transcript. Karena cakupan datanya "hanya tiket yang di-upload sendiri",
 # role itu praktis tidak lagi punya tiket baru untuk dilihat.
+#
+# Upload Audio & Upload Transcript (MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT,
+# AUDIO_UPLOAD, TRANSCRIPT_UPLOAD) KELUAR dari daftar ini pada 23 September 2026:
+# SPQ Head dan Team Leader QC perlu memasukkan audio/transkrip sendiri (migrasi
+# 0059). Keempatnya kini capability biasa — muncul di form Manage Role dan bisa
+# diberikan Admin ke role mana pun, termasuk menghidupkan kembali ``qc_support``.
+#
+# Upload Database Sales (MENU_UPLOAD_SALES_DATABASE, ADMIN_SALES_DATABASE_WRITE)
+# ikut keluar pada tanggal yang sama. Team Leader QC sudah memegangnya sejak
+# 3 September 2026 (migrasi 0052), tetapi selama keduanya admin-only, menyimpan
+# role itu lewat Manage Role mencabutnya diam-diam.
 ADMIN_ONLY_PERMISSIONS = {
     MENU_CAMPAIGNS, MENU_SALES_DATABASE, MENU_QC_DATABASE,
-    MENU_UPLOAD_CAMPAIGN, MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT,
-    MENU_GET_RESULT, MENU_UPLOAD_SALES_DATABASE, MENU_UPLOAD_QC_DATABASE,
+    MENU_UPLOAD_CAMPAIGN,
+    MENU_GET_RESULT, MENU_UPLOAD_QC_DATABASE,
     MENU_REPROCESS_TICKETS, MENU_DELETE_CAMPAIGN, MENU_MANAGE_USER,
     MENU_MANAGE_ROLE,
     ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
-    ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_REPROCESS,
+    ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_REPROCESS,
     ADMIN_DOC_SLA_WRITE,
-    TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
     MENU_COLLECTION_RESULTS,
 }
 
@@ -238,8 +248,10 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     MENU_RESULTS,
 })
 
-# Keempatnya ada di ``ADMIN_ONLY_PERMISSIONS`` (kebijakan 14 Agustus 2026: seluruh
-# Upload Data milik Admin). Pemberian di sini SENGAJA menembus daftar itu: penjaga
+# Upload Audio/Transcript tidak lagi admin-only sejak 23 September 2026 (lihat
+# ``ADMIN_ONLY_PERMISSIONS``), jadi bagi role yang sudah memegangnya (SPQ Head,
+# TL QC) penambahan di sini tidak mengubah apa pun; ia tetap berguna untuk ``qc``.
+# MENU_COLLECTION_RESULTS masih admin-only. Pemberian di sini SENGAJA menembus daftar itu: penjaga
 # ADMIN_ONLY berlaku saat role DISIMPAN lewat Manage Role, sedangkan yang ini
 # dihitung saat request — jadi capability-nya tidak pernah tersimpan di tabel
 # ``roles`` dan tidak bisa dipinjam role lain. Diminta eksplisit untuk campaign
@@ -415,6 +427,10 @@ DEFAULT_ROLES = {
             # Tanpa seluruh ADMIN_ONLY_PERMISSIONS (Campaigns, Database Sales &
             # QC, Upload Data, Delete Campaign): pengurusan data pindah ke Admin
             # (14 Agustus 2026).
+            # Upload Audio & Upload Transcript DIKEMBALIKAN 23 September 2026
+            # (migrasi 0059) — keduanya tidak lagi admin-only.
+            MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, AUDIO_UPLOAD,
+            TRANSCRIPT_UPLOAD,
             # Tanpa ADMIN_TICKET_DELETE: tombol Delete di Results dicabut dari SPQ
             # Head pada tanggal yang sama; menghapus tiket tinggal milik Admin.
             # RESULTS_EXPORT_VERIFICATION sempat dicabut (14 Agustus 2026, migrasi
@@ -473,9 +489,14 @@ DEFAULT_ROLES = {
     "team_leader_qc": {
         "label": "Team Leader QC",
         "data_scope": SCOPE_ALL,
-        # Tanpa MENU_UPLOAD_AUDIO / MENU_UPLOAD_TRANSCRIPT / TRANSCRIPT_UPLOAD /
-        # AUDIO_UPLOAD: seluruh Upload Data pindah ke Admin (14 Agustus 2026).
+        # Upload Audio & Upload Transcript sempat dicabut (14 Agustus 2026, Upload
+        # Data pindah ke Admin) lalu DIKEMBALIKAN 23 September 2026 (migrasi 0059).
         "permissions": _QC_SIDE_VIEW + [
+            MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, AUDIO_UPLOAD,
+            TRANSCRIPT_UPLOAD,
+            # Upload Database Sales (3 September 2026, migrasi 0052). Keduanya
+            # wajib: menu membuka route, write adalah gate router sales_database.
+            MENU_UPLOAD_SALES_DATABASE, ADMIN_SALES_DATABASE_WRITE,
             MENU_ASSIGN_TICKET, MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
             RESULTS_CATEGORY_SCORE,
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_TL,
