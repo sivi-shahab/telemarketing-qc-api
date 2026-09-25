@@ -60,7 +60,11 @@ def admin_user(db):
     """
     from db.models import User
 
-    user = db.query(User).filter(User.role == "admin").first()
+    # ``order_by`` WAJIB: tanpa urutan, Postgres mengembalikan baris menurut letak
+    # fisiknya, dan UPDATE apa pun pada tabel users (mis. reset password)
+    # memindahkannya — test lalu diam-diam memakai admin lain dengan cakupan
+    # campaign berbeda (25 September 2026).
+    user = db.query(User).filter(User.role == "admin").order_by(User.id).first()
     if user is None:
         pytest.skip("tidak ada user role admin di database")
     return user
