@@ -442,3 +442,85 @@ tertahan.
   filter yang belum pernah diminta hari itu (mis. timeseries bulanan pertama kali: ±9,5 s).
 - Deploy memakai prosedur 10d (kandidat → 0 perbedaan paket → smoke → retag). Image
   rollback: `local/qc-api:pre-snapshot-latar`, `local/qc-worker:pre-snapshot-latar`.
+
+---
+
+## 11. Merge ke main, rebuild dashboard, dan pemindahan data-root containerd (28 September 2026)
+
+### 11a. Semua PR di-merge ke `main`
+
+Seluruh rantai PR bertumpuk di-merge berurutan dari yang paling bawah. Tiap PR berikutnya
+dialihkan base-nya ke `main` sebelum di-merge. Semua memakai merge commit, dan branch
+tidak dihapus.
+
+| Repo | PR | `main` |
+|---|---|---|
+| core | #10 → #16 | `6734b34` |
+| worker | #12 → #20 | `1cb6b52` |
+| api | #22 → #29 | `41e4ec9` |
+| dashboard | #16 | `08fa71a` |
+
+Terverifikasi: `main` core/worker/api identik (0 perbedaan) dengan kode yang berjalan di
+produksi. `main` dashboard = fitur Kill reproses + fix nginx akses IP (PR #15). Keempat
+folder repo di server kini di-checkout ke `main`, karena deploy membangun image dari folder.
+
+### 11b. Rebuild dashboard: login lewat IP berfungsi
+
+Fix nginx (`f3332f0`, PR #15) sudah di `main` sejak pagi, tetapi container dashboard belum
+di-rebuild. Prosedur 10d dipakai:
+
+- Bundle JS kandidat **identik** (md5 per file) dengan yang tersaji; satu-satunya perubahan
+  adalah `nginx.conf`.
+- Tujuan proxy sama dengan nginx host: `/api-b/` → API (port 4000), `/api-a/` → App A
+  (port 8000), `/api/download` dan `/api/view-streams/` → 8010.
+- Smoke test di port sementara 24006 (port 14006 sudah dipakai layanan lain, dan hasil uji
+  pertama di sana dibuang).
+
+| Akses lewat `http://10.158.32.26:4006` | Sebelum | Sesudah |
+|---|---|---|
+| Halaman, `/api-b/health` | 200 | 200 |
+| `POST /api-b/auth/login` | **405** | **422** (sampai ke API; kredensial uji ditolak) |
+
+Akses lewat domain `call-qc.bankmega.local` tetap 200. Rollback: `local/qc-dashboard:pre-nginx-ip`.
+
+Catatan: `nginx -t` di luar network `qc-net` gagal pada upstream `api`. Ini alarm palsu,
+karena di dalam `qc-net` lolos.
+
+### 11c. Data-root containerd dipindah ke `/data`
+
+**Latar:** Docker memakai containerd image store (`io.containerd.snapshotter.v1`).
+`daemon.json` sudah menaruh `data-root` di `/data/docker`, tetapi containerd masih memakai
+root bawaan `/var/lib/containerd` di partisi `/` (49 GB). Build berulang membuat `/` penuh 100%
+(bagian 10d).
+
+**Langkah:**
+1. Salin awal `/var/lib/containerd` (6,4 GB) → `/data/containerd` dengan `rsync -aHAX
+   --numeric-ids` selagi semua jalan (1 menit 42 detik).
+2. Pastikan tidak ada result `pending`/`processing` dan tidak ada job reproses berjalan.
+3. `systemctl stop docker.socket docker containerd` → rsync akhir `--delete` → set
+   `root = "/data/containerd"` di `/etc/containerd/config.toml` (backup
+   `config.toml.bak.20260928`) → folder lama diganti nama `.bak` → start containerd dan docker.
+   **Docker mati ±23 detik.**
+4. Verifikasi: containerd hanya membuka file di `/data/containerd`; image dan container
+   utuh; dashboard (IP dan domain), API, login, worker, dan beat normal; data Redis utuh
+   (194 cache DWH, 395 cache JSON); `qc-collection-app` normal.
+5. Hapus `/var/lib/containerd.bak`.
+
+| Partisi | Sebelum | Sesudah |
+|---|---|---|
+| `/` | 87% (6,5 GB kosong) | **74% (13 GB kosong)** |
+| `/data` | 92% (26 GB kosong) | 94% (19 GB kosong) |
+
+**Container tanpa restart policy** (`qc-test-minio/redis/pg/pg2`, `adminer`, `redis-dev`)
+tidak hidup sendiri sesudah Docker di-restart, jadi dinyalakan manual. Perlu diingat pada
+setiap restart Docker atau reboot.
+
+**`qc-test-dash` dibiarkan mati.** Container uji e2e lama (20 Agustus) ini me-mount
+`nginx.conf` langsung dari folder repo dashboard. Sejak folder itu di `main`, file tersebut
+memuat proxy ke upstream `api`, yang tidak ada di `qc-test-net`, sehingga nginx gagal start.
+Stack ujinya memang sudah tidak berfungsi (`qc-test-api` mati sejak 26 September).
+Menyambungkannya ke network produksi akan membuat dashboard uji menembak API produksi, jadi
+opsi itu tidak diambil. Bila dibutuhkan, jalankan ulang lewat `./jalankan.sh`.
+
+**Perlu dipantau:** `/data` kini 94% (19 GB kosong), karena beban `/` pindah ke sana.
+Pertimbangkan memperbesar volume atau membersihkan image lama (`pre-*`, `cand`) secara berkala.
