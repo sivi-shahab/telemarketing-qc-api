@@ -191,12 +191,19 @@ _engine = None
 _SessionLocal = None
 
 
-def get_db() -> Generator[Session, None, None]:
+def new_session() -> Session:
+    """Sesi DB baru di luar siklus request — untuk pekerjaan latar (mis. hitung ulang
+    snapshot Statistics, ``crud.get_or_build_stats_snapshot(session_factory=...)``).
+    Pemanggil wajib menutupnya."""
     global _engine, _SessionLocal
     if _engine is None:
         _engine = _make_engine(get_settings())
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
-    db = _SessionLocal()
+    return _SessionLocal()
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = new_session()
     try:
         # Sakelar kebijakan SLA H+2 (app_settings) dibaca sekali per request lalu
         # disimpan di cache modul, karena _doc_sla_expired dipanggil dari banyak

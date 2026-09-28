@@ -14,6 +14,7 @@ from api.dependencies import (
     get_current_user,
     get_evaluation_detail_user,
     get_db,
+    new_session,
 )
 from sales_lookup import (
     agent_ids_for_agent,
@@ -1173,7 +1174,8 @@ def _snapshot_for(db: Session, current_user) -> dict:
         return crud.get_or_build_stats_snapshot(
             db,
             scope_key=_scope_key_for(scope, cids, set()),
-            compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=set()),
+            compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=set()),
+            session_factory=new_session,
         )
     if not is_sales_scope(scope):
         # Cakupan non-sales yang DIBATASI CAMPAIGN ikut dihitung ulang: snapshot
@@ -1184,11 +1186,12 @@ def _snapshot_for(db: Session, current_user) -> dict:
         # alasan yang sama dengan cabang QC di atas.
         cids = _scoped_customer_ids(db, current_user)
         if cids is None:
-            return crud.get_or_build_stats_snapshot(db)
+            return crud.get_or_build_stats_snapshot(db, session_factory=new_session)
         return crud.get_or_build_stats_snapshot(
             db,
             scope_key=_scope_key_for(scope, cids, set()),
-            compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=set()),
+            compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=set()),
+            session_factory=new_session,
         )
 
     # KETIGA cakupan sales dihitung ulang dari tiketnya sendiri. Sebelumnya hanya
@@ -1212,7 +1215,8 @@ def _snapshot_for(db: Session, current_user) -> dict:
     return crud.get_or_build_stats_snapshot(
         db,
         scope_key=_scope_key_for(scope, cids, roster_uids),
-        compute_fn=lambda: compute_stats_snapshot(db, cids, roster_uids=roster_uids),
+        compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=roster_uids),
+        session_factory=new_session,
     )
 
 
@@ -1382,14 +1386,14 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
         else set()
     )
 
-    def _compute():
-        resp = {"overview": compute_scoped_overview(db, cids or [])}
+    def _compute(s):
+        resp = {"overview": compute_scoped_overview(s, cids or [])}
         if scope == SCOPE_SALES_AM:
-            roster = compute_team_agents(db, roster_uids)
+            roster = compute_team_agents(s, roster_uids)
             resp["agents"] = roster
             resp["hierarchy"] = compute_scoped_hierarchy(roster)
         elif scope == SCOPE_SALES_TL:
-            resp["agents"] = compute_team_agents(db, roster_uids)
+            resp["agents"] = compute_team_agents(s, roster_uids)
         return resp
 
     # Sebelum 17 September 2026 endpoint ini SELALU hitung ulang — dan StatsView
@@ -1398,6 +1402,7 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
     # berbeda (jarang, tapi mungkin) tidak boleh berbagi cache "agents"/"hierarchy".
     return crud.get_or_build_stats_snapshot(
         db, scope_key=_scope_key_for(f"myov:{scope}", cids, roster_uids), compute_fn=_compute,
+        session_factory=new_session,
     )
 
 
@@ -1421,7 +1426,8 @@ def stats_failure_reasons(
     return crud.get_or_build_stats_snapshot(
         db,
         scope_key=_scope_key_for("fr", campaigns, extra=str(campaign)),
-        compute_fn=lambda: compute_failure_reasons(db, campaign, campaigns),
+        compute_fn=lambda s: compute_failure_reasons(s, campaign, campaigns),
+        session_factory=new_session,
     )
 
 
@@ -1442,7 +1448,8 @@ def stats_failure_reasons_hierarchy(
     return crud.get_or_build_stats_snapshot(
         db,
         scope_key=_scope_key_for("frh", campaigns, extra=str(campaign)),
-        compute_fn=lambda: compute_failure_reasons_hierarchy(db, campaign, campaigns),
+        compute_fn=lambda s: compute_failure_reasons_hierarchy(s, campaign, campaigns),
+        session_factory=new_session,
     )
 
 
@@ -1480,9 +1487,10 @@ def stats_ai_status_timeseries(
     return crud.get_or_build_stats_snapshot(
         db,
         scope_key=_scope_key_for(f"ts:{scope}", customer_ids, extra=extra),
-        compute_fn=lambda: compute_ai_status_timeseries(
-            db, customer_ids, campaign, granularity, start, end, offset
+        compute_fn=lambda s: compute_ai_status_timeseries(
+            s, customer_ids, campaign, granularity, start, end, offset
         ),
+        session_factory=new_session,
     )
 
 
