@@ -206,3 +206,75 @@ def test_endpoint_open_jobs_hanya_admin(db, admin_user):
     with pytest.raises(HTTPException) as exc:
         list_open_reprocess_jobs(db=db, current_user=SimpleNamespace(role="demo"))
     assert exc.value.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# Kill per tiket (tombol Kill di menu Results)
+# --------------------------------------------------------------------------
+
+def test_kill_tiket_hanya_menghentikan_tiket_itu_dalam_job_massal(db):
+    """Job massal lain tetap jalan: hanya item tiket yang di-kill yang ditutup."""
+    job = _job(db, scope="campaign")
+    target = _item(db, job, status="processing")
+    other_processing = _item(db, job, status="processing")
+    other_pending = _item(db, job, status="pending")
+
+    killed = crud.kill_reprocess_ticket(db, target.ticket_id, "admin1")
+
+    assert killed == [target.id]
+    db.expire_all()
+    t = crud.get_reprocess_item(db, target.id)
+    assert t.status == "failed" and "admin1" in t.error_message
+    assert crud.get_reprocess_item(db, other_processing.id).status == "processing"
+    assert crud.get_reprocess_item(db, other_pending.id).status == "pending"
+    j = crud.get_reprocess_job(db, str(job.id))
+    assert j.status == "running" and j.finished_at is None
+
+
+def test_kill_tiket_menutup_job_satu_tiket_sebagai_cancelled(db):
+    tid = f"pytest-kill-{uuid.uuid4().hex[:8]}"
+    old = _result(db, tid)
+    new = _result(db, tid)
+    job = _job(db, scope="ticket")
+    item = _item(db, job, status="processing", ticket_id=tid,
+                 old_ids=[str(old.id)], new_result_id=new.id)
+
+    assert crud.kill_reprocess_ticket(db, tid, "admin1") == [item.id]
+
+    db.expire_all()
+    j = crud.get_reprocess_job(db, str(job.id))
+    assert j.status == "cancelled" and j.finished_at is not None
+    assert crud.get_result(db, str(new.id)) is None
+    assert crud.get_result(db, str(old.id)) is not None
+    assert crud.active_reprocess_item_for_ticket(db, tid) is None
+
+
+def test_kill_tiket_pending_dilewati(db):
+    job = _job(db, scope="ticket")
+    item = _item(db, job, status="pending")
+
+    assert crud.kill_reprocess_ticket(db, item.ticket_id, "admin1") == []
+    db.expire_all()
+    assert crud.get_reprocess_item(db, item.id).status == "skipped"
+    assert crud.get_reprocess_job(db, str(job.id)).status == "cancelled"
+
+
+def test_endpoint_kill_tiket(db, admin_user, no_revoke):
+    from api.routers.reprocess import kill_reprocess_single_ticket
+
+    job = _job(db, scope="ticket")
+    item = _item(db, job, status="processing")
+
+    res = kill_reprocess_single_ticket(ticket_id=item.ticket_id, db=db, current_user=admin_user)
+
+    assert res.killed == 1
+    assert no_revoke == [item.id]
+
+    with pytest.raises(HTTPException) as exc:  # tidak ada lagi yang aktif
+        kill_reprocess_single_ticket(ticket_id=item.ticket_id, db=db, current_user=admin_user)
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        kill_reprocess_single_ticket(ticket_id=item.ticket_id, db=db,
+                                     current_user=SimpleNamespace(role="demo", username="x"))
+    assert exc.value.status_code == 403

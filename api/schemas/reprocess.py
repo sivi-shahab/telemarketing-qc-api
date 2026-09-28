@@ -111,3 +111,11 @@ class ReprocessJobResponse(BaseModel):
 
 class ReprocessJobListResponse(BaseModel):
     jobs: list[ReprocessJobResponse]
+
+
+class ReprocessKillTicketResponse(BaseModel):
+    """Hasil tombol Kill per baris di menu Results."""
+
+    ticket_id: str
+    closed: int   # item yang ditutup (antre + sedang diproses)
+    killed: int   # di antaranya yang sedang diproses -> task Celery-nya dihentikan

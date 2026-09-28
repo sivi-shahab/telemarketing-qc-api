@@ -38,6 +38,7 @@ from api.schemas.reprocess import (
     ReprocessFilterRequest,
     ReprocessJobListResponse,
     ReprocessJobResponse,
+    ReprocessKillTicketResponse,
     ReprocessPreviewResponse,
     ReprocessStartRequest,
 )
@@ -536,3 +537,30 @@ def kill_reprocess_job(
     killed = crud.kill_reprocess_job(db, job_id, getattr(current_user, "username", None))
     _revoke_item_tasks(killed)
     return _job_response(db, crud.get_reprocess_job(db, job_id))
+
+
+@router.post("/reprocess_ticket/kill", response_model=ReprocessKillTicketResponse)
+def kill_reprocess_single_ticket(
+    ticket_id: str = Query(..., description="Ticket id yang reprosesnya dihentikan"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Hentikan paksa reproses SATU tiket (tombol Kill per baris di menu Results).
+
+    Hanya tiket ini yang ditutup — kalau ia bagian dari job massal, tiket lain di
+    job itu jalan terus. Menghentikan seluruh job massal ada di
+    ``/reprocess_job/{id}/kill``.
+    """
+    _require_admin_role(current_user)
+    tid = (ticket_id or "").strip()
+    open_items = crud.open_reprocess_items_for_ticket(db, tid)
+    if not open_items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ticket '{tid}' tidak sedang diproses ulang.",
+        )
+    killed = crud.kill_reprocess_ticket(db, tid, getattr(current_user, "username", None))
+    _revoke_item_tasks(killed)
+    return ReprocessKillTicketResponse(
+        ticket_id=tid, closed=len(open_items), killed=len(killed)
+    )
