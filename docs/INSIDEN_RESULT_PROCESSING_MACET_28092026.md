@@ -306,3 +306,117 @@ langsung dengan row baru), dan keduanya membawa row `pending`. Row `processing`
    (timeout 10 s), tetapi nama agent/TMS kosong.
 6. **Kosongkan antrean Redis kube** dari pesan lama sebelum menyalakan worker baru,
    supaya burst lama tidak diulang.
+
+---
+
+## 9. Reproses result yang gagal/macet (28 September 2026)
+
+Atas permintaan pemilik sistem, semua result `failed`/`processing` diproses ulang lewat
+worker di server ini: job `d27d6a67-d40f-43cc-a33d-aa13503c7573`, `scope="campaign"`, dibuat
+dengan fungsi dan pengaman yang sama dengan tombol Reprocess All
+(`crud.reprocess_plan_for_tickets`, `active_reprocess_item_for_ticket`, tolak kalau ada job
+massal lain).
+
+**Pemilihan tiket:** 45 tiket yang **belum punya hasil `done` sama sekali**:
+- 44 tiket kube yang macet (54 row);
+- 1 tiket Collection non-kube dari 22 Sep ("Transkrip kosong").
+
+Dua tiket yang sudah punya hasil `done` **tidak** direproses, supaya hasil yang mungkin
+sudah dilihat QC tidak berubah.
+
+**Hasil** (04:26–04:56 UTC, ±30 menit, 8 paralel):
+
+| Status | Tiket | Keterangan |
+|---|---|---|
+| `done` | **44** | 55 row lama (macet + duplikat upload berkas yang sama) diganti satu row baru per tiket. Rata-rata 5,1 menit per tiket, terlama 8,4 menit |
+| `failed` | 1 | "Syafira Putrianti" (Collection): transkrip PDF kosong, sama seperti sebelumnya. Row lama tetap utuh |
+
+Sesudahnya **tidak ada lagi row `processing`**. Karena row lama kube sudah dihapus, pesan
+yang masih tersisa di Redis kube tidak lagi punya baris untuk di-reset (`get_result` →
+None → task gagal dan di-ack).
+
+**Row duplikat yang dibuang:** `230224vC1k` — row `processing` `26c3c68c…` memakai berkas
+yang sama persis (`230224vC1k_20260923142405.pdf`) dengan row `done`-nya. Tiket kini tinggal
+satu row `done`.
+
+**Tidak dihapus: "Everd Francis Bartholemeus"** (Collection). Row `failed` `fdd3795d…` adalah
+**rekaman yang berbeda** (`…-103719-…pdf`) dari ketiga row `done`, bukan duplikat. Row ini
+satu-satunya jejak bahwa rekaman itu gagal dibaca ("Transkrip kosong"). PDF-nya perlu
+diekspor ulang dari sumber.
+
+**Catatan Collection:** "tiket" Collection dikelompokkan per **nama agent**
+(`split_part(source_files[0], '_', 1)`), sehingga satu tiket bisa berisi beberapa rekaman
+berbeda. Tombol Reprocess/Delete per tiket di Collection mengenai **semua** rekaman agent
+itu. Sebelum job dijalankan sudah diperiksa: item job yang punya >1 row lama semuanya berkas
+Cashline yang sama (upload ganda), dan satu-satunya item Collection hanya punya satu rekaman.
+
+Sisa 2 row `failed` (Collection, transkrip kosong) membutuhkan PDF yang benar dari sumber.
+
+---
+
+## 10. Optimasi waktu load halaman (28 September 2026)
+
+Permintaan: halaman Results, Stats, Transkrip, Assign Ticket, Manual Check dan Pending Check
+tidak boleh lama; boleh cache Redis ber-TTL 1 bulan.
+
+### 10a. Temuan (diukur, bukan diduga)
+
+1. **Cache DWH praktis tidak pernah kena.** `.env` api/worker mengisi
+   `DWH_API_CACHE_TTL_SEC=5` (bawaan kode 300), dan cache itu per proses gunicorn. Results
+   menembak **±300 request DWH** per load (5,6–28 detik).
+2. **JSON hasil evaluasi diambil ulang dari Postgres tiap load.** `crud.result_json_map`
+   mentransfer **18 MB** JSON dari Postgres remote (3,6–5,5 detik; parse-nya hanya 0,15 detik).
+   Pending Check (395 result) memanggilnya dua kali per request: **7,7–9,3 detik**.
+3. Latensi satu panggilan DWH hanya ±52 ms, jadi masalahnya jumlah panggilan, bukan
+   kecepatan DWH.
+
+### 10b. Perubahan
+
+| Perubahan | PR |
+|---|---|
+| **Cache DWH dua lapis:** L1 memori + **L2 Redis bersama**. Data ditemukan 30 hari, 404 1 jam, gagal tidak disimpan. Redis bermasalah → HTTP (timeout 0,5 s, jeda 30 s). **Worker evaluasi tidak membaca L2** (selalu data segar) tetapi menulisnya | core #14, worker #18, api #27 |
+| `.env` api & worker: `DWH_API_CACHE_TTL_SEC` 5 → 300 (backup `.env.bak.20260928-115724`) | — (di luar git) |
+| **Cache JSON hasil evaluasi di Redis** per id baris `result_data` (30 hari). Aman tanpa invalidasi: baris tidak pernah diubah, reproses menambah baris baru | core #15, api #28, worker #19 |
+| Hasil task Celery di Redis 30 hari (`CELERY_RESULT_EXPIRES_DAYS`); task pembersih `ignore_result` | worker #17 |
+
+### 10c. Hasil di produksi (sesudah deploy, 05:27 UTC)
+
+| Halaman | Endpoint terlambat | Sebelum | Sesudah |
+|---|---|---|---|
+| Results | `/list_results` (100 baris) | 5,6–28 s | **1,3–1,4 s** |
+| Pending Check | `/list_results?manual_status_pending` | 7,7–9,3 s | **2,6 s** |
+| Stats | `/stats/failure_reasons(_hierarchy)` saat pertama | 6,4–7 s | **0,16–0,25 s** |
+| Manual Check | `/list_results?banding_pending` | 0,3 s | 0,35 s |
+| Transkrip | `/tickets_daily` | 0,4–0,5 s | 0,1–0,4 s |
+| Assign Ticket | `/qc_assignments`, `/qc_assignment/*` | < 0,3 s | < 0,25 s |
+
+Redis total 27 MB (sebelumnya 1,85 MB).
+
+**Sisa yang belum dioptimasi:** hitung ulang snapshot Statistics ±6,5 detik (turun dari 11).
+Snapshot dihitung ulang setiap kali signature data berubah, jadi pengguna Stats pertama
+sesudah ada perubahan menunggu segitu. Sisanya komputasi CPU (pencocokan nama, penilaian
+ulang status AI). Memo `levenshtein` sudah diukur dan hanya memberi ±8%, jadi tidak
+diambil. Opsi berikutnya: menghitung ulang snapshot di latar belakang (beat) begitu
+signature berubah, sehingga pengguna selalu mendapat snapshot jadi.
+
+### 10d. Insiden saat deploy: dependensi tidak terkunci
+
+Deploy pertama cache DWH (05:00 UTC) membuat **API dan worker gagal start ±6 menit**
+(`ModuleNotFoundError: No module named 'psycopg'`). Keduanya segera di-rollback ke image
+`pre-cache-dwh`. Tidak ada upload yang masuk selama gangguan, dan tidak ada result yang
+tertahan.
+
+- **Penyebab:** `core/requirements.txt` tidak mengunci versi. Menambah baris `redis`
+  membatalkan cache layer pip, sehingga rebuild menarik **SQLAlchemy 2.1.1**, yang mengganti
+  driver bawaan `postgresql://` ke `psycopg` v3 (tidak terpasang). Ikut naik tanpa diuji:
+  openai 3.16→3.19, starlette, uvicorn, boto3, flower.
+- **Perbaikan:** `api/constraints.txt` dan `worker/constraints.txt` = `pip freeze` image yang
+  terbukti jalan, dipakai `pip install -c` di Dockerfile. Rebuild kini identik (0 perbedaan
+  paket).
+- **Prosedur deploy baru:** tag `pre-*` → `TAG=cand docker compose build` → bandingkan
+  `pip freeze` (harus 0 perbedaan) → smoke test di container sementara (alembic, `/health`,
+  endpoint, koneksi DB worker) → `docker tag cand latest` → `up -d --no-build`.
+- **Temuan ikutan:** partisi `/` penuh 100% karena image store containerd
+  (`/var/lib/containerd`, 13 GB) berada di partisi root, bukan `/data`. `docker builder
+  prune` membebaskan ±8 GB (kini 86%). Perlu dipantau; pertimbangkan memindahkan data-root
+  containerd ke `/data`.
