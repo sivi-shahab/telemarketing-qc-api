@@ -158,3 +158,62 @@ STALE_PROCESSING_AFTER + interval beat (120 s)  <  visibility_timeout (3600 s)
 4. **Zona waktu campur.** `uploaded_at` tersimpan dalam WIB (`server_default=now()`),
    sedangkan `started_at`/`completed_at` dalam UTC. Akibatnya sebuah result bisa
    terlihat "mulai sebelum diunggah". Belum diubah.
+
+---
+
+## 7. Temuan lanjutan: zona waktu WIB vs UTC
+
+Saat menganalisis kasus ini, ditemukan bahwa timestamp tersimpan dalam dua zona:
+
+| Sumber penulis | Zona tersimpan |
+|---|---|
+| `server_default=func.now()` / `func.now()` (Postgres, `TimeZone = Asia/Jakarta`) | **WIB** |
+| `datetime.utcnow()` / `_utcnow()` di Python | UTC |
+| `datetime.now()` di Python (TZ container api/worker = UTC) | UTC |
+
+Contoh data: `results.uploaded_at` (WIB) vs `started_at` (UTC), dan `reprocess_jobs.created_at`
+(WIB) vs `reprocess_job_items.started_at` (UTC). Keputusan pemilik sistem:
+**semua memakai WIB.**
+
+### 7a. Diperbaiki (branch `fix/waktu-wib-sla-reproses`)
+
+Dua tempat yang **salah hitung**, bukan sekadar salah tampil:
+
+1. **Tenggat reproses "tersangkut"** (`crud._reprocess_item_active_clause`).
+   `reprocess_jobs.created_at` (WIB) dibandingkan dengan `datetime.now()` (UTC) − 6 jam,
+   sehingga jendela 6 jam efektif menjadi **13 jam**.
+2. **Tenggat dokumen H+2** (`stats_aggregate._doc_sla_expired` dan 12 pemanggilnya, ditambah
+   `api/routers/stats.py` dan `api/routers/transcript.py`). `submit_time` TMS adalah WIB
+   (contoh: rekaman `…_20260924124130.pdf` → submit `2026-09-24 12:55:27`), tetapi
+   "sekarang" dihitung dari UTC. Akibatnya tiket yang kekurangan dokumen baru jatuh ke
+   **FAIL 7 jam terlambat**.
+
+Perbaikannya adalah helper `crud.now_wib()`, yang mengembalikan jam dinding WIB (naive) dari
+`datetime.now(timezone.utc)`. Hasilnya tidak bergantung pada TZ container, sehingga juga
+benar di kube. Test `telemarketing-qc-core/tests/test_waktu_wib.py` (TZ proses dipaksa UTC)
+menjaga: `now_wib`, tenggat H+2 lewat/belum lewat, larangan `datetime.now()` di
+`stats_aggregate`, dan batas reproses.
+
+Test api `test_reprocess_active_flag.py` dan `test_reprocess_kill.py` sebelumnya membuat job
+dengan `created_at=datetime.now()` (UTC), sehingga ikut mengunci asumsi lama. Keduanya kini
+memakai `crud.now_wib()`, sesuai dengan isi kolom di produksi.
+
+**Dampak saat di-deploy:** tiket PENDING yang tenggat H+2-nya sudah lewat menurut jam WIB
+akan langsung tampil FAIL, maju hingga 7 jam dibanding sebelumnya.
+
+### 7b. Belum diperbaiki — asumsi `uploaded_at` = UTC di core
+
+Kode core **mengasumsikan `results.uploaded_at` adalah UTC naive**, lalu mengonversinya ke
+WIB untuk menentukan hari dan bulan: `crud.py` (filter tanggal Results, agregasi harian,
+`func.timezone('Asia/Jakarta', func.timezone('UTC', uploaded_at))`),
+`stats_aggregate._wib_month`, `collection_stats` (+7 jam), dan
+`documents.CARD_HOLDER_DOC_BANDS_EFFECTIVE_FROM`. Padahal di Postgres produksi kolom itu
+berisi **WIB**, sehingga dikonversi dua kali: upload setelah pukul 17:00 WIB terhitung
+**hari berikutnya** di filter tanggal dan statistik.
+
+Selisih `started_at − uploaded_at` per hari: umumnya −7 jam (upload = WIB), tetapi 19 Sep = 0.
+Artinya data lama sudah bercampur. Memperbaiki ini (menetapkan `uploaded_at` = WIB di semua
+kueri) termasuk jalur tuntas dan butuh keputusan terpisah.
+
+Sisa kecil: `reprocess_jobs.finished_at` di `crud.kill_*` dan nama file export di `stats.py`
+masih memakai `datetime.now()` (UTC). Tidak memengaruhi perhitungan.
