@@ -128,6 +128,11 @@ STATS_FAILURE_REASON = "stats.failure_reason"
 STATS_QC_PERFORMANCE = "stats.qc_performance"
 STATS_RISK_BASE = "stats.risk_base"
 STATS_RISK_SYSTEM_NEW = "stats.risk_system_new"
+# Generate deck "Error Rate Update" (.pptx) dari data Stats — Error Rate per
+# Campaign/Area Manager/SPV/Top TLO + Detail Error Reason. Beberapa bagian PPT
+# acuan (Submission/Sampling asli, %KPI, Complaint) tidak ada datanya di sistem
+# ini dan tampil sebagai placeholder di hasil unduhan (25 September 2026).
+STATS_EXPORT_ERROR_RATE_PPT = "stats.export.error_rate_ppt"
 
 # --- Administrasi (tulis) ---
 ADMIN_USER_WRITE = "admin.user.write"
@@ -178,7 +183,7 @@ ALL_PERMISSIONS = [
     QC_MANUAL_CHECK_APPROVE, RESULTS_FILTER_QC_SIDE, RESULTS_EXPORT_VERIFICATION,
     RESULTS_EXPORT_TICKETS,
     STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
-    STATS_RISK_SYSTEM_NEW,
+    STATS_RISK_SYSTEM_NEW, STATS_EXPORT_ERROR_RATE_PPT,
     ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
     ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_DELETE,
     ADMIN_TICKET_REPROCESS, ADMIN_DOC_SLA_WRITE,
@@ -329,6 +334,7 @@ PERMISSION_GROUPS = [
         (STATS_QC_PERFORMANCE, "Tabel Hierarki Failure Rate QC"),
         (STATS_RISK_BASE, "Kolom Risk Base"),
         (STATS_RISK_SYSTEM_NEW, "Kolom Risk System & Risk New"),
+        (STATS_EXPORT_ERROR_RATE_PPT, "Generate PPT Error Rate Update"),
     ]),
     ("Administrasi", [
         (ADMIN_USER_WRITE, "Kelola user"),
@@ -397,7 +403,7 @@ _ADMIN_PERMISSIONS = [
         DOCUMENT_UPLOAD, DOCUMENT_UPLOAD_LOCKED_TICKET, DOCUMENT_VIEW,
         RESULTS_EXPORT_VERIFICATION, RESULTS_EXPORT_TICKETS,
         STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
-        STATS_RISK_SYSTEM_NEW,
+        STATS_RISK_SYSTEM_NEW, STATS_EXPORT_ERROR_RATE_PPT,
         ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
         ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE,
         ADMIN_TICKET_DELETE, ADMIN_TICKET_REPROCESS,
@@ -421,7 +427,7 @@ DEFAULT_ROLES = {
             DOCUMENT_VIEW, DOCUMENT_VERIFICATION_TABLE,
             RESULTS_EXPORT_TICKETS, RESULTS_EXPORT_VERIFICATION,
             STATS_FAILURE_REASON, STATS_QC_PERFORMANCE, STATS_RISK_BASE,
-            STATS_RISK_SYSTEM_NEW,
+            STATS_RISK_SYSTEM_NEW, STATS_EXPORT_ERROR_RATE_PPT,
             # Tanpa MENU_MANAGE_USER / MENU_MANAGE_ROLE / ADMIN_USER_WRITE /
             # ADMIN_ROLE_WRITE: menu Administration khusus Admin (10 Agustus 2026).
             # Tanpa seluruh ADMIN_ONLY_PERMISSIONS (Campaigns, Database Sales &
@@ -505,6 +511,9 @@ DEFAULT_ROLES = {
             RESULTS_EXPORT_VERIFICATION,
             STATS_QC_PERFORMANCE, STATS_RISK_BASE, STATS_RISK_SYSTEM_NEW,
             QC_ASSIGNMENT_WRITE,
+            # Generate PPT Error Rate Update (28 September 2026, migrasi 0062) —
+            # menyusul SPQ Head, TL QC juga bisa generate deck ini.
+            STATS_EXPORT_ERROR_RATE_PPT,
         ],
     },
     # RESULTS_CATEGORY_SCORE sengaja TIDAK diberikan: QC menilai lolos/tidaknya

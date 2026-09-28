@@ -1,7 +1,8 @@
+import calendar
 import hashlib
 import io
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -52,6 +53,7 @@ from api.permissions import (
     SCOPE_SALES_TL,
     STATS_FAILURE_REASON,
     STATS_QC_PERFORMANCE,
+    STATS_EXPORT_ERROR_RATE_PPT,
     is_sales_scope,
 )
 from api.rbac import (
@@ -380,16 +382,24 @@ def _manual_appeal_summary(req) -> Optional[dict]:
 @router.get("/stats/qc_performance")
 def qc_performance(
     campaign: Optional[str] = Query(None, description="Batasi ke tiket satu campaign"),
+    date_start: Optional[str] = Query(None, description="Chart-date lower bound (YYYY-MM-DD, WIB) — sama dengan filter grafik AI Status"),
+    date_end: Optional[str] = Query(None, description="Chart-date upper bound (YYYY-MM-DD, WIB)"),
     db: Session = Depends(get_db),
     current_user=Depends(require(STATS_QC_PERFORMANCE)),
 ):
     """Per-QC assigned / approved / approve-rate table, shown beneath the
     Hierarki Failure Rate tree. Restricted to Team Leader QC, SPQ Head and admin —
     the roles that manage the QC division. Dibatasi ke campaign yang menjadi cakupan
-    pemanggil."""
+    pemanggil.
+
+    ``date_start``/``date_end`` (opsional, 18 September 2026) membatasi ke tiket
+    dalam jendela tanggal yang sama dengan tab Failure Rate — lihat
+    ``crud.qc_performance_rows``."""
     reject_collection_only_stats(db, current_user)
-    return crud.qc_performance_rows(db, campaign,
-                                    effective_campaigns_for(db, current_user))
+    return crud.qc_performance_rows(
+        db, campaign, effective_campaigns_for(db, current_user),
+        date_start=_parse_ymd(date_start), date_end=_parse_ymd(date_end),
+    )
 
 
 @router.get("/results/hierarchy_options")
@@ -1146,7 +1156,7 @@ def _scope_key_for(scope: str, cids, roster_uids=None, extra: str = "") -> str:
     return f"{scope[:12]}:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
 
 
-def _snapshot_for(db: Session, current_user) -> dict:
+def _snapshot_for(db: Session, current_user, date_start=None, date_end=None) -> dict:
     """Statistics snapshot sesuai scope pemakainya.
 
     Area Manager mendapat snapshot yang dihitung ulang dari tiket area-nya saja,
@@ -1158,7 +1168,16 @@ def _snapshot_for(db: Session, current_user) -> dict:
     pemakainya) — sebelumnya selalu dihitung ulang tiap request, dan satu buka
     halaman Statistics memanggil fungsi ini 3x (overview/campaigns_monthly/
     hierarchy) plus auto-refresh 30 detik selama tab terbuka.
+
+    ``date_start``/``date_end`` (opsional, ``date`` objects) meneruskan jendela
+    tanggal tab Failure Rate ke ``compute_stats_snapshot`` — lihat docstring
+    fungsi itu. Saat diisi, snapshotnya SELALU dapat ``scope_key`` sendiri
+    (bahkan cabang "global tanpa scoping") supaya request tanpa filter tanggal
+    tetap berbagi satu baris cache seperti sebelumnya, dan tidak pernah tertimpa
+    oleh hasil yang sudah dipersempit tanggal.
     """
+    dated = date_start is not None or date_end is not None
+    date_extra = f"date:{date_start}|{date_end}" if dated else ""
     scope = data_scope_for(db, current_user)
     if scope in (SCOPE_QC_SUPPORT_OWN, SCOPE_QC_ASSIGNED):
         # Kedua cakupan QC perorangan berdiri sendiri: seluruh halaman Statistics
@@ -1173,8 +1192,9 @@ def _snapshot_for(db: Session, current_user) -> dict:
         cids = _scoped_customer_ids(db, current_user) or []
         return crud.get_or_build_stats_snapshot(
             db,
-            scope_key=_scope_key_for(scope, cids, set()),
-            compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=set()),
+            scope_key=_scope_key_for(scope, cids, set(), extra=date_extra),
+            compute_fn=lambda s: compute_stats_snapshot(
+                s, cids, roster_uids=set(), date_start=date_start, date_end=date_end),
             session_factory=new_session,
         )
     if not is_sales_scope(scope):
@@ -1186,11 +1206,20 @@ def _snapshot_for(db: Session, current_user) -> dict:
         # alasan yang sama dengan cabang QC di atas.
         cids = _scoped_customer_ids(db, current_user)
         if cids is None:
-            return crud.get_or_build_stats_snapshot(db, session_factory=new_session)
+            if not dated:
+                return crud.get_or_build_stats_snapshot(db, session_factory=new_session)
+            return crud.get_or_build_stats_snapshot(
+                db,
+                scope_key=_scope_key_for(scope, None, set(), extra=date_extra),
+                compute_fn=lambda s: compute_stats_snapshot(
+                    s, None, roster_uids=set(), date_start=date_start, date_end=date_end),
+                session_factory=new_session,
+            )
         return crud.get_or_build_stats_snapshot(
             db,
-            scope_key=_scope_key_for(scope, cids, set()),
-            compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=set()),
+            scope_key=_scope_key_for(scope, cids, set(), extra=date_extra),
+            compute_fn=lambda s: compute_stats_snapshot(
+                s, cids, roster_uids=set(), date_start=date_start, date_end=date_end),
             session_factory=new_session,
         )
 
@@ -1214,8 +1243,9 @@ def _snapshot_for(db: Session, current_user) -> dict:
     cids = _scoped_customer_ids(db, current_user) or []
     return crud.get_or_build_stats_snapshot(
         db,
-        scope_key=_scope_key_for(scope, cids, roster_uids),
-        compute_fn=lambda s: compute_stats_snapshot(s, cids, roster_uids=roster_uids),
+        scope_key=_scope_key_for(scope, cids, roster_uids, extra=date_extra),
+        compute_fn=lambda s: compute_stats_snapshot(
+            s, cids, roster_uids=roster_uids, date_start=date_start, date_end=date_end),
         session_factory=new_session,
     )
 
@@ -1315,6 +1345,8 @@ def _scoped_hierarchy(db, current_user, tree: dict) -> dict:
 @router.get("/stats/hierarchy")
 def stats_hierarchy(
     campaign: Optional[str] = Query(None, description="Batasi pohon ke satu campaign"),
+    date_start: Optional[str] = Query(None, description="Chart-date lower bound (YYYY-MM-DD, WIB) — sama dengan filter grafik AI Status"),
+    date_end: Optional[str] = Query(None, description="Chart-date upper bound (YYYY-MM-DD, WIB)"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -1328,9 +1360,17 @@ def stats_hierarchy(
     dibangun fungsi yang sama dengan versi global — jadi angkanya konsisten. Nama
     campaign dicocokkan case-insensitive karena kunci snapshot berasal dari
     ``Result.campaign`` apa adanya, sedangkan dropdown dari daftar campaign aktif.
+
+    ``date_start``/``date_end`` (opsional) membatasi pohon ke jendela tanggal yang
+    sama dengan filter di panel "AI Status — per waktu" (tab Failure Rate,
+    18 September 2026) — lihat ``compute_stats_snapshot``. Diberikan salah satu
+    saja, snapshotnya dihitung ulang langsung (tidak memakai snapshot harian
+    global) sehingga pohonnya benar-benar mengikuti tanggal yang dipilih.
     """
     reject_collection_only_stats(db, current_user)
-    snap = _snapshot_for(db, current_user)
+    d_start = _parse_ymd(date_start)
+    d_end = _parse_ymd(date_end)
+    snap = _snapshot_for(db, current_user, date_start=d_start, date_end=d_end)
     if not campaign:
         return _scoped_hierarchy(db, current_user, snap["hierarchy"])
     by_camp = snap.get("hierarchy_by_campaign") or {}
@@ -1409,11 +1449,17 @@ def stats_my_overview(db: Session = Depends(get_db), current_user=Depends(get_cu
 @router.get("/stats/failure_reasons")
 def stats_failure_reasons(
     campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    date_start: Optional[str] = Query(None, description="Chart-date lower bound (YYYY-MM-DD, WIB) — sama dengan filter grafik AI Status"),
+    date_end: Optional[str] = Query(None, description="Chart-date upper bound (YYYY-MM-DD, WIB)"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Kategori scorecard yang paling sering gagal + alasannya. Hanya untuk
-    SPQ Head & Admin (tab "Failure Reason" di menu Stats)."""
+    SPQ Head & Admin (tab "Failure Reason" di menu Stats).
+
+    ``date_start``/``date_end`` (opsional, 18 September 2026) membatasi ke tiket
+    dalam jendela tanggal yang sama dengan tab Failure Rate — lihat
+    ``compute_failure_reasons``."""
     reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
@@ -1421,12 +1467,16 @@ def stats_failure_reasons(
     # Di-cache sejak 17 September 2026 (improvement.md item 2.2) — sebelumnya scan
     # penuh JSON semua tiket Not Qualified tiap panggilan. Restriksi campaign role
     # dipakai sebagai "cids" slot scope_key (nama field tidak penting, isinya cukup
-    # unik per kombinasi restriksi+filter); ``campaign`` (query param) masuk ``extra``.
+    # unik per kombinasi restriksi+filter); ``campaign``/tanggal (query param) masuk
+    # ``extra``.
+    d_start = _parse_ymd(date_start)
+    d_end = _parse_ymd(date_end)
     campaigns = effective_campaigns_for(db, current_user)
     return crud.get_or_build_stats_snapshot(
         db,
-        scope_key=_scope_key_for("fr", campaigns, extra=str(campaign)),
-        compute_fn=lambda s: compute_failure_reasons(s, campaign, campaigns),
+        scope_key=_scope_key_for("fr", campaigns, extra=(f"{campaign}|{d_start}|{d_end}" if (d_start or d_end) else str(campaign))),
+        compute_fn=lambda s: compute_failure_reasons(
+            s, campaign, campaigns, date_start=d_start, date_end=d_end),
         session_factory=new_session,
     )
 
@@ -1434,22 +1484,238 @@ def stats_failure_reasons(
 @router.get("/stats/failure_reasons_hierarchy")
 def stats_failure_reasons_hierarchy(
     campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    date_start: Optional[str] = Query(None, description="Chart-date lower bound (YYYY-MM-DD, WIB) — sama dengan filter grafik AI Status"),
+    date_end: Optional[str] = Query(None, description="Chart-date upper bound (YYYY-MM-DD, WIB)"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Failure Reason yang dipecah per hierarki sales (AM -> TL -> Agent): kategori
     scorecard terbesar MILIK tiap simpul. Sub-tab "Hierarki Based" pada tab Failure
-    Reason; hak aksesnya sama dengan agregatnya."""
+    Reason; hak aksesnya sama dengan agregatnya.
+
+    ``date_start``/``date_end`` — lihat ``stats_failure_reasons``."""
     reject_collection_only_stats(db, current_user)
     if not has_perm(db, current_user, STATS_FAILURE_REASON):
         raise HTTPException(status_code=403, detail="Role Anda tidak memiliki akses Failure Reason.")
     from compliance.stats_aggregate import compute_failure_reasons_hierarchy
+    d_start = _parse_ymd(date_start)
+    d_end = _parse_ymd(date_end)
     campaigns = effective_campaigns_for(db, current_user)
     return crud.get_or_build_stats_snapshot(
         db,
-        scope_key=_scope_key_for("frh", campaigns, extra=str(campaign)),
-        compute_fn=lambda s: compute_failure_reasons_hierarchy(s, campaign, campaigns),
+        scope_key=_scope_key_for("frh", campaigns, extra=(f"{campaign}|{d_start}|{d_end}" if (d_start or d_end) else str(campaign))),
+        compute_fn=lambda s: compute_failure_reasons_hierarchy(
+            s, campaign, campaigns, date_start=d_start, date_end=d_end),
         session_factory=new_session,
+    )
+
+
+
+# --- Generate PPT Error Rate Update -----------------------------------------
+# Meniru struktur deck bulanan "Error Rate Update" (24 slide, 3 section) yang
+# selama ini dibuat manual di Canva. Lihat gap analysis / rencana implementasi:
+# beberapa bagian PPT acuan (Submission/Sampling volume ASLI, %KPI Juli/Agustus
+# + status U/A/S/E1-E3, section Complaint, campaign Credit Shield/Personal
+# Loan) tidak ada datanya di sistem QC ini dan diisi PLACEHOLDER oleh
+# ``compliance.ppt_error_rate`` — bukan disembunyikan, bukan dikarang.
+
+_MONTH_LABELS_ID = {
+    1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni",
+    7: "Juli", 8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember",
+}
+
+# Label tampilan untuk campaign key yang dikenal sistem. Campaign lain jatuh ke
+# ``.title()`` apa adanya.
+_CAMPAIGN_LABELS = {
+    "cashline": "Cash Line",
+    "megabill": "Mega Bill",
+    "loc": "Loan on Card",
+    "megapay": "Megapay",
+    "ntb": "NTB",
+    "reinstate": "Reinstate",
+    "supplement": "Supplement",
+    "retention": "Retention",
+    "retention (info penjelasan)": "Retention — Info Penjelasan",
+    "retention (program benefit)": "Retention — Program Benefit",
+    "activation": "Activation",
+}
+
+# Campaign yang MUNCUL di PPT acuan tapi tidak terdaftar di sistem QC ini sama
+# sekali (lihat gap analysis) — tetap ditampilkan sebagai baris placeholder di
+# Trend Error Rate & Detail Error Reason supaya strukturnya tetap 24 slide.
+_MISSING_CAMPAIGNS = [("credit_shield", "Credit Shield"), ("personal_loan", "Personal Loan")]
+
+
+def _campaign_label(key: str) -> str:
+    return _CAMPAIGN_LABELS.get((key or "").strip().casefold(), (key or "").strip().title())
+
+
+def _month_bounds(period: str) -> "tuple[date, date]":
+    """``period`` = 'YYYY-MM' -> (tanggal 1, tanggal terakhir bulan itu)."""
+    try:
+        y_str, m_str = period.split("-")
+        y, m = int(y_str), int(m_str)
+        if not 1 <= m <= 12:
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail="Format periode harus YYYY-MM, mis. 2026-08")
+    last_day = calendar.monthrange(y, m)[1]
+    return date(y, m, 1), date(y, m, last_day)
+
+
+def _period_label(period: str) -> str:
+    y, m = period.split("-")
+    return f"{_MONTH_LABELS_ID.get(int(m), m)} {y}"
+
+
+def _campaign_period_stats(snap: dict, key: str) -> "dict | None":
+    """Submission (dievaluasi QC) + Error Rate + Risk Base H/M/L satu campaign
+    pada satu periode (satu snapshot ter-windowed tanggal) — sumber baris Trend
+    Error Rate. ``None`` bila campaign ini sama sekali tidak muncul di snapshot
+    (tidak ada tiket maupun orang roster di-dedicate ke situ pada periode itu)."""
+    co = (snap.get("overview_by_campaign") or {}).get(key)
+    if co is None:
+        return None
+    node = ((snap.get("hierarchy_by_campaign") or {}).get(key) or {}).get("all_telesales") or {}
+    return {
+        "submission": co.get("evaluated", 0),
+        "error_rate": co.get("error_rate", 0.0),
+        "h": node.get("risk_high", 0),
+        "m": node.get("risk_medium", 0),
+        "l": node.get("risk_low", 0),
+    }
+
+
+def _am_spv_tables(snap: dict):
+    """Baris [nama, campaign, grand_total, error_rate, H, M, L, approved, is_total]
+    untuk slide "Error Rate Area Manager" & "Error Rate SPV" (SPV = Team Leader).
+
+    Baris per-campaign datang dari ``hierarchy_by_campaign`` (pohon dipisah per
+    campaign, cara yang sama dengan filter campaign di tab Failure Rate); baris
+    "TOTAL" per AM/SPV datang dari pohon GLOBAL (``hierarchy``, semua campaign)
+    supaya totalnya tidak perlu dijumlah manual dari baris campaign di atasnya
+    dan tetap konsisten dengan angka yang tampil di tab Failure Rate."""
+    am_rows, spv_rows = [], []
+    for camp_key, tree in (snap.get("hierarchy_by_campaign") or {}).items():
+        label = _campaign_label(camp_key)
+        for am in tree.get("area_managers") or []:
+            am_rows.append([am["name"], label, am["ticket_count"], am["error_rate"],
+                             am["risk_high"], am["risk_medium"], am["risk_low"], am["approve"], False])
+            for tl in am.get("team_leaders") or []:
+                spv_rows.append([tl["name"], label, tl["ticket_count"], tl["error_rate"],
+                                  tl["risk_high"], tl["risk_medium"], tl["risk_low"], tl["approve"], False])
+    for am in (snap.get("hierarchy") or {}).get("area_managers") or []:
+        am_rows.append([am["name"], "TOTAL", am["ticket_count"], am["error_rate"],
+                         am["risk_high"], am["risk_medium"], am["risk_low"], am["approve"], True])
+        for tl in am.get("team_leaders") or []:
+            spv_rows.append([tl["name"], "TOTAL", tl["ticket_count"], tl["error_rate"],
+                              tl["risk_high"], tl["risk_medium"], tl["risk_low"], tl["approve"], True])
+    am_rows.sort(key=lambda r: (r[0], r[8]))
+    spv_rows.sort(key=lambda r: (r[0], r[8]))
+    return am_rows, spv_rows
+
+
+@router.get(
+    "/stats/export_error_rate_pptx",
+    dependencies=[Depends(require(STATS_EXPORT_ERROR_RATE_PPT))],
+)
+def export_error_rate_pptx(
+    period_current: str = Query(..., description="Bulan berjalan, YYYY-MM"),
+    period_previous: str = Query(..., description="Bulan pembanding, YYYY-MM"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Generate deck "Error Rate Update" (.pptx) dari data Stats untuk dua periode
+    bulanan yang dipilih. Lihat ``compliance.ppt_error_rate`` untuk struktur
+    slide dan ``STATS_EXPORT_ERROR_RATE_PPT`` untuk bagian yang jadi placeholder."""
+    reject_collection_only_stats(db, current_user)
+    from compliance.ppt_error_rate import build_error_rate_pptx
+    from compliance.stats_aggregate import (
+        compute_failure_reasons,
+        compute_failure_reasons_hierarchy,
+        compute_top_tlo_by_aging,
+    )
+
+    ds_curr, de_curr = _month_bounds(period_current)
+    ds_prev, de_prev = _month_bounds(period_previous)
+
+    snap_curr = _snapshot_for(db, current_user, date_start=ds_curr, date_end=de_curr)
+    snap_prev = _snapshot_for(db, current_user, date_start=ds_prev, date_end=de_prev)
+
+    active_campaigns = [c.name for c in crud.list_campaigns(db) if c.is_active]
+    all_camp_keys = list(dict.fromkeys(
+        active_campaigns
+        + list(snap_curr.get("campaigns") or [])
+        + list(snap_prev.get("campaigns") or [])
+    ))
+
+    trend_rows = []
+    for key in all_camp_keys:
+        prev = _campaign_period_stats(snap_prev, key)
+        curr = _campaign_period_stats(snap_curr, key)
+        trend_rows.append({
+            "label": _campaign_label(key), "has_data": True, "is_total": False,
+            "prev": prev or {"submission": 0, "error_rate": 0.0},
+            "curr": curr or {"submission": 0, "error_rate": 0.0, "h": 0, "m": 0, "l": 0},
+        })
+    for key, label in _MISSING_CAMPAIGNS:
+        trend_rows.append({"label": label, "has_data": False, "is_total": False, "prev": {}, "curr": {}})
+    ov_prev, ov_curr = snap_prev.get("overview") or {}, snap_curr.get("overview") or {}
+    grand_curr = (snap_curr.get("hierarchy") or {}).get("all_telesales") or {}
+    trend_rows.append({
+        "label": "GRAND TOTAL", "has_data": True, "is_total": True,
+        "prev": {"submission": ov_prev.get("evaluated", 0), "error_rate": ov_prev.get("error_rate", 0.0)},
+        "curr": {
+            "submission": ov_curr.get("evaluated", 0), "error_rate": ov_curr.get("error_rate", 0.0),
+            "h": grand_curr.get("risk_high", 0), "m": grand_curr.get("risk_medium", 0),
+            "l": grand_curr.get("risk_low", 0),
+        },
+    })
+
+    am_table, spv_table = _am_spv_tables(snap_curr)
+    top_tlo = compute_top_tlo_by_aging(db, snap_curr.get("hierarchy") or {}, de_curr)
+
+    error_reason = []
+    for key in active_campaigns:
+        fr = compute_failure_reasons(db, campaign=key, date_start=ds_curr, date_end=de_curr)
+        fr_h = compute_failure_reasons_hierarchy(db, campaign=key, date_start=ds_curr, date_end=de_curr)
+        categories = [
+            {
+                "category": c["category"],
+                "example": (c["top_reasons"][0]["example"] if c.get("top_reasons") else "") or "-",
+                "fail_count": c["fail_count"],
+            }
+            for c in (fr.get("categories") or [])[:8]
+        ]
+        agents = [
+            a
+            for am in (fr_h.get("area_managers") or [])
+            for tl in (am.get("team_leaders") or [])
+            for a in (tl.get("agents") or [])
+        ]
+        agents.sort(key=lambda a: (a.get("fail_tickets", 0), a.get("evaluated", 0)), reverse=True)
+        error_reason.append({
+            "label": _campaign_label(key), "has_data": True,
+            "categories": categories, "top_agents": agents[:10],
+        })
+    for key, label in _MISSING_CAMPAIGNS:
+        error_reason.append({"label": label, "has_data": False, "categories": [], "top_agents": []})
+
+    data = {
+        "period_previous": {"label": _period_label(period_previous), "key": period_previous},
+        "period_current": {"label": _period_label(period_current), "key": period_current},
+        "trend_rows": trend_rows,
+        "am_table": am_table,
+        "spv_table": spv_table,
+        "top_tlo": top_tlo,
+        "error_reason": error_reason,
+    }
+    buffer = build_error_rate_pptx(data)
+    filename = f"Error Rate Update {period_current}.pptx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -1713,22 +1979,20 @@ def _append_ringkasan_rows(sheet, result_json, ai_status=None, status_note=None)
     passing = _passing_grade(evaluation)
 
     # max_score diturunkan dari breakdown produk yang diminati (bagian 1), cermin
-    # persis compliance/scoring.py::max_score() (revisi 18 September 2026:
-    # Mega Cashline 100, Mega Ultima Shield 36.75, MUS Kartu Kredit 13.25 —
-    # aditif murni, lihat docstring max_score()), fallback ke maximum_score saat
-    # tidak ada produk yang diminati.
+    # persis compliance/scoring.py::max_score() (revisi 25 September 2026:
+    # Mega Cashline 100, Mega Ultima Shield 50 — MUS Kartu Kredit dipisah jadi
+    # campaign tersendiri, lihat docstring max_score()), fallback ke
+    # maximum_score saat tidak ada produk yang diminati.
     mus_wajib = _mus_wajib_tidak_dipenuhi(evaluation)
     breakdown = []
     if (evaluation.get("cashline_interest") or {}).get("status") == "INTERESTED":
         breakdown.append(("Mega Cashline", 100))
     if (evaluation.get("mus_interest") or {}).get("status") == "INTERESTED":
-        breakdown.append(("Mega Ultima Shield", 36.75))
+        breakdown.append(("Mega Ultima Shield", 50))
     elif mus_wajib:
         # Bobot MUS TETAP masuk penyebut saat MUS wajib tetapi tidak dipenuhi —
         # menurunkannya ke 100 persis kekeliruan aturan lama.
-        breakdown.append(("Mega Ultima Shield (wajib, tidak dipenuhi)", 36.75))
-    if (evaluation.get("mus_cc_interest") or {}).get("status") == "INTERESTED":
-        breakdown.append(("MUS Kartu Kredit", 13.25))
+        breakdown.append(("Mega Ultima Shield (wajib, tidak dipenuhi)", 50))
     if breakdown:
         max_score = sum(s for _, s in breakdown)
         max_score = int(max_score) if max_score == int(max_score) else max_score
