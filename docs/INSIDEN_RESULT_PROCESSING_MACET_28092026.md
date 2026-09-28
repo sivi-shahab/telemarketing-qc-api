@@ -396,8 +396,9 @@ Redis total 27 MB (sebelumnya 1,85 MB).
 Snapshot dihitung ulang setiap kali signature data berubah, jadi pengguna Stats pertama
 sesudah ada perubahan menunggu segitu. Sisanya komputasi CPU (pencocokan nama, penilaian
 ulang status AI). Memo `levenshtein` sudah diukur dan hanya memberi ±8%, jadi tidak
-diambil. Opsi berikutnya: menghitung ulang snapshot di latar belakang (beat) begitu
-signature berubah, sehingga pengguna selalu mendapat snapshot jadi.
+diambil.
+
+**Ditindaklanjuti (10e):** snapshot kini dihitung ulang di latar belakang.
 
 ### 10d. Insiden saat deploy: dependensi tidak terkunci
 
@@ -420,3 +421,24 @@ tertahan.
   (`/var/lib/containerd`, 13 GB) berada di partisi root, bukan `/data`. `docker builder
   prune` membebaskan ±8 GB (kini 86%). Perlu dipantau; pertimbangkan memindahkan data-root
   containerd ke `/data`.
+
+### 10e. Snapshot Statistics dihitung ulang di latar belakang (core #16, api #29, worker #20)
+
+- **Stale-while-revalidate** di `crud.get_or_build_stats_snapshot(session_factory=...)`,
+  berlaku untuk semua pemakai snapshot: overview, hierarchy, campaigns_monthly,
+  failure_reasons (+ hierarchy), ai_status_timeseries, my_overview, di semua scope pengguna.
+  - Bila data berubah dan snapshot lama dengan versi format sama sudah ada, snapshot lama
+    langsung disajikan dan yang baru dihitung di thread dengan sesi DB sendiri.
+    Refresh otomatis 30 detik halaman Stats lalu menampilkan angka baru.
+  - Snapshot yang belum pernah ada, versi format berbeda, atau tombol Refresh SPQ Head
+    (`force`) tetap dihitung langsung.
+  - Kunci Redis per scope (`lock:stats-snapshot:*`, 10 menit, fail-open) mencegah dua
+    proses gunicorn menghitung scope yang sama.
+- **Beat worker `refresh_stats_snapshot` tiap 2 menit** menyegarkan snapshot global secara
+  proaktif (0,5–0,8 detik bila data tidak berubah). Signature data api dan worker sudah
+  diverifikasi identik, jadi keduanya tidak saling menimpa.
+- **Di produksi (08:09 UTC):** seluruh endpoint Stats 0,07–0,35 detik. Pengguna tidak lagi
+  menunggu ±6,5 detik sesudah data berubah; yang masih dihitung langsung hanya kombinasi
+  filter yang belum pernah diminta hari itu (mis. timeseries bulanan pertama kali: ±9,5 s).
+- Deploy memakai prosedur 10d (kandidat → 0 perbedaan paket → smoke → retag). Image
+  rollback: `local/qc-api:pre-snapshot-latar`, `local/qc-worker:pre-snapshot-latar`.
