@@ -63,15 +63,13 @@ def _job_with_item(db, *, job_status: str, item_status: str, ticket_id: str,
     ``age_hours`` memundurkan ``created_at`` job — umur itulah yang membedakan
     antrean yang benar-benar menunggu worker dari job yang tersangkut.
     """
-    from db import crud
     from db.models import ReprocessJob, ReprocessJobItem
 
-    # WIB, sama dengan server_default Postgres produksi (TimeZone Asia/Jakarta) —
-    # datetime.now() di container adalah UTC (lihat tests core test_waktu_wib.py).
+    # UTC, sama dengan server_default (sesi DB timezone=UTC, migrasi 0060).
     job = ReprocessJob(id=uuid.uuid4(), campaigns=["Cashline"], scope=scope,
                        status=job_status, total_tickets=1,
                        created_by_username="pytest",
-                       created_at=crud.now_wib() - timedelta(hours=age_hours))
+                       created_at=datetime.utcnow() - timedelta(hours=age_hours))
     db.add(job)
     db.flush()
     item = ReprocessJobItem(job_id=job.id, ticket_id=ticket_id, campaign="Cashline",

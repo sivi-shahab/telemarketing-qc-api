@@ -168,11 +168,16 @@ def get_settings() -> Settings:
 # --- Database ---
 
 def _make_engine(settings: Settings):
-    connect_args = {}
+    # timezone=UTC: konvensi "simpan UTC, tampilkan WIB". Postgres produksi memakai
+    # TimeZone Asia/Jakarta, sehingga tanpa ini server_default=now() menulis WIB
+    # sementara kode (utcnow, konversi UTC->WIB di core, dashboard) menganggap UTC
+    # (28 September 2026, migrasi 0060).
+    options = "-ctimezone=UTC"
     if settings.postgres_schema:
         # Model tidak menyebut schema sama sekali, jadi search_path yang
         # mengarahkan semua query ke schema aplikasi.
-        connect_args["options"] = f"-csearch_path={settings.postgres_schema},public"
+        options += f" -csearch_path={settings.postgres_schema},public"
+    connect_args = {"options": options}
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,

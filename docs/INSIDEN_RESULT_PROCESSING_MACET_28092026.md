@@ -201,19 +201,52 @@ memakai `crud.now_wib()`, sesuai dengan isi kolom di produksi.
 **Dampak saat di-deploy:** tiket PENDING yang tenggat H+2-nya sudah lewat menurut jam WIB
 akan langsung tampil FAIL, maju hingga 7 jam dibanding sebelumnya.
 
-### 7b. Belum diperbaiki — asumsi `uploaded_at` = UTC di core
+### 7b. Konvensi ditetapkan: simpan UTC, tampilkan WIB (branch `fix/simpan-utc-tampil-wib`)
 
-Kode core **mengasumsikan `results.uploaded_at` adalah UTC naive**, lalu mengonversinya ke
-WIB untuk menentukan hari dan bulan: `crud.py` (filter tanggal Results, agregasi harian,
-`func.timezone('Asia/Jakarta', func.timezone('UTC', uploaded_at))`),
-`stats_aggregate._wib_month`, `collection_stats` (+7 jam), dan
-`documents.CARD_HOLDER_DOC_BANDS_EFFECTIVE_FROM`. Padahal di Postgres produksi kolom itu
-berisi **WIB**, sehingga dikonversi dua kali: upload setelah pukul 17:00 WIB terhitung
-**hari berikutnya** di filter tanggal dan statistik.
+Keputusan pemilik sistem: **pengguna melihat WIB di mana-mana, DB menyimpan UTC**. Ini
+adalah konvensi yang sudah dipakai kode, yaitu 25 penulis `utcnow()`, 11 konversi
+UTC→WIB di core, dan 13 file dashboard yang menambah `'Z'` lalu merender Asia/Jakarta.
+Yang melanggarnya hanya Postgres produksi: `TimeZone = Asia/Jakarta` membuat 17 kolom
+`server_default=func.now()` terisi WIB. Akibatnya `results.uploaded_at` terkonversi dua
+kali (upload sesudah 17:00 WIB masuk hari berikutnya di filter tanggal dan statistik)
+dan tampil 7 jam maju di dashboard.
 
-Selisih `started_at − uploaded_at` per hari: umumnya −7 jam (upload = WIB), tetapi 19 Sep = 0.
-Artinya data lama sudah bercampur. Memperbaiki ini (menetapkan `uploaded_at` = WIB di semua
-kueri) termasuk jalur tuntas dan butuh keputusan terpisah.
+Perbaikan:
 
-Sisa kecil: `reprocess_jobs.finished_at` di `crud.kill_*` dan nama file export di `stats.py`
-masih memakai `datetime.now()` (UTC). Tidak memengaruhi perhitungan.
+1. **Sesi DB dipaksa `timezone=UTC`** di `api/dependencies._make_engine` dan
+   `worker/config.db_connect_args`, sehingga `now()`/`server_default` menulis UTC.
+   Kode core dan dashboard **tidak perlu diubah**.
+2. **Migrasi 0060** (`0060_timestamp_simpan_utc.py`) menggeser −7 jam nilai lama yang
+   terbukti WIB (dry-run di produksi, transaksi di-rollback):
+
+   | Tabel.kolom | Baris |
+   |---|---|
+   | `results.uploaded_at` | 547 |
+   | `result_data.created_at` | 489 |
+   | `results.started_at`/`completed_at` jalur salin (`started_at = completed_at`) | 90 |
+   | `reprocess_jobs.created_at` | 35 |
+   | `reprocess_jobs.finished_at` (yang `>= created_at`; id dicatat di `_tz0060_job_finished_wib`) | 26 |
+   | `roles` 10, `sales_databases` 6, `campaigns` 2+2, `users` (dibuat sesudah 2026-09-03 13:52 WIB) 3 | |
+
+   Sesudah dry-run: median `result_data.created_at − results.completed_at` berubah dari
+   +7 jam menjadi 0, dan `started_at − uploaded_at` dari −7 jam menjadi +11 menit.
+   Tidak disentuh: `qc_assignments` (sudah UTC), `stats_snapshots.computed_at` (tidak
+   pernah dibaca), `app_settings.updated_at` (1 baris, asal tak pasti),
+   `qc_status_requests`/`error_code_appeals`/`documents` (kosong).
+   Pengaman: data hanya digeser bila TimeZone bawaan server = WIB. DB UTC (stack e2e)
+   dilewati. Rantai upgrade → downgrade → upgrade sudah diuji pada Postgres WIB dan UTC.
+3. **Batas reproses tersangkut dibalik ke UTC** (`datetime.utcnow()`), karena
+   `created_at` kini UTC. Tenggat H+2 **tetap** `crud.now_wib()`, karena `submit_time`
+   TMS adalah WIB dari hulunya.
+
+Test: api `tests/test_simpan_utc.py` (sesi UTC, default `uploaded_at` UTC, migrasi
+maju/mundur pada baris sintetis), worker `tests/test_sesi_db_utc.py`, core
+`test_waktu_wib.py` (batas reproses UTC). Suite: api 476 passed, core 318, worker 8.
+
+**Syarat deploy:** worker dan beat dihentikan dulu, API di-deploy (alembic menjalankan
+0060 saat start), baru worker yang baru dinyalakan. Dengan begitu tidak ada baris WIB
+yang tertulis di sela migrasi. **Worker kube** (image lama) masih menulis WIB lewat
+default DB, misalnya `result_data.created_at` saat task-nya selesai, sampai image-nya
+diperbarui.
+
+Sisa kecil: nama file export di `stats.py` memakai jam container (UTC).

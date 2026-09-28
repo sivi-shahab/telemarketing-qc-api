@@ -29,7 +29,7 @@ def _job(db, *, status="running", scope="ticket", age_hours=0.0):
 
     job = ReprocessJob(id=uuid.uuid4(), campaigns=["Cashline"], scope=scope,
                        status=status, total_tickets=0, created_by_username="pytest",
-                       created_at=crud.now_wib() - timedelta(hours=age_hours))
+                       created_at=datetime.utcnow() - timedelta(hours=age_hours))
     db.add(job)
     db.flush()
     return job
