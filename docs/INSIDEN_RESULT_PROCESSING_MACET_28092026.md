@@ -250,3 +250,59 @@ default DB, misalnya `result_data.created_at` saat task-nya selesai, sampai imag
 diperbarui.
 
 Sisa kecil: nama file export di `stats.py` memakai jam container (UTC).
+
+---
+
+## 8. Supaya worker kube aman saat di-deploy ulang
+
+Kube berjalan di server lain dan belum bisa dilihat log-nya dari sini. Karena itu
+perbaikannya ditujukan pada **pola kegagalan** yang teramati dari DB, bukan pada satu
+dugaan penyebab.
+
+### 8a. Pola yang teramati
+
+- 56 task dimulai hampir bersamaan (16/8/8/8 per menit), jauh di atas `concurrency`
+  satu worker. Artinya beberapa pod/replika, atau concurrency tinggi.
+- Semuanya berhenti di tahap awal (`unduh_pdf` 50, `cek_nama_agent` 5, `baca_teks_pdf` 1),
+  yaitu tahap parsing PDF dan roster yang paling boros memori.
+- Tidak ada yang sempat ditandai `failed`, dan `task_time_limit` tidak pernah terpicu.
+- Task muncul lagi **tepat tiap 60 menit** (`visibility_timeout` Redis).
+
+Semua pemanggilan jaringan di tahap itu punya timeout (DWH API 10 s, MinIO boto3
+connect 5 s / read 30 s), jadi task **bukan hang menunggu jaringan**. Yang paling
+cocok adalah **proses worker mati mendadak** (OOM-kill atau pod restart): SIGKILL tidak
+melewati `except`, pesan yang belum di-ack baru dikembalikan Redis setelah 60 menit,
+lalu burst yang sama mati lagi.
+
+### 8b. Perbaikan di kode (berlaku otomatis begitu image kube diperbarui)
+
+| Perbaikan | Efek di kube |
+|---|---|
+| Pembersih `processing` basi, 55 menit via beat (bagian 5) | row macet ditutup `failed` sebelum Redis mengirim ulang |
+| **`process_transcript` melewati row `done`/`failed`** (worker, branch `fix/tolak-result-tertutup`) | pengiriman ulang pesan basi tidak lagi membuka row yang sudah ditutup, sehingga siklus bolak-balik tiap jam putus |
+| Sesi DB `timezone=UTC` (bagian 7b) | kube menulis timestamp dengan konvensi yang sama |
+| `visibility_timeout` eksplisit 3600, dijaga test terhadap ambang pembersih | tidak ada celah pembersih kalah cepat |
+
+Pengaman kedua aman untuk alur normal. Satu-satunya jalur sah ke `process_transcript`
+adalah upload (`api/routers/transcript.py`, `webhook.py`) dan reproses (pemanggilan
+langsung dengan row baru), dan keduanya membawa row `pending`. Row `processing`
+(pengiriman ulang sebelum pembersih jalan) tetap boleh dicoba lagi. Test:
+`telemarketing-qc-worker/tests/test_tolak_result_tertutup.py`.
+
+### 8c. Checklist saat deploy ulang kube
+
+1. Pakai image worker dari branch-branch di atas (sudah termasuk pembersih, pengaman,
+   dan sesi UTC). Tidak ada env baru yang wajib diisi.
+2. **Jalankan beat tepat 1 replika** (`celery -A worker.celery_app beat`) bila kube
+   memakai DB-nya sendiri. Selama kube memakai DB yang sama dengan server ini, beat di
+   server ini sudah cukup; beat kedua pun aman (idempoten + `SKIP LOCKED`).
+3. **Pool worker harus `prefork`** (bawaan). Pada pool `threads`/`gevent`/`solo`,
+   `task_time_limit` tidak berlaku.
+4. **Cek memori:** `kubectl describe pod` → `Last State: OOMKilled`? Kalau ya, turunkan
+   `CELERY_CONCURRENCY` per pod atau naikkan limit memori. Di server ini satu child idle
+   ±250 MB, dan puncak parsing PDF bisa beberapa kali lipat.
+5. **`DWH_API_BASE_URL` wajib diisi** alamat yang terjangkau dari pod. Nilai bawaan
+   compose (`host.docker.internal`) tidak berlaku di kube. Kalau salah, task tidak hang
+   (timeout 10 s), tetapi nama agent/TMS kosong.
+6. **Kosongkan antrean Redis kube** dari pesan lama sebelum menyalakan worker baru,
+   supaya burst lama tidak diulang.
