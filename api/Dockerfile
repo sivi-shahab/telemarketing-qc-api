@@ -31,7 +31,8 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 # Dependensi core lebih dulu, baru milik API — dua layer cache terpisah.
 COPY core/requirements.txt /tmp/core-requirements.txt
 COPY api/requirements.txt  /tmp/api-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/core-requirements.txt -r /tmp/api-requirements.txt
+COPY api/constraints.txt /tmp/constraints.txt
+RUN pip install --no-cache-dir -c /tmp/constraints.txt -r /tmp/core-requirements.txt -r /tmp/api-requirements.txt
 
 # Isi core di-COPY DATAR ke /app supaya import tetap `from db import crud`
 # (bukan `from core.db import crud`), sama seperti saat masih monorepo.

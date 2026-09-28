@@ -83,6 +83,9 @@ def test_migrasi_0060_menggeser_kolom_wib_dan_bisa_dibalik(db):
     db.flush()
 
     m = _migration()
+    # Di DB yang sudah menjalankan 0060 tabel catatannya sudah ada. Singkirkan di
+    # dalam transaksi test ini saja — rollback mengembalikannya utuh.
+    db.execute(text(f"ALTER TABLE IF EXISTS {m._JOBS} RENAME TO {m._JOBS}_test_bak"))
     _run(db, m.upgrade_statements())
 
     assert normal.uploaded_at == utc
