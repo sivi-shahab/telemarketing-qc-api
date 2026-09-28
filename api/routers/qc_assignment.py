@@ -388,3 +388,26 @@ def remove_assignment(
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment tidak ditemukan")
     return {"ticket_id": ticket_id.strip(), "removed": True}
+
+
+@router.delete("/qc_assignment")
+def remove_all_assignments(
+    db: Session = Depends(get_db),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
+):
+    """Lepas SEMUA assignment QC sekaligus, dalam cakupan pemanggil (tombol "Lepas
+    Semua" di menu Assign Ticket, 25 September 2026).
+
+    Cakupannya SAMA persis dengan ``_ensure_ticket_in_scope``/daftar Results yang
+    tampil di menu ini — ``scoped_customer_ids`` (sudah memasukkan pembatasan
+    CAMPAIGN role), jadi pengawas yang dipersempit ke satu campaign tidak bisa
+    ikut melepas assignment campaign lain lewat tombol ini. ``None`` (tanpa
+    pembatasan role) berarti benar-benar SEMUA baris di tabel.
+
+    Hanya menghapus kepemilikan tiket, BUKAN riwayat Manual Status yang sudah
+    di-submit QC — sama seperti melepas satu tiket lewat endpoint di atas, hanya
+    dikerjakan sekaligus dan dalam satu commit.
+    """
+    allowed = scoped_customer_ids(db, current_user)
+    removed = crud.bulk_unassign_tickets(db, allowed)
+    return {"removed": removed}

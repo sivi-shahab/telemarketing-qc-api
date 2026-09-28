@@ -12,7 +12,7 @@ if config.config_file_name is not None:
 # Build URL from environment variables (overrides alembic.ini interpolation)
 def get_url():
     return (
-        f"postgresql://{os.environ['POSTGRES_USER']}:{os.environ['POSTGRES_PASSWORD']}"
+        f"postgresql+psycopg2://{os.environ['POSTGRES_USER']}:{os.environ['POSTGRES_PASSWORD']}"
         f"@{os.environ['POSTGRES_HOST']}:{os.environ.get('POSTGRES_PORT', '5432')}/{os.environ['POSTGRES_DB']}"
     )
 

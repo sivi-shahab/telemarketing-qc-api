@@ -139,9 +139,16 @@ Satu perubahan menyentuh dua tempat sekaligus, karena keduanya membaca field yan
 
 | Kondisi | maximum_score |
 |---|---|
-| Hanya **Mega Cashline** INTERESTED | **108.75** |
-| **Cashline + Mega Ultima Shield (MUS)** INTERESTED | **150** (108.75 + 41.25) |
+| Hanya **Mega Cashline** INTERESTED | **100** |
+| **Cashline + Mega Ultima Shield (MUS)** INTERESTED (atau MUS wajib tidak dipenuhi) | **150** (100 + 50) |
 | Tidak ada yang INTERESTED | 0 (lihat Zero-Score Rule) |
+
+> Revisi 25 September 2026 (`Score Card Cashline 25092026.xlsx`, port dari 4-service
+> branch `cashline_mus`): MUS pada Kartu Kredit non-Cashline (MUS CC, `SC_CL_39`–`42`,
+> 13.25) dipisah jadi campaign tersendiri — dihapus dari scorecard Cashline dan bobotnya
+> dilebur ke item MUS dasar, sehingga MUS 36.75 → **50** (`scoring.max_score`). Sebelumnya:
+> 108.75/41.25 (s.d. 13 Sep), 100/35.5 + MUS CC 13.25 (14 Sep), 100/36.75 + 13.25 (18 Sep).
+> `max_score` dihitung saat BACA, jadi tiket lama ikut memakai penyebut baru.
 
 `passing_grade = 90% × maximum_score` (mis. 150 → **135.0**; 108.75 → **97.88**).
 
@@ -167,8 +174,12 @@ ai_score_phase_2  = scorecard_score
 ai_score_verification              = penalti field Cashline yang MISMATCH (§5.2)
 ai_score_critical_compliance_check = penalti item kritis yang FAIL (§6)
 
-ai_score_phase_3  = ai_score_phase_2 + ai_score_verification + ai_score_critical_compliance_check
+ai_score_phase_3  = max(0, ai_score_phase_2 + ai_score_verification + ai_score_critical_compliance_check)
 ```
+
+Skor minimal dipatok 0 (28 September 2026, `scoring.phase3_score`): suku kritis/non-tolerable
+negatif tidak berbagi anggaran dengan `ai_score_phase_2`, jadi totalnya bisa minus tanpa
+batas — padahal skor tiket tidak punya arti di bawah 0.
 
 **Keputusan status dasar:**
 
