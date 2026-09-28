@@ -644,7 +644,7 @@ def get_result(
         submit_time = cashline_row.get("submit_time") if cashline_row else None
         doc_overdue = bool(
             _missing_docs_map(db, [result], {str(result.id): raw_json}).get(str(result.id))
-            and _doc_sla_expired(submit_time, datetime.now())
+            and _doc_sla_expired(submit_time, crud.now_wib())
         )
         result_json = _with_error_code_table(
             raw_json, is_new_joiner, appeals, doc_overdue,

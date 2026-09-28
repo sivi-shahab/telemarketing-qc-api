@@ -783,7 +783,7 @@ def list_results(
         db, results,
         types_by_rid=doc_types_map, ocr_by_rid=doc_ocr_map, agent_index=agent_index,
     )
-    _now_status = datetime.now()  # basis tenggat H+2 untuk status PENDING
+    _now_status = crud.now_wib()  # basis tenggat H+2 untuk status PENDING
     items = []
     for r in results:
         ai_score = None
