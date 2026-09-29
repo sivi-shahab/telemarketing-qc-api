@@ -215,8 +215,12 @@ ALL_PERMISSIONS = [
 # ikut keluar pada tanggal yang sama. Team Leader QC sudah memegangnya sejak
 # 3 September 2026 (migrasi 0052), tetapi selama keduanya admin-only, menyimpan
 # role itu lewat Manage Role mencabutnya diam-diam.
+#
+# Menu Database Sales (MENU_SALES_DATABASE) menyusul keluar pada 29 September
+# 2026: SPQ Head dan Team Leader QC kini memegang fitur Database Sales
+# seutuhnya — lihat & unggah (migrasi 0063).
 ADMIN_ONLY_PERMISSIONS = {
-    MENU_CAMPAIGNS, MENU_SALES_DATABASE, MENU_QC_DATABASE,
+    MENU_CAMPAIGNS, MENU_QC_DATABASE,
     MENU_UPLOAD_CAMPAIGN,
     MENU_GET_RESULT, MENU_UPLOAD_QC_DATABASE,
     MENU_REPROCESS_TICKETS, MENU_DELETE_CAMPAIGN, MENU_MANAGE_USER,
@@ -251,6 +255,11 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     # dicabut — tidak ada endpoint yang di-gate MENU_RESULTS, dan PDF transkrip
     # tiket Collection memakai cakupan Collection (``ensure_can_view_collection_result``).
     MENU_RESULTS,
+    # Database Sales (29 September 2026, migrasi 0063) adalah fitur
+    # telemarketing: roster sales Cashline tidak relevan bagi login Collection.
+    # ADMIN_SALES_DATABASE_WRITE ikut dicabut karena itulah gate router
+    # ``sales_database`` — tanpa itu endpoint-nya masih bisa dipanggil langsung.
+    MENU_SALES_DATABASE, MENU_UPLOAD_SALES_DATABASE, ADMIN_SALES_DATABASE_WRITE,
 })
 
 # Upload Audio/Transcript tidak lagi admin-only sejak 23 September 2026 (lihat
@@ -437,6 +446,11 @@ DEFAULT_ROLES = {
             # (migrasi 0059) — keduanya tidak lagi admin-only.
             MENU_UPLOAD_AUDIO, MENU_UPLOAD_TRANSCRIPT, AUDIO_UPLOAD,
             TRANSCRIPT_UPLOAD,
+            # Database Sales — lihat & unggah (29 September 2026, migrasi 0063).
+            # ADMIN_SALES_DATABASE_WRITE wajib: ia gate router sales_database,
+            # termasuk list & roster yang dipakai halaman lihat.
+            MENU_SALES_DATABASE, MENU_UPLOAD_SALES_DATABASE,
+            ADMIN_SALES_DATABASE_WRITE,
             # Tanpa ADMIN_TICKET_DELETE: tombol Delete di Results dicabut dari SPQ
             # Head pada tanggal yang sama; menghapus tiket tinggal milik Admin.
             # RESULTS_EXPORT_VERIFICATION sempat dicabut (14 Agustus 2026, migrasi
@@ -503,6 +517,8 @@ DEFAULT_ROLES = {
             # Upload Database Sales (3 September 2026, migrasi 0052). Keduanya
             # wajib: menu membuka route, write adalah gate router sales_database.
             MENU_UPLOAD_SALES_DATABASE, ADMIN_SALES_DATABASE_WRITE,
+            # Menu Database Sales (lihat) menyusul 29 September 2026 (migrasi 0063).
+            MENU_SALES_DATABASE,
             MENU_ASSIGN_TICKET, MENU_MANUAL_CHECK, MENU_PENDING_CHECK,
             RESULTS_CATEGORY_SCORE,
             MANUAL_STATUS_SET, MANUAL_STATUS_DIRECT, MANUAL_STATUS_REVIEW_TL,
