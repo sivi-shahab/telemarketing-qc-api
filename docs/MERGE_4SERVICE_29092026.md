@@ -1,6 +1,6 @@
 # Merge `4-service-telemarketing-qc-system` branch `cashline_mus` → repo production (29 September 2026)
 
-Status: **branch `merge/4service-29092026` di keempat repo, BELUM di-push/merge dan BELUM di-deploy.**
+Status: **PR dibuka (api #33, core #18, worker #22, dashboard #18), BELUM di-merge dan BELUM di-deploy.**
 Deploy mengikuti alur kandidat seperti `MERGE_4SERVICE_28092026.md` §7.
 
 ## 1. Ruang lingkup
