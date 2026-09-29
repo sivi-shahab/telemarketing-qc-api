@@ -1512,12 +1512,12 @@ def stats_failure_reasons_hierarchy(
 
 
 # --- Generate PPT Error Rate Update -----------------------------------------
-# Meniru struktur deck bulanan "Error Rate Update" (24 slide, 3 section) yang
-# selama ini dibuat manual di Canva. Lihat gap analysis / rencana implementasi:
-# beberapa bagian PPT acuan (Submission/Sampling volume ASLI, %KPI Juli/Agustus
-# + status U/A/S/E1-E3, section Complaint, campaign Credit Shield/Personal
-# Loan) tidak ada datanya di sistem QC ini dan diisi PLACEHOLDER oleh
-# ``compliance.ppt_error_rate`` — bukan disembunyikan, bukan dikarang.
+# Meniru struktur deck bulanan "Error Rate Update" yang selama ini dibuat
+# manual di Canva. Bagian PPT acuan yang datanya tidak ada di sistem QC ini
+# sama sekali (Sampling volume, %KPI, section Complaint, campaign Credit
+# Shield/Personal Loan) DIHAPUS dari deck (28 September 2026, atas permintaan
+# user) — bukan ditampilkan sebagai placeholder. Lihat
+# ``compliance.ppt_error_rate`` untuk detail per kolom/section.
 
 _MONTH_LABELS_ID = {
     1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni",
@@ -1539,12 +1539,6 @@ _CAMPAIGN_LABELS = {
     "retention (program benefit)": "Retention — Program Benefit",
     "activation": "Activation",
 }
-
-# Campaign yang MUNCUL di PPT acuan tapi tidak terdaftar di sistem QC ini sama
-# sekali (lihat gap analysis) — tetap ditampilkan sebagai baris placeholder di
-# Trend Error Rate & Detail Error Reason supaya strukturnya tetap 24 slide.
-_MISSING_CAMPAIGNS = [("credit_shield", "Credit Shield"), ("personal_loan", "Personal Loan")]
-
 
 def _campaign_label(key: str) -> str:
     return _CAMPAIGN_LABELS.get((key or "").strip().casefold(), (key or "").strip().title())
@@ -1658,8 +1652,6 @@ def export_error_rate_pptx(
             "prev": prev or {"submission": 0, "error_rate": 0.0},
             "curr": curr or {"submission": 0, "error_rate": 0.0, "h": 0, "m": 0, "l": 0},
         })
-    for key, label in _MISSING_CAMPAIGNS:
-        trend_rows.append({"label": label, "has_data": False, "is_total": False, "prev": {}, "curr": {}})
     ov_prev, ov_curr = snap_prev.get("overview") or {}, snap_curr.get("overview") or {}
     grand_curr = (snap_curr.get("hierarchy") or {}).get("all_telesales") or {}
     trend_rows.append({
@@ -1698,9 +1690,6 @@ def export_error_rate_pptx(
             "label": _campaign_label(key), "has_data": True,
             "categories": categories, "top_agents": agents[:10],
         })
-    for key, label in _MISSING_CAMPAIGNS:
-        error_reason.append({"label": label, "has_data": False, "categories": [], "top_agents": []})
-
     data = {
         "period_previous": {"label": _period_label(period_previous), "key": period_previous},
         "period_current": {"label": _period_label(period_current), "key": period_current},
