@@ -1,6 +1,8 @@
 # Merge `4-service-telemarketing-qc-system` branch `cashline_mus` → repo production (28 September 2026)
 
-Status: **PR dibuka (api #31, core #17, worker #21, dashboard #17), BELUM di-merge dan BELUM di-deploy.** Deploy mengikuti alur kandidat (§7).
+Status: **Merged (28 Sep 2026 18:08 WIB) dan deployed ke production 28 September 2026.**
+PR api #31 (`ccc9fc0`), core #17 (`636326f`), worker #21 (`4444370`), dashboard #17 (`4272005`).
+Alembic production **0062**. Rollback: image `local/qc-{api,worker,dashboard}:pre-cashline-mus` (lihat §7).
 
 ## 1. Ruang lingkup
 
@@ -85,9 +87,25 @@ Item MUS tiket lama berbobot total 36.75, tetapi penyebutnya 50 — selisih 13.2
   disimpan: PPT Sep vs Agu 2026 → 18 slide, 110 KB, ±25 dtk; hierarki September 390 tiket;
   QC performance 78 (bertanggal) vs 79 (tanpa tanggal); failure reasons 247/390.
 
-## 7. Deploy (belum dijalankan)
+## 7. Deploy (28 September 2026)
 
-Ikuti alur kandidat: tag `pre-cashline-mus`, `TAG=cand docker compose build`, bandingkan
+Alur kandidat: tag `pre-cashline-mus`, `TAG=cand docker compose build`, bandingkan
 `pip freeze` (yang boleh bertambah hanya `python-pptx`, `lxml`, `XlsxWriter`), smoke test,
 retag `latest`, `up -d --no-build`. `alembic upgrade head` → **0062**. Rollback DB: `alembic
 downgrade 0060` (keduanya hanya mengubah JSONB `roles.permissions`).
+
+Image rollback: api `212f5638e9dd`, worker `7921940dcfbe`, dashboard `8bd37a6762b0`
+(`local/qc-*:pre-cashline-mus`).
+
+Catatan kejadian: rebuild pertama tanpa pin menarik SQLAlchemy 2.1.1 (driver bawaan
+`postgresql://` jadi psycopg v3); api & worker crash-loop ±6 menit sampai di-rollback ke
+`pre-*`. Diperbaiki dengan `constraints.txt` di api & worker (`326309c`) plus driver
+`postgresql+psycopg2` eksplisit (§3). Sejak itu setiap deploy wajib lewat image kandidat.
+
+### Pasca-deploy
+
+- Campaign Cashline baru (MUS CC dipisah, scorecard 40 item, total 150, MUS 50) di-upload
+  user 28 Sep 18:25 WIB dan diverifikasi identik dengan berkas `docs/`.
+- Reproses seluruh tiket Cashline: job `fc086ac8-974f-4ca9-81d0-831257996122`, 18:37 → 22:23 WIB,
+  **304/304 `done`** (dicek 29 Sep dari `dashboard.reprocess_job_items`). Tiket lama kini dinilai
+  terhadap MUS 50 (lihat §5; 1 tiket, `160759sRuF`, berubah FAIL → PASS).
