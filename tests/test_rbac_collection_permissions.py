@@ -369,4 +369,68 @@ def test_upload_database_sales_tl_qc_tidak_admin_only():
     for p in (P.MENU_UPLOAD_SALES_DATABASE, P.ADMIN_SALES_DATABASE_WRITE):
         assert p not in P.ADMIN_ONLY_PERMISSIONS, p
         assert p in P.DEFAULT_ROLES["team_leader_qc"]["permissions"], p
-    assert P.MENU_SALES_DATABASE in P.ADMIN_ONLY_PERMISSIONS
+
+
+# --------------------------------------------------------------------------
+# Database Sales untuk SPQ Head & TL QC (29 September 2026, migrasi 0063)
+# --------------------------------------------------------------------------
+
+_SALES_DB_PERMS = (P.MENU_SALES_DATABASE, P.MENU_UPLOAD_SALES_DATABASE,
+                   P.ADMIN_SALES_DATABASE_WRITE)
+
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc", "admin", "demo"])
+def test_database_sales_ada_di_role(role):
+    perms = P.DEFAULT_ROLES[role]["permissions"]
+    for p in _SALES_DB_PERMS:
+        assert p in perms, (role, p)
+
+
+def test_database_sales_bukan_admin_only():
+    """Kalau masih ADMIN_ONLY, menyimpan SPQ Head / TL QC lewat Manage Role akan
+    mencabutnya diam-diam atau ditolak 422."""
+    for p in _SALES_DB_PERMS:
+        assert p not in P.ADMIN_ONLY_PERMISSIONS, p
+    # Database QC tetap milik Admin.
+    assert P.MENU_QC_DATABASE in P.ADMIN_ONLY_PERMISSIONS
+
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc"])
+def test_database_sales_dicabut_untuk_login_collection(role):
+    """Fitur telemarketing: login yang HANYA memegang Collection kehilangan menu
+    DAN gate router-nya (``admin.sales_database.write``)."""
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES[role]["permissions"]), ["Collection"], COLLECTION,
+    )
+    for p in _SALES_DB_PERMS:
+        assert p not in out, (role, p)
+
+
+@pytest.mark.parametrize("campaigns", [None, ["Cashline"], ["Collection", "Cashline"]])
+def test_database_sales_tetap_untuk_login_telemarketing(campaigns):
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES["spq_head"]["permissions"]), campaigns, COLLECTION,
+    )
+    for p in _SALES_DB_PERMS:
+        assert p in out, (campaigns, p)
+
+
+# --------------------------------------------------------------------------
+# Generate PPT Error Rate Update hanya untuk telemarketing (29 September 2026)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc"])
+def test_ppt_error_rate_dicabut_untuk_login_collection(role):
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES[role]["permissions"]), ["Collection"], COLLECTION,
+    )
+    assert P.STATS_EXPORT_ERROR_RATE_PPT not in out
+
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc"])
+@pytest.mark.parametrize("campaigns", [None, ["Cashline"], ["Collection", "Cashline"]])
+def test_ppt_error_rate_tetap_untuk_login_telemarketing(role, campaigns):
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES[role]["permissions"]), campaigns, COLLECTION,
+    )
+    assert P.STATS_EXPORT_ERROR_RATE_PPT in out
