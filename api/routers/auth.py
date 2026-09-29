@@ -165,6 +165,35 @@ def delete_user(
     return {"deleted": True, "id": user_id, "username": username}
 
 
+@router.patch("/users/{user_id}/active", response_model=UserResponse)
+def set_user_active(
+    user_id: int,
+    is_active: bool,
+    db: Session = Depends(get_db),
+    current_user=Depends(require(ADMIN_USER_WRITE)),
+):
+    """Aktifkan/nonaktifkan user (SPQ Head only) — dipakai tombol "Nonaktifkan"
+    QC di menu Manage User supaya pembagian tiket otomatis
+    (``api/routers/qc_assignment.py``, filter ``User.is_active``) cuma
+    menyasar QC yang aktif. User nonaktif juga otomatis ter-logout (lihat
+    pengecekan ``is_active`` di ``login``/``refresh``/``get_current_user``)."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidak dapat menonaktifkan akun sendiri",
+        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User tidak ditemukan",
+        )
+    user.is_active = is_active
+    db.commit()
+    db.refresh(user)
+    return UserResponse.model_validate(user)
+
+
 @router.get("/me", response_model=MeResponse)
 def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     from api.campaign_groups import collapse
