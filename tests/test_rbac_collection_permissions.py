@@ -413,3 +413,24 @@ def test_database_sales_tetap_untuk_login_telemarketing(campaigns):
     )
     for p in _SALES_DB_PERMS:
         assert p in out, (campaigns, p)
+
+
+# --------------------------------------------------------------------------
+# Generate PPT Error Rate Update hanya untuk telemarketing (29 September 2026)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc"])
+def test_ppt_error_rate_dicabut_untuk_login_collection(role):
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES[role]["permissions"]), ["Collection"], COLLECTION,
+    )
+    assert P.STATS_EXPORT_ERROR_RATE_PPT not in out
+
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc"])
+@pytest.mark.parametrize("campaigns", [None, ["Cashline"], ["Collection", "Cashline"]])
+def test_ppt_error_rate_tetap_untuk_login_telemarketing(role, campaigns):
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES[role]["permissions"]), campaigns, COLLECTION,
+    )
+    assert P.STATS_EXPORT_ERROR_RATE_PPT in out

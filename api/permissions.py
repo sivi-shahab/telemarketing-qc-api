@@ -260,6 +260,9 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     # ADMIN_SALES_DATABASE_WRITE ikut dicabut karena itulah gate router
     # ``sales_database`` — tanpa itu endpoint-nya masih bisa dipanggil langsung.
     MENU_SALES_DATABASE, MENU_UPLOAD_SALES_DATABASE, ADMIN_SALES_DATABASE_WRITE,
+    # Generate PPT Error Rate Update (29 September 2026) juga fitur telemarketing:
+    # capability ini sekaligus menu dan gate ``/stats/export_error_rate_pptx``.
+    STATS_EXPORT_ERROR_RATE_PPT,
 })
 
 # Upload Audio/Transcript tidak lagi admin-only sejak 23 September 2026 (lihat
