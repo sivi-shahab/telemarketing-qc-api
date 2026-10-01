@@ -37,7 +37,7 @@ Spike 2026-10-01 (gambar sintetis tanpa data nasabah) lewat
 ## 2. Di luar cakupan
 
 - OCR file PDF.
-- SVG / gambar vektor.
+- SVG / gambar vektor (EPS, WMF, dst.) dan format raster di luar allowlist §5a.
 - Ekstraksi field terstruktur (nama, no. kartu, dst.).
 - Penghapusan riwayat otomatis.
 - Mengubah pipeline OCR dokumen pendukung (`process_document`).
@@ -71,7 +71,7 @@ Spike 2026-10-01 (gambar sintetis tanpa data nasabah) lewat
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | `id` | uuid PK | |
-| `user_id` | int FK `users.id`, not null, index | pengunggah |
+| `user_id` | int FK `users.id` `ON DELETE SET NULL`, null, index | pengunggah; NULL bila user-nya dihapus — riwayat tetap ada untuk Admin (pengunggah tampil "-") |
 | `batch_id` | uuid, not null, index | satu request upload |
 | `filename` | varchar(255) | nama asli |
 | `object_path` | varchar(512) | `ocr-images/{id}.{ext}` |
@@ -123,6 +123,16 @@ hanya pernah menerima JPEG/PNG/WEBP.
 - Validasi berdasarkan ISI file (Pillow `open`), bukan ekstensi. HEIC/HEIF lewat
   `pillow-heif==1.8.0` (`register_heif_opener()`), dependency baru di
   `api/requirements.txt` + `api/constraints.txt`.
+- Hanya format di allowlist yang dicoba dibuka (`Image.open(..., formats=...)`):
+  JPEG (termasuk MPO kamera — dibuka opener JPEG), PNG, WEBP, TIFF, GIF, BMP,
+  HEIF, AVIF, JPEG2000, ICO, PPM, TGA. Format lain yang dikenal Pillow (EPS, WMF,
+  PSD, PCX, SGI, QOI, DDS, …) dan SVG/vektor → "bukan gambar yang bisa dibaca".
+- Batas resolusi 40 megapiksel (`MAX_PIXELS = 40_000_000`), dicek dari header —
+  tiap halaman TIFF juga — SEBELUM didekode, karena file kecil (PNG terkompresi)
+  bisa berdimensi raksasa dan menghabiskan memori API. Bom dekompresi yang
+  ditangkap Pillow sendiri juga dilaporkan sebagai resolusi terlalu besar. JPEG di
+  jalur konversi didekode langsung pada skala 1/2–1/8 (`draft`) bila jauh di atas
+  4096 px.
 - Halaman: format `TIFF` dengan `n_frames > 1` → satu entri per halaman, nama
   tampilan `"<nama asli> (hal. i/n)"`. Format lain → frame pertama saja.
 - Satu halaman disimpan APA ADANYA bila formatnya JPEG/PNG/WEBP, file tunggal
@@ -141,6 +151,7 @@ hanya pernah menerima JPEG/PNG/WEBP.
 | | **422** | `Maksimal 10 gambar per upload` |
 | | **422** | `File '<nama>' melebihi 10 MB` |
 | | **422** | `File '<nama>' bukan gambar yang bisa dibaca` |
+| | **422** | `File '<nama>' resolusinya terlalu besar (maks 40 megapiksel)` |
 | | **422** | `Maksimal 10 gambar per upload (termasuk tiap halaman TIFF; total <n>)` |
 | | **503** | `Gagal menyimpan gambar, silakan coba lagi` (storage fail, semua dibersihkan) |
 | **`GET /ocr_images/{id}`** | **404** | `Gambar tidak ditemukan` (bukan milik user atau tidak ada) |
@@ -169,6 +180,13 @@ hanya pernah menerima JPEG/PNG/WEBP.
    `error_message` (dipotong 1000 karakter), dicatat `logger.exception`; tidak
    ada auto-retry Celery (user memakai tombol Proses ulang).
 
+Baris yang menggantung (task hilang dari antrean, worker mati di tengah) ditutup
+task beat `worker.tasks.maintenance.fail_stale_ocr_images` (tiap 120 detik, satu
+UPDATE lewat `crud.fail_stale_ocr_images`): `processing` dengan `started_at` > 55
+menit lalu, atau `pending` dengan `created_at` > 60 menit lalu → `failed`,
+`error_message` "Waktu proses habis — klik Proses ulang", `finished_at` = sekarang
+(UTC naive). Sesudahnya tombol Proses ulang muncul seperti biasa.
+
 Didaftarkan di `include=[...]` `worker/celery_app.py`. Kube worker
 (10.158.3.13) memakai Redis sendiri, jadi task ini tidak pernah sampai ke sana.
 
@@ -195,8 +213,15 @@ Didaftarkan di `include=[...]` `worker/celery_app.py`. Kube worker
   candidate, diff freeze, smoke, retag (constraints.txt untuk pin dependency).
 - Pillow sudah ada di image api (12.3.0). Dependency baru: `pillow-heif==1.8.0`
   (HEIC/HEIF), image qc-api harus di-build ulang.
-- Rollback: kosongkan `OCR_IMAGE_CAMPAIGNS` dan/atau kembalikan image; tabel boleh
-  tetap ada.
+- Rollback yang dianjurkan: kosongkan `OCR_IMAGE_CAMPAIGNS` (+ deploy ulang
+  dashboard lama bila menunya perlu hilang juga untuk Admin/Demo) dan PERTAHANKAN
+  image api baru; tabel tetap ada.
+- Jangan langsung mengembalikan image api lama: container api menjalankan
+  `alembic upgrade head` saat start, dan image lama tidak mengenal revisi `0064` →
+  "Can't locate revision" → api tidak pernah naik. Rollback image penuh WAJIB
+  didahului `alembic downgrade 0063` memakai image BARU (men-drop tabel
+  `ocr_images` — riwayat OCR hilang; objek `ocr-images/` di MinIO tertinggal),
+  baru kemudian image lama dijalankan.
 
 ## 9. Pengujian
 

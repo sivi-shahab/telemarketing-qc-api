@@ -91,3 +91,19 @@ def test_delete_menghapus_baris(db):
     row = _img(db, _user(db, "a"))
     store.delete(db, row)
     assert db.get(OcrImage, row.id) is None
+
+
+def test_hapus_user_riwayat_tetap_ada_tanpa_pengunggah(db):
+    """FK ``ON DELETE SET NULL``: menghapus user tidak boleh 500 dan riwayat OCR-nya
+    tetap terlihat Admin (uploader kosong)."""
+    a = _user(db, "hapus")
+    row = _img(db, a)
+    db.delete(a)
+    db.flush()
+    db.expire(row)
+    assert db.get(OcrImage, row.id) is not None
+    assert row.user_id is None
+    rows, _ = store.list_for(db, owner_id=None, page=1, page_size=100000)
+    seen = {r.id: nama for r, nama in rows}
+    assert row.id in seen
+    assert seen[row.id] is None

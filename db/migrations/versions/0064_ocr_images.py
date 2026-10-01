@@ -30,7 +30,7 @@ def upgrade() -> None:
     op.create_table(
         "ocr_images",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("batch_id", UUID(as_uuid=True), nullable=False),
         sa.Column("filename", sa.String(255), nullable=False),
         sa.Column("object_path", sa.String(512), nullable=False),

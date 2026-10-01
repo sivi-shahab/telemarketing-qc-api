@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api import ocr_image_store as store
-from api.ocr_image_normalize import NotAnImage, TooManyPages, normalize
+from api.ocr_image_normalize import NotAnImage, TooLarge, TooManyPages, normalize
 from api.dependencies import get_current_user, get_db, get_minio, get_settings
 from api.permissions import ADMIN_LIKE_ROLES, MENU_OCR_IMAGE
 from api.rbac import require
@@ -65,6 +65,8 @@ def _read_validated(files):
                 f"Maksimal {MAX_FILES} gambar per upload "
                 f"(termasuk tiap halaman TIFF; total {len(pages) + exc.pages})"
             )
+        except TooLarge:
+            raise _invalid(f"File '{name}' resolusinya terlalu besar (maks 40 megapiksel)")
         except NotAnImage:
             raise _invalid(f"File '{name}' bukan gambar yang bisa dibaca")
     return pages

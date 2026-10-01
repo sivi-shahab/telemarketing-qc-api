@@ -108,3 +108,89 @@ def test_nama_panjang_dipotong():
     out = n.normalize(raw, "x" * 400 + ".tif", max_pages=10)
     assert all(len(p.filename) <= 255 for p in out)
     assert out[0].filename.endswith("(hal. 1/2)")
+
+
+# --- batas piksel (review akhir F2) -----------------------------------------
+
+@pytest.mark.parametrize("fmt", ["PNG", "BMP"])
+def test_piksel_tepat_di_batas_lolos(monkeypatch, fmt):
+    monkeypatch.setattr(n, "MAX_PIXELS", 100)
+    [page] = n.normalize(_save(Image.new("RGB", (10, 10)), fmt), "a", max_pages=10)
+    assert _open(page).size == (10, 10)
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "BMP", "JPEG"])
+def test_piksel_lewat_batas_ditolak(monkeypatch, fmt):
+    monkeypatch.setattr(n, "MAX_PIXELS", 100)
+    with pytest.raises(n.TooLarge):
+        n.normalize(_save(Image.new("RGB", (101, 1)), fmt), "a", max_pages=10)
+
+
+def test_piksel_lewat_batas_dicek_sebelum_decode(monkeypatch):
+    monkeypatch.setattr(n, "MAX_PIXELS", 100)
+
+    def jangan_decode(self):
+        raise AssertionError("gambar didekode padahal melewati batas piksel")
+
+    from PIL import ImageFile
+
+    monkeypatch.setattr(ImageFile.ImageFile, "load", jangan_decode)
+    monkeypatch.setattr(Image.Image, "copy", jangan_decode)
+    with pytest.raises(n.TooLarge):
+        n.normalize(_save(Image.new("RGB", (20, 20)), "PNG"), "a", max_pages=10)
+
+
+def test_halaman_tiff_lewat_batas_ditolak(monkeypatch):
+    monkeypatch.setattr(n, "MAX_PIXELS", 100)
+    raw = _save(Image.new("L", (10, 10)), "TIFF", save_all=True,
+                append_images=[Image.new("L", (11, 10))])
+    with pytest.raises(n.TooLarge):
+        n.normalize(raw, "fax.tif", max_pages=10)
+
+
+def test_bom_dekompresi_pillow_jadi_too_large(monkeypatch):
+    # Batas Pillow sendiri (MAX_IMAGE_PIXELS) tetap dipetakan ke TooLarge, bukan
+    # NotAnImage — baik sebagai error (> 2x batas) maupun peringatan-jadi-error.
+    raw = _save(Image.new("RGB", (30, 30)), "PNG")
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(n.TooLarge):
+        n.normalize(raw, "bom.png", max_pages=10)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 600)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with pytest.raises(n.TooLarge):
+            n.normalize(raw, "bom.png", max_pages=10)
+
+
+def test_jpeg_besar_didekode_lewat_draft(monkeypatch):
+    from PIL import JpegImagePlugin
+
+    monkeypatch.setattr(n, "MAX_SIDE", 16)
+    calls = []
+    asli = JpegImagePlugin.JpegImageFile.draft
+
+    def spy(self, mode, size):
+        calls.append((mode, size))
+        return asli(self, mode, size)
+
+    monkeypatch.setattr(JpegImagePlugin.JpegImageFile, "draft", spy)
+    [page] = n.normalize(_save(Image.new("RGB", (64, 64), "white"), "JPEG"), "f.jpg", max_pages=10)
+    assert calls == [("RGB", (16, 16))]
+    assert _open(page).size == (16, 16)
+
+
+# --- allowlist format (review akhir F3) --------------------------------------
+
+@pytest.mark.parametrize("fmt", ["EPS", "PCX", "SGI", "QOI", "DDS"])
+def test_format_di_luar_allowlist_ditolak(fmt):
+    raw = _save(Image.new("L" if fmt == "EPS" else "RGB", (10, 10)), fmt)
+    with pytest.raises(n.NotAnImage):
+        n.normalize(raw, "x", max_pages=10)
+
+
+def test_mpo_kamera_diterima():
+    frames = [Image.new("RGB", (16, 8), c) for c in ("red", "blue")]
+    raw = _save(frames[0], "MPO", save_all=True, append_images=frames[1:])
+    [page] = n.normalize(raw, "kamera.mpo", max_pages=10)
+    assert page.mime_type == "image/jpeg" and _open(page).size == (16, 8)

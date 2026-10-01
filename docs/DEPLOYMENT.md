@@ -158,7 +158,7 @@ nilai yang mengandung `changeme*` sebelum production.
 ### OCR Gambar (Menu untuk upload & OCR mandiri)
 | Var | Default | Keterangan |
 |---|---|---|
-| `OCR_IMAGE_CAMPAIGNS` | *(kosong)* | Campaign (dipisah koma, case-insensitive) yang membuka menu OCR Gambar untuk non-admin. Prod: `Complaint Handling`. Kosong = hanya Admin/Demo yang punya akses; itu juga bentuk rollback. |
+| `OCR_IMAGE_CAMPAIGNS` | *(kosong)* | Campaign (dipisah koma, case-insensitive) yang membuka menu OCR Gambar untuk non-admin. Prod: `Complaint Handling`. Kosong = hanya Admin/Demo yang punya akses; itu juga bentuk rollback yang dianjurkan (lihat §8 "Rollback OCR Gambar"). |
 
 ### RIPLAY (ekstraksi fact sheet produk saat upload campaign)
 | Var | Default | Keterangan |
@@ -377,6 +377,11 @@ server {
 ### Dependency baru
 - **`pillow-heif==1.8.0`** — dukungan format HEIC/HEIF (menu OCR Gambar). Image api **wajib di-build ulang** saat deploy feature ini. Terdaftar di `api/requirements.txt` dan `api/constraints.txt`.
 - **Migrasi `0064`** — tabel `ocr_images` dan permission `menu.ocr_image` untuk role `admin` dan `demo`. Dijalankan otomatis saat api start via `alembic upgrade head`.
+
+### Rollback OCR Gambar
+- **Dianjurkan:** kosongkan `OCR_IMAGE_CAMPAIGNS` di `.env` api lalu recreate api (+ deploy ulang dashboard lama bila menunya juga harus hilang untuk Admin/Demo). Image api BARU tetap dipakai; tabel `ocr_images` tetap ada.
+- **Jangan** langsung menjalankan image api lama: api menjalankan `alembic upgrade head` saat start dan image lama tidak mengenal revisi `0064` → `Can't locate revision` → api crash-loop.
+- **Rollback image penuh** (bila memang perlu): dengan image api BARU jalankan dulu `docker compose exec api alembic downgrade 0063` selagi api baru masih hidup (men-drop tabel `ocr_images` — riwayat OCR hilang; objek `ocr-images/` di MinIO tertinggal), lalu langsung retag/jalankan image lama (jangan restart image baru di antaranya — ia akan meng-upgrade lagi ke `0064`).
 
 ---
 

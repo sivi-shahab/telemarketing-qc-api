@@ -196,7 +196,8 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 **Upload (`POST /ocr_images`) — Aturan & Perilaku:**
 
 - **Validasi file**: Terima 1–10 file asli, maks 10 MB per file.
-- **Format**: Format gambar apa pun yang Pillow baca (JPEG, PNG, WebP, TIFF, GIF, HEIC/HEIF via `pillow-heif==1.8.0`). Validasi berdasarkan **isi file**, bukan ekstensi.
+- **Format**: Hanya allowlist — JPEG (termasuk MPO kamera), PNG, WebP, TIFF, GIF, BMP, HEIC/HEIF (via `pillow-heif==1.8.0`), AVIF, JPEG2000, ICO, PPM, TGA. Validasi berdasarkan **isi file**, bukan ekstensi. SVG/EPS/vektor dan format lain ditolak.
+- **Resolusi**: Maks 40 megapiksel (lebar × tinggi) per gambar/halaman TIFF, dicek dari header sebelum didekode.
 - **Multi-halaman (TIFF)**: Tiap halaman menjadi satu entri tersendiri; nama tampilan: `"<nama asli> (hal. i/n)"`. Format lain hanya frame pertama.
 - **Normalisasi per halaman**: Simpan APA ADANYA jika JPEG/PNG/WebP, satu frame, sisi terpanjang ≤ 4096 px. Sebaliknya: terapkan orientasi EXIF, ratakan transparansi ke putih, perkecil sisi terpanjang ke ≤ 4096 px, simpan **JPEG q90** (format: `image/jpeg`, ekstensi: `.jpg`). JPEG dipilih agar file besar tidak melampaui batas request model.
 - **Batas total**: Setelah pemecahan, maksimal 10 entri per upload.
@@ -210,6 +211,7 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | **422** | `Maksimal 10 gambar per upload` |
 | **422** | `File '<nama>' melebihi 10 MB` |
 | **422** | `File '<nama>' bukan gambar yang bisa dibaca` |
+| **422** | `File '<nama>' resolusinya terlalu besar (maks 40 megapiksel)` |
 | **422** | `Maksimal 10 gambar per upload (termasuk tiap halaman TIFF; total <n>)` |
 | **503** | `Gagal menyimpan gambar, silakan coba lagi` (storage fail midway: semua dibersihkan, DB rollback, MinIO object dihapus) |
 

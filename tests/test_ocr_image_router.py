@@ -329,3 +329,14 @@ def test_retry_send_gagal_503_dan_failed(env, monkeypatch):
     assert _status(e) == 503 and e.value.detail == "Gagal masuk antrean proses, silakan coba lagi"
     assert row.status == "failed"
     assert row.error_message == "Gagal masuk antrean proses — klik Proses ulang"
+
+
+def test_resolusi_terlalu_besar_ditolak(env, monkeypatch):
+    from api import ocr_image_normalize
+
+    monkeypatch.setattr(ocr_image_normalize, "MAX_PIXELS", 100)
+    with pytest.raises(HTTPException) as e:
+        mod.upload_ocr_images(files=[_upload("besar.png", _png((11, 10)))], db=None, current_user=QC)
+    assert _status(e) == 422
+    assert e.value.detail == "File 'besar.png' resolusinya terlalu besar (maks 40 megapiksel)"
+    assert env.put == []

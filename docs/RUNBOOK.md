@@ -262,6 +262,7 @@ lama lewat (semua tiket jatuh ke FAIL sehingga PENDING tak pernah muncul di laya
 | Gejala | Diagnosis | Tindakan |
 |---|---|---|
 | Transkrip tidak diproses (status `pending`/`processing` lama) | Worker mati / Redis putus | `docker compose ps`; `docker compose logs -f worker`; cek Flower; `docker compose restart worker` |
+| Gambar OCR Gambar gagal "Waktu proses habis — klik Proses ulang" | Task beat `fail_stale_ocr_images` (tiap 2 menit) menutup baris `processing` > 55 menit / `pending` > 60 menit — task hilang atau worker mati | Pastikan worker + `beat` hidup (`docker compose ps`, log `worker`); lalu user klik **Proses ulang** |
 | Semua evaluasi error | LLM endpoint down / API key habis / rate limit | Cek log worker (error dari `LLM_BASE_URL`); verifikasi `LLM_API_KEY`, kuota, konektivitas |
 | Dashboard tampil versi lama | Aset di-cache/di-bake | `docker compose up -d --build dashboard` + hard refresh |
 | Frontend gagal call API / CORS | `VITE_API_URL` salah saat build | Set nilai benar, rebuild dashboard |
