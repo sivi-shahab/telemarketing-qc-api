@@ -155,6 +155,11 @@ nilai yang mengandung `changeme*` sebelum production.
 | `OCR_BASE_URL` / `OCR_MODEL` / `OCR_API_KEY` | Kosongkan bila tidak dipakai (string kosong → diabaikan) |
 | `OCR_TEMPERATURE` / `OCR_SEED` / `OCR_REASONING_EFFORT` | Opsional; kosong = parameter tidak dikirim, default provider berlaku |
 
+### OCR Gambar (Menu untuk upload & OCR mandiri)
+| Var | Default | Keterangan |
+|---|---|---|
+| `OCR_IMAGE_CAMPAIGNS` | *(kosong)* | Campaign (dipisah koma, case-insensitive) yang membuka menu OCR Gambar untuk non-admin. Prod: `Complaint Handling`. Kosong = hanya Admin/Demo yang punya akses; itu juga bentuk rollback. |
+
 ### RIPLAY (ekstraksi fact sheet produk saat upload campaign)
 | Var | Default | Keterangan |
 |---|---|---|
@@ -367,7 +372,15 @@ server {
 
 ---
 
-## 8. Seed Data Awal (kedua jalur)
+## 8. Dependencies & Migrasi
+
+### Dependency baru
+- **`pillow-heif==1.8.0`** — dukungan format HEIC/HEIF (menu OCR Gambar). Image api **wajib di-build ulang** saat deploy feature ini. Terdaftar di `api/requirements.txt` dan `api/constraints.txt`.
+- **Migrasi `0064`** — tabel `ocr_images` dan permission `menu.ocr_image` untuk role `admin` dan `demo`. Dijalankan otomatis saat api start via `alembic upgrade head`.
+
+---
+
+## 9. Seed Data Awal (kedua jalur)
 
 - **Admin pertama** — otomatis dibuat oleh migrasi `0001` saat tabel `users` masih kosong,
   memakai `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`ADMIN_EMAIL`.
@@ -407,9 +420,9 @@ server {
 
 ---
 
-## 9. Production Hardening
+## 10. Production Hardening
 
-### 9.1 Reverse proxy (Nginx) di depan
+### 10.1 Reverse proxy (Nginx) di depan
 
 Nginx bawaan container dashboard **hanya menyajikan file statis** — ia **tidak** mem-proxy
 ke API. Konfigurasi production live memakai `VITE_API_URL=/telemarketing_qc_system/api`
@@ -449,7 +462,7 @@ server {
 
 Bila memakai proxy ini, build dashboard dengan `VITE_API_URL=/telemarketing_qc_system/api`.
 
-### 9.2 HTTPS (Let's Encrypt)
+### 10.2 HTTPS (Let's Encrypt)
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
@@ -457,7 +470,7 @@ sudo certbot --nginx -d dashboard.example.id
 # certbot memasang sertifikat & auto-renew (systemd timer)
 ```
 
-### 9.3 systemd units (bare-metal)
+### 10.3 systemd units (bare-metal)
 
 Buat unit agar api/worker/flower otomatis start & restart. Sesuaikan path venv & repo.
 
@@ -510,7 +523,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now qc-api qc-worker qc-flower
 ```
 
-### 9.4 Firewall (ufw)
+### 10.4 Firewall (ufw)
 
 ```bash
 # Mode reverse proxy (disarankan): hanya web + SSH
@@ -525,14 +538,14 @@ sudo ufw allow 22/tcp
 **Jangan** mengekspos PostgreSQL (5432), Redis (6379), atau MinIO (4003/4004) ke internet.
 Di Docker, Postgres/Redis sudah di-bind ke `127.0.0.1`.
 
-### 9.5 Secrets wajib untuk production
+### 10.5 Secrets wajib untuk production
 
 Ganti semua nilai `changeme*`, minimal: `JWT_SECRET_KEY`, `API_KEY`, `POSTGRES_PASSWORD`,
 `MINIO_SECRET_KEY`, `ADMIN_PASSWORD`. Gunakan string acak yang kuat.
 
 ---
 
-## 10. Operasional & Troubleshooting
+## 11. Operasional & Troubleshooting
 
 ### Perintah operasional (Docker)
 

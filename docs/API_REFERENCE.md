@@ -100,7 +100,7 @@ Dikelompokkan sesuai form **Manage Role** (`GET /roles/catalog`).
 
 | Kelompok | Permission |
 |---|---|
-| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.role_hierarchy`, 🔒 `menu.campaigns`, 🔒 `menu.sales_database`, 🔒 `menu.qc_database`, 🔒 `menu.upload_campaign`, 🔒 `menu.upload_audio`, 🔒 `menu.upload_transcript`, 🔒 `menu.get_result`, 🔒 `menu.upload_sales_database`, 🔒 `menu.upload_qc_database`, 🔒 `menu.reprocess_tickets`, 🔒 `menu.delete_campaign`, 🔒 `menu.manage_user`, 🔒 `menu.manage_role` |
+| **Menu** | `menu.stats`, `menu.results`, `menu.transcripts`, `menu.assign_ticket`, `menu.manual_check`, `menu.pending_check`, `menu.role_hierarchy`, 🔒 `menu.campaigns`, 🔒 `menu.ocr_image`, 🔒 `menu.sales_database`, 🔒 `menu.qc_database`, 🔒 `menu.upload_campaign`, 🔒 `menu.upload_audio`, 🔒 `menu.upload_transcript`, 🔒 `menu.get_result`, 🔒 `menu.upload_sales_database`, 🔒 `menu.upload_qc_database`, 🔒 `menu.reprocess_tickets`, 🔒 `menu.delete_campaign`, 🔒 `menu.manage_user`, 🔒 `menu.manage_role` |
 | **Results** | `results.evaluation_detail`, `results.critical_failure`, `results.category_score`, `results.manual_status.column`, `results.manual_status.set`, `results.manual_status.direct`, `results.manual_status.review_tl`, `results.manual_status.review_spq`, `results.error_code.appeal`, `results.error_code.direct_edit`, `results.error_code.review_tl`, `results.error_code.review_spq`, `results.document.upload`, `results.document.view`, `results.document.verification`, `results.manual_check.approve`, `results.filter.qc_side`, `results.export.verification`, `results.export.tickets` |
 | **Stats** | `stats.qc_performance`, `stats.failure_reason`, `stats.risk_base`, `stats.risk_system_new` |
 | **Upload** | 🔒 `transcript.upload`, 🔒 `audio.upload` |
@@ -172,7 +172,61 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /documents/{result_id}` | Daftar dokumen result | `results.document.view` |
 | `GET /document_file/{document_id}` | Ambil file dokumen | `results.document.view` |
 
-> Tabel perbandingan OCR-vs-acuan di modal "View Document" dijaga permission terpisah
+### OCR Gambar (Menu upload & transkripsi mandiri; 1 Oktober 2026)
+| Method & Path | Fungsi | Guard |
+|---|---|---|
+| `POST /ocr_images` | Upload satu atau beberapa gambar (multipart `files[]`, maks 10 × 10 MB); validasi format & ukuran; buat batch; per file: simpan ke MinIO + insert baris `pending` + enqueue task OCR | `menu.ocr_image` |
+| `GET /ocr_images?page=&page_size=` | Daftar riwayat OCR (terbaru dulu, tanpa kolom `text`); non-admin: hanya punya diri; admin: semua + nama pengunggah | `menu.ocr_image` |
+| `GET /ocr_images/{id}` | Detail satu gambar termasuk teks hasil OCR & pesan error (jika ada) | `menu.ocr_image` |
+| `GET /ocr_images/{id}/image` | Stream gambar asli dari MinIO (dengan mime type) — Content-Disposition: `inline; filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>` (RFC 6266/5987) | `menu.ocr_image` |
+| `POST /ocr_images/{id}/retry` | Reset gambar `failed` ke `pending` dan enqueue ulang task OCR | `menu.ocr_image` |
+| `DELETE /ocr_images/{id}` | Hapus gambar (objek MinIO + baris DB) | `menu.ocr_image` |
+
+**Respons `POST /ocr_images` (success 200):**
+```json
+{
+  "batch_id": "<uuid>",
+  "items": [
+    {"id": "<uuid>", "batch_id": "<uuid>", "filename": "contoh.jpg", "status": "pending", "size_bytes": 123456, "created_at": "2026-10-01T15:30:00Z", "finished_at": null},
+    ...
+  ]
+}
+```
+
+**Respons `GET /ocr_images` (success 200):**
+```json
+{
+  "items": [
+    {"id": "<uuid>", "batch_id": "<uuid>", "filename": "contoh.jpg", "status": "done", "size_bytes": 123456, "created_at": "2026-10-01T15:30:00Z", "finished_at": "2026-10-01T15:32:15Z", "uploader_name": "Budi" },
+    ...
+  ],
+  "total": 42,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+**Respons `GET /ocr_images/{id}` (success 200):**
+```json
+{
+  "id": "<uuid>",
+  "batch_id": "<uuid>",
+  "filename": "contoh.jpg",
+  "status": "done",
+  "size_bytes": 123456,
+  "created_at": "2026-10-01T15:30:00Z",
+  "finished_at": "2026-10-01T15:32:15Z",
+  "mime_type": "image/jpeg",
+  "text": "Teks hasil OCR dari gambar\n(bisa multi-baris dan tabel markdown)",
+  "error_message": null
+}
+```
+
+**Pesan error — lihat** [`docs/superpowers/specs/2026-10-01-ocr-gambar-design.md`](./superpowers/specs/2026-10-01-ocr-gambar-design.md) **§5a.**
+
+---
+
+> Catatan untuk Document endpoint: Tabel perbandingan OCR-vs-acuan di modal "View Document" dijaga permission terpisah
 > `results.document.verification`. Penyembunyiannya **bukan di frontend**: `/documents/{id}`
 > mengosongkan `ocr_json` & `error_message` untuk role tanpa capability itu, jadi datanya
 > tidak pernah sampai ke browser. Yang memilikinya hanya **QC, Team Leader QC, SPQ Head** —

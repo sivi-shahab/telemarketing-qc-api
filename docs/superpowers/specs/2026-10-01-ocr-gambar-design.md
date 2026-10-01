@@ -49,6 +49,8 @@ Spike 2026-10-01 (gambar sintetis tanpa data nasabah) lewat
   `P.MENU_OCR_IMAGE` di `telemarketing-qc-dashboard/src/permissions.js`).
 - **Admin / Demo** (`ADMIN_LIKE_ROLES`): masuk `_ADMIN_PERMISSIONS`, dan migrasi
   `0064` menambahkannya ke baris `roles` `admin` dan `demo` yang sudah ada.
+  `menu.ocr_image` juga masuk `ADMIN_ONLY_PERMISSIONS`, sehingga tidak bisa
+  diberikan ke role lain lewat Manage Role.
 - **User lain**: dihitung saat request di `api.rbac.permissions_for` — ditambahkan
   bila campaign efektif user (`effective_campaigns_for`) beririsan, case-insensitive,
   dengan env baru `OCR_IMAGE_CAMPAIGNS` (api `.env`, dipisah koma, dibaca tiap
@@ -79,9 +81,9 @@ Spike 2026-10-01 (gambar sintetis tanpa data nasabah) lewat
 | `text` | text, null | hasil OCR |
 | `error_message` | text, null | |
 | `token_usage` | json, null | bentuk sama dengan `_extract_usage` |
-| `created_at` | timestamptz, default now() | |
-| `started_at` | timestamptz, null | |
-| `finished_at` | timestamptz, null | |
+| `created_at` | DateTime (naive, UTC — sama dengan tabel lain) | |
+| `started_at` | DateTime (naive, UTC — sama dengan tabel lain) | |
+| `finished_at` | DateTime (naive, UTC — sama dengan tabel lain) | |
 
 Index `(user_id, created_at desc)` untuk daftar riwayat.
 
@@ -103,17 +105,17 @@ atau env MinIO baru.
 
 | Method & path | Perilaku |
 |---|---|
-| `POST /ocr_images` | multipart `files[]`. Validasi + normalisasi SEMUA file dulu (1–10 file asli, ≤10 MB per file, isi terbaca sebagai gambar, ≤10 entri setelah pemecahan halaman — §5a); satu gagal → 422, tidak ada yang disimpan. Lalu per file: put MinIO, insert baris `pending`, `send_task("worker.tasks.process_ocr_image.process_ocr_image", args=[id])`. Respons: `batch_id` + daftar `{id, filename, status}`. |
+| `POST /ocr_images` | multipart `files[]`. Validasi + normalisasi SEMUA file dulu (1–10 file asli, ≤10 MB per file, isi terbaca sebagai gambar, ≤10 entri setelah pemecahan halaman — §5a); satu gagal → 422, tidak ada yang disimpan. Lalu per file: put MinIO, insert baris `pending`, `send_task(...)`. Bila menyimpan ke MinIO/DB gagal di tengah jalan, semua yang sudah tersimpan dibersihkan (rollback DB, hapus objek MinIO) dan API mengembalikan 503 "Gagal menyimpan gambar, silakan coba lagi". Bila antrian task gagal untuk satu baris, baris itu ditandai `failed` dengan pesan error "Gagal masuk antrean proses — klik Proses ulang" dan respons tetap 200 (batch partial). Respons: `batch_id` + daftar `{id, filename, status}`. |
 | `GET /ocr_images?page=&page_size=` | Riwayat terbaru dulu, tanpa kolom `text` (ringkas). Non-admin: hanya `user_id` = dirinya. Admin: semua + `uploader_name`. |
 | `GET /ocr_images/{id}` | Detail termasuk `text`, `error_message`. |
-| `GET /ocr_images/{id}/image` | Stream gambar asli dari MinIO dengan `mime_type`. |
-| `POST /ocr_images/{id}/retry` | Hanya bila `failed`: reset ke `pending`, kirim ulang task. |
+| `GET /ocr_images/{id}/image` | Stream gambar asli dari MinIO dengan `mime_type`. Header Content-Disposition: `inline; filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>` (RFC 6266/5987). |
+| `POST /ocr_images/{id}/retry` | Hanya bila `failed`: reset ke `pending`, kirim ulang task. Bila antrian gagal, baris ditandai `failed` lagi dan API mengembalikan 503 "Gagal masuk antrean proses, silakan coba lagi". |
 | `DELETE /ocr_images/{id}` | Hapus objek MinIO + baris. |
 
 Kepemilikan: baris milik user lain → **404** (bukan 403) untuk non-admin, pada
 semua endpoint per-id.
 
-## 5a. Normalisasi gambar (`api/ocr_image_normalize.py`)
+## 5a. Normalisasi gambar & pesan error
 
 Dijalankan API saat upload, sebelum apa pun disimpan; worker, model, dan browser
 hanya pernah menerima JPEG/PNG/WEBP.
@@ -129,16 +131,30 @@ hanya pernah menerima JPEG/PNG/WEBP.
   diperkecil ke ≤ 4096 px, disimpan JPEG kualitas 90 (`image/jpeg`, `.jpg`).
   JPEG dipilih — bukan PNG — supaya foto HEIC/TIFF besar tidak membengkak melewati
   batas request model.
-- File yang tidak terbaca sebagai gambar → 422 `File '<nama>' bukan gambar yang
-  bisa dibaca`.
-- Total entri setelah pemecahan > 10 → 422 `Maksimal 10 gambar per upload
-  (termasuk tiap halaman TIFF; total <n>)`.
 - `size_bytes` = ukuran hasil normalisasi yang disimpan.
+
+**Kode error:**
+
+| Endpoint | Status | Pesan |
+|---|---|---|
+| **`POST /ocr_images`** | **422** | `Pilih minimal satu gambar` |
+| | **422** | `Maksimal 10 gambar per upload` |
+| | **422** | `File '<nama>' melebihi 10 MB` |
+| | **422** | `File '<nama>' bukan gambar yang bisa dibaca` |
+| | **422** | `Maksimal 10 gambar per upload (termasuk tiap halaman TIFF; total <n>)` |
+| | **503** | `Gagal menyimpan gambar, silakan coba lagi` (storage fail, semua dibersihkan) |
+| **`GET /ocr_images/{id}`** | **404** | `Gambar tidak ditemukan` (bukan milik user atau tidak ada) |
+| **`GET /ocr_images/{id}/image`** | **404** | `Gambar tidak ditemukan` atau `File gambar tidak ditemukan di storage` |
+| **`POST /ocr_images/{id}/retry`** | **404** | `Gambar tidak ditemukan` (bukan milik user atau tidak ada) |
+| | **409** | `Hanya gambar berstatus gagal yang bisa diproses ulang` |
+| | **503** | `Gagal masuk antrean proses, silakan coba lagi` (queue fail pada retry) |
+| **`DELETE /ocr_images/{id}`** | **404** | `Gambar tidak ditemukan` (bukan milik user atau tidak ada) |
 
 ## 6. Worker (`worker/tasks/process_ocr_image.py`)
 
-1. Ambil baris; bila tidak ada atau status `done` → selesai (idempoten terhadap
-   redelivery).
+1. Ambil baris; bila tidak ada atau status `done` atau `failed` → selesai (idempoten
+   terhadap redelivery). Status `failed` hanya kembali ke `pending` lewat endpoint
+   retry yang me-reset ke `pending` sebelum mengirim ulang task.
 2. Set `processing` + `started_at`.
 3. Unduh gambar dari MinIO, base64.
 4. `_llm_client().chat.completions.create(model=LLM_MODEL, messages=[system, user])`:
