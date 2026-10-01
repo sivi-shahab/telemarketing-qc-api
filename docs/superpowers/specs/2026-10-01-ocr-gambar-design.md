@@ -21,7 +21,9 @@ Tidak terhubung ke tiket, result, maupun penilaian QC.
 | Visibilitas riwayat | User melihat miliknya sendiri; Admin melihat semua |
 | Format output | Teks apa adanya (markdown; baris & tabel dipertahankan) |
 | Mesin OCR | Model vision LLM yang sudah ada (`LLM_*`, Azure `gpt-5.4-mini`) |
-| Batas | JPG/PNG saja, maks 10 file × 10 MB per upload |
+| Format | Semua gambar raster yang terbaca Pillow + HEIC/HEIF (revisi 2026-10-01, lihat §5a); SVG tidak |
+| Multi-halaman | TIFF multi-halaman dipecah: tiap halaman satu entri; GIF animasi/MPO hanya frame pertama |
+| Batas | maks 10 file asli × 10 MB, DAN maks 10 entri hasil pecahan per upload |
 | Retensi | Tanpa batas waktu (tidak ada penghapusan otomatis) |
 
 ### Mengapa LLM vision, bukan `compliance.ocr`
@@ -35,6 +37,7 @@ Spike 2026-10-01 (gambar sintetis tanpa data nasabah) lewat
 ## 2. Di luar cakupan
 
 - OCR file PDF.
+- SVG / gambar vektor.
 - Ekstraksi field terstruktur (nama, no. kartu, dst.).
 - Penghapusan riwayat otomatis.
 - Mengubah pipeline OCR dokumen pendukung (`process_document`).
@@ -100,7 +103,7 @@ atau env MinIO baru.
 
 | Method & path | Perilaku |
 |---|---|
-| `POST /ocr_images` | multipart `files[]`. Validasi SEMUA file dulu (1–10 file, ekstensi `.jpg/.jpeg/.png`, ≤10 MB, isi benar-benar gambar via Pillow `verify()`); satu gagal → 422, tidak ada yang disimpan. Lalu per file: put MinIO, insert baris `pending`, `send_task("worker.tasks.process_ocr_image.process_ocr_image", args=[id])`. Respons: `batch_id` + daftar `{id, filename, status}`. |
+| `POST /ocr_images` | multipart `files[]`. Validasi + normalisasi SEMUA file dulu (1–10 file asli, ≤10 MB per file, isi terbaca sebagai gambar, ≤10 entri setelah pemecahan halaman — §5a); satu gagal → 422, tidak ada yang disimpan. Lalu per file: put MinIO, insert baris `pending`, `send_task("worker.tasks.process_ocr_image.process_ocr_image", args=[id])`. Respons: `batch_id` + daftar `{id, filename, status}`. |
 | `GET /ocr_images?page=&page_size=` | Riwayat terbaru dulu, tanpa kolom `text` (ringkas). Non-admin: hanya `user_id` = dirinya. Admin: semua + `uploader_name`. |
 | `GET /ocr_images/{id}` | Detail termasuk `text`, `error_message`. |
 | `GET /ocr_images/{id}/image` | Stream gambar asli dari MinIO dengan `mime_type`. |
@@ -109,6 +112,28 @@ atau env MinIO baru.
 
 Kepemilikan: baris milik user lain → **404** (bukan 403) untuk non-admin, pada
 semua endpoint per-id.
+
+## 5a. Normalisasi gambar (`api/ocr_image_normalize.py`)
+
+Dijalankan API saat upload, sebelum apa pun disimpan; worker, model, dan browser
+hanya pernah menerima JPEG/PNG/WEBP.
+
+- Validasi berdasarkan ISI file (Pillow `open`), bukan ekstensi. HEIC/HEIF lewat
+  `pillow-heif==1.8.0` (`register_heif_opener()`), dependency baru di
+  `api/requirements.txt` + `api/constraints.txt`.
+- Halaman: format `TIFF` dengan `n_frames > 1` → satu entri per halaman, nama
+  tampilan `"<nama asli> (hal. i/n)"`. Format lain → frame pertama saja.
+- Satu halaman disimpan APA ADANYA bila formatnya JPEG/PNG/WEBP, file tunggal
+  (satu frame), dan sisi terpanjang ≤ 4096 px. Selain itu dikonversi: orientasi
+  EXIF diterapkan, transparansi diratakan ke latar putih, sisi terpanjang
+  diperkecil ke ≤ 4096 px, disimpan JPEG kualitas 90 (`image/jpeg`, `.jpg`).
+  JPEG dipilih — bukan PNG — supaya foto HEIC/TIFF besar tidak membengkak melewati
+  batas request model.
+- File yang tidak terbaca sebagai gambar → 422 `File '<nama>' bukan gambar yang
+  bisa dibaca`.
+- Total entri setelah pemecahan > 10 → 422 `Maksimal 10 gambar per upload
+  (termasuk tiap halaman TIFF; total <n>)`.
+- `size_bytes` = ukuran hasil normalisasi yang disimpan.
 
 ## 6. Worker (`worker/tasks/process_ocr_image.py`)
 
@@ -137,8 +162,8 @@ Didaftarkan di `include=[...]` `worker/celery_app.py`. Kube worker
   `P.MENU_OCR_IMAGE` di `permissions.js`; entri "OCR Gambar" di `SidebarMenu.vue`
   pada kelompok Upload.
 - Halaman:
-  - Area drag-drop / pilih file (multi, `accept=".jpg,.jpeg,.png"`), validasi
-    jumlah/ukuran/ekstensi di klien dengan pesan yang sama seperti API.
+  - Area drag-drop / pilih file (multi, `accept="image/*,.heic,.heif"`), validasi
+    jumlah/ukuran/jenis di klien dengan pesan yang sama seperti API.
   - Tabel riwayat: thumbnail kecil, nama file, waktu, status (badge), pengunggah
     (Admin saja), aksi Lihat / Proses ulang (failed) / Hapus (konfirmasi).
   - Polling `GET /ocr_images` tiap 3 detik selama ada baris `pending`/`processing`
@@ -152,8 +177,8 @@ Didaftarkan di `include=[...]` `worker/celery_app.py`. Kube worker
 - api `.env`: `OCR_IMAGE_CAMPAIGNS=Complaint Handling`. Worker tidak butuh env baru.
 - Urutan: migrasi `0064` → api → worker → dashboard. Prosedur biasa: build
   candidate, diff freeze, smoke, retag (constraints.txt untuk pin dependency).
-- Pillow sudah ada di image api (12.3.0, `core/requirements.txt`) — tidak ada
-  dependency baru.
+- Pillow sudah ada di image api (12.3.0). Dependency baru: `pillow-heif==1.8.0`
+  (HEIC/HEIF), image qc-api harus di-build ulang.
 - Rollback: kosongkan `OCR_IMAGE_CAMPAIGNS` dan/atau kembalikan image; tabel boleh
   tetap ada.
 
@@ -162,7 +187,7 @@ Didaftarkan di `include=[...]` `worker/celery_app.py`. Kube worker
 - **api (unit, dijalankan di image qc-api):**
   - `permissions_for`: Admin punya; user dengan campaign `Complaint Handling`
     punya; user `Telemarketing`/`Collection` tidak; env kosong → hanya Admin.
-  - Upload: 11 file / file 11 MB / `.gif` / PNG palsu → 422 dan tidak ada baris
+  - Upload: 11 file / file 11 MB / file teks berekstensi `.png` / TIFF 11 halaman → 422 dan tidak ada baris
     tersimpan; upload valid → baris `pending` + `send_task` dipanggil per file
     (celery & MinIO di-stub).
   - Isolasi: user A tidak melihat riwayat user B (list kosong, detail 404);

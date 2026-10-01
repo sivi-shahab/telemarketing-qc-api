@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Menu "OCR Gambar" untuk Admin dan user campaign Complaint Handling: upload beberapa JPG/PNG, worker menyalin teksnya lewat LLM vision, riwayat tersimpan dan bisa disalin/diunduh.
+**Goal:** Menu "OCR Gambar" untuk Admin dan user campaign Complaint Handling: upload beberapa gambar (format apa pun yang terbaca, termasuk HEIC dan TIFF multi-halaman), worker menyalin teksnya lewat LLM vision, riwayat tersimpan dan bisa disalin/diunduh.
 
 **Architecture:** API menyimpan gambar di bucket MinIO dokumen (`ocr-images/`) + baris `dashboard.ocr_images`, lalu mengirim satu task Celery per gambar. Worker memanggil deployment Azure `LLM_MODEL` dengan prompt OCR verbatim dan menyimpan teks. Akses: `menu.ocr_image` di role Admin/Demo, plus dihitung saat request untuk user yang campaign efektifnya ada di env `OCR_IMAGE_CAMPAIGNS`.
 
@@ -16,7 +16,8 @@
 - Semua kerja di branch `feat/ocr-gambar` di tiap repo (api sudah ada; buat di tiga repo lain dari `main`).
 - Permission key persis: `menu.ocr_image`. Env persis: `OCR_IMAGE_CAMPAIGNS` (dipisah koma, trim + casefold, dibaca tiap panggilan).
 - Task Celery persis: `worker.tasks.process_ocr_image.process_ocr_image`, argumen tunggal `image_id` (str UUID).
-- Format diterima: `.jpg`, `.jpeg`, `.png` saja; 1–10 file per upload; ≤ 10 MB (10 * 1024 * 1024 byte) per file.
+- Format: semua gambar raster yang terbaca Pillow 12.3.0 + HEIC/HEIF (`pillow-heif==1.8.0`, dependency baru api); validasi berdasarkan ISI, bukan ekstensi; SVG tidak. 1–10 file asli per upload, ≤ 10 MB (10 * 1024 * 1024 byte) per file, ≤ 10 entri setelah TIFF dipecah per halaman.
+- Yang disimpan & dikirim ke model hanya JPEG/PNG/WEBP (lihat Task 3).
 - Prefix objek MinIO: `ocr-images/{id}{ext}` di `MINIO_BUCKET_DOCUMENTS`. Tidak ada bucket/env MinIO baru.
 - Kolom waktu `DateTime` naive (UTC), mengikuti tabel lain di codebase — BUKAN timestamptz.
 - Status hanya: `pending`, `processing`, `done`, `failed`.
@@ -24,15 +25,15 @@
 - Pemanggilan LLM untuk OCR TANPA `reasoning_effort`.
 - Pesan galat ke user berbahasa Indonesia; teks pesan validasi di dashboard SAMA dengan teks di API.
 - Test Python dijalankan di image (host tidak punya pytest) dengan `PYTHONPATH=/tmp/w/core:/tmp/w` dan cwd `/tmp` (bukan `/app`), lihat perintah di tiap task.
-- Jangan deploy ke prod, jangan push. Task 7 hanya menyiapkan langkah deploy; eksekusinya menunggu konfirmasi user.
+- Jangan deploy ke prod, jangan push. Task 8 hanya menyiapkan langkah deploy; eksekusinya menunggu konfirmasi user.
 
 ## Review Focus
 
-1. **Batch campuran valid + tidak valid** (mis. 3 PNG + 1 PDF) → user mengharapkan tidak ada yang tersimpan sama sekali dan pesan yang menyebut file salahnya. Dipin di Task 3 (`test_satu_file_salah_tidak_ada_yang_tersimpan`).
-2. **File berekstensi `.png` yang isinya bukan gambar** (rename dari PDF/teks) → 422, bukan task yang gagal di worker. Dipin di Task 3 (`test_png_palsu_ditolak`).
-3. **Pesan Celery basi** (redelivery setelah row `done`/`failed`, atau row sudah dihapus) → worker tidak boleh menimpa hasil atau meledak. Dipin di Task 4 (`test_row_done_dilewati`, `test_row_failed_dilewati`, `test_row_hilang_dilewati`).
-4. **User non-admin menebak id milik orang lain** pada detail/gambar/retry/hapus → 404, data tidak bocor. Dipin di Task 2 (`test_get_for_menolak_milik_orang_lain`) dan Task 3 (`test_detail_milik_orang_lain_404`).
-5. **Gambar tanpa teks / model membalas kosong** → status `done` dengan `(tidak ada teks)`, bukan teks kosong yang tampak seperti error. Dipin di Task 4 (`test_balasan_kosong_jadi_penanda`).
+1. **Batch campuran valid + tidak valid** (mis. 3 PNG + 1 PDF) → user mengharapkan tidak ada yang tersimpan sama sekali dan pesan yang menyebut file salahnya. Dipin di Task 4 (`test_satu_file_salah_tidak_ada_yang_tersimpan`).
+2. **File berekstensi gambar yang isinya bukan gambar / rusak** (rename dari PDF, PNG terpotong) → 422 di upload, bukan task yang gagal di worker. Dipin di Task 3 (`test_bukan_gambar`) dan Task 4 (`test_png_palsu_ditolak`).
+3. **Pesan Celery basi** (redelivery setelah row `done`/`failed`, atau row sudah dihapus) → worker tidak boleh menimpa hasil atau meledak. Dipin di Task 5 (`test_row_done_dilewati`, `test_row_failed_dilewati`, `test_row_hilang_dilewati`).
+4. **User non-admin menebak id milik orang lain** pada detail/gambar/retry/hapus → 404, data tidak bocor. Dipin di Task 2 (`test_get_for_menolak_milik_orang_lain`) dan Task 4 (`test_detail_milik_orang_lain_404`).
+5. **Gambar tanpa teks / model membalas kosong** → status `done` dengan `(tidak ada teks)`, bukan teks kosong yang tampak seperti error. Dipin di Task 5 (`test_balasan_kosong_jadi_penanda`).
 
 ---
 
@@ -45,6 +46,8 @@
 | 3× `core/db/models.py` | ORM `OcrImage` |
 | api `db/migrations/versions/0064_ocr_images.py` | tabel + index + grant admin/demo |
 | api `api/ocr_image_store.py` (baru) | query ORM tabel `ocr_images` (create/list/get/reset/delete) |
+| api `api/ocr_image_normalize.py` (baru) | baca format apa pun (+HEIC), pecah TIFF, konversi ke JPEG/PNG/WEBP |
+| api `api/requirements.txt`, `api/constraints.txt` | `pillow-heif==1.8.0` |
 | api `api/routers/ocr_image.py` (baru) | 6 endpoint, validasi upload |
 | api `api/main.py` | daftarkan router |
 | worker `worker/tasks/process_ocr_image.py` (baru) | `transcribe_image()` + task Celery |
@@ -600,7 +603,270 @@ done
 
 ---
 
-### Task 3: Router API OCR Gambar
+### Task 3: Normalisasi gambar (semua format + HEIC + TIFF multi-halaman)
+
+**Files:**
+- Create: `telemarketing-qc-api/api/ocr_image_normalize.py`
+- Modify: `telemarketing-qc-api/api/requirements.txt` (tambah baris `pillow-heif`), `telemarketing-qc-api/api/constraints.txt` (tambah `pillow-heif==1.8.0` tepat di bawah `pillow==12.3.0`)
+- Test: `telemarketing-qc-api/tests/test_ocr_image_normalize.py`
+
+**Interfaces:**
+- Produces:
+  - `api.ocr_image_normalize.Page` — dataclass frozen `(filename: str, data: bytes, mime_type: str, ext: str)`; `mime_type` ∈ `image/jpeg|image/png|image/webp`, `ext` ∈ `.jpg|.png|.webp`.
+  - `api.ocr_image_normalize.normalize(data: bytes, filename: str, max_pages: int) -> list[Page]`
+  - `api.ocr_image_normalize.NotAnImage(ValueError)` — isi tidak terbaca sebagai gambar.
+  - `api.ocr_image_normalize.TooManyPages(ValueError)` — atribut `.pages: int` (jumlah halaman file itu) bila > `max_pages`; dilempar SEBELUM halaman mana pun dikonversi.
+  - Konstanta `MAX_SIDE = 4096`, `JPEG_QUALITY = 90`, `MAX_NAME = 230`.
+
+Aturan (spec §5a): TIFF dengan `n_frames > 1` dipecah per halaman, label `"<nama> (hal. i/n)"`; format lain hanya frame pertama. JPEG/PNG/WEBP satu-frame dengan sisi terpanjang ≤ 4096 disimpan apa adanya (byte identik). Selain itu: `ImageOps.exif_transpose`, transparansi diratakan ke putih, mode 16-bit diskalakan ke 8-bit, `thumbnail((4096, 4096))`, simpan JPEG kualitas 90. Nama asli dipotong ke 230 karakter sebelum diberi label halaman (kolom `filename` 255).
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/test_ocr_image_normalize.py`:
+
+```python
+"""Normalisasi gambar OCR: semua format raster (+HEIC) -> JPEG/PNG/WEBP.
+
+Butuh ``pillow-heif`` (dependency baru api). Selama image qc-api belum di-build
+ulang, perintah test meng-install-nya dulu.
+"""
+import io
+
+import pytest
+from PIL import Image
+
+from api import ocr_image_normalize as n
+
+
+def _save(img, fmt, **kw):
+    buf = io.BytesIO()
+    img.save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+def _open(page):
+    return Image.open(io.BytesIO(page.data))
+
+
+@pytest.mark.parametrize("fmt,mime,ext", [
+    ("PNG", "image/png", ".png"), ("JPEG", "image/jpeg", ".jpg"), ("WEBP", "image/webp", ".webp"),
+])
+def test_format_web_kecil_disimpan_apa_adanya(fmt, mime, ext):
+    raw = _save(Image.new("RGB", (40, 20), "white"), fmt)
+    [page] = n.normalize(raw, "a.x", max_pages=10)
+    assert (page.data, page.mime_type, page.ext, page.filename) == (raw, mime, ext, "a.x")
+
+
+@pytest.mark.parametrize("fmt,mode", [
+    ("BMP", "RGB"), ("GIF", "P"), ("TIFF", "RGB"), ("AVIF", "RGB"), ("HEIF", "RGB"),
+    ("ICO", "RGBA"), ("PPM", "RGB"), ("TGA", "RGB"), ("JPEG2000", "RGB"), ("TIFF", "1"), ("TIFF", "CMYK"),
+])
+def test_format_lain_jadi_jpeg(fmt, mode):
+    # ICO menyimpan beberapa ukuran ikon; minta satu ukuran yang sama dengan gambarnya.
+    raw = _save(Image.new(mode, (32, 16)), fmt, **({"sizes": [(32, 16)]} if fmt == "ICO" else {}))
+    [page] = n.normalize(raw, "f", max_pages=10)
+    assert (page.mime_type, page.ext) == ("image/jpeg", ".jpg")
+    im = _open(page)
+    assert im.format == "JPEG" and im.size == (32, 16)
+
+
+def test_tiff_16_bit_jadi_jpeg():
+    raw = _save(Image.new("I;16", (8, 8), 40000), "TIFF")
+    [page] = n.normalize(raw, "scan.tif", max_pages=10)
+    im = _open(page)
+    assert im.format == "JPEG" and im.convert("L").getpixel((4, 4)) > 100
+
+
+def test_png_besar_diperkecil():
+    raw = _save(Image.new("RGB", (5000, 100), "white"), "PNG")
+    [page] = n.normalize(raw, "lebar.png", max_pages=10)
+    assert page.mime_type == "image/jpeg"
+    assert _open(page).size == (4096, 82)
+
+
+def test_transparan_diratakan_ke_putih():
+    raw = _save(Image.new("RGBA", (5000, 10), (0, 0, 0, 0)), "PNG")
+    [page] = n.normalize(raw, "t.png", max_pages=10)
+    r, g, b = _open(page).convert("RGB").getpixel((10, 2))
+    assert min(r, g, b) > 240
+
+
+def test_orientasi_exif_diterapkan_saat_konversi():
+    img = Image.new("RGB", (5000, 10), "white")
+    exif = img.getexif()
+    exif[0x0112] = 6  # rotate 90 CW
+    raw = _save(img, "JPEG", exif=exif)
+    [page] = n.normalize(raw, "foto.jpg", max_pages=10)
+    assert _open(page).size == (8, 4096)
+
+
+def test_tiff_multi_halaman_dipecah():
+    pages = [Image.new("L", (10, 10), v) for v in (0, 128, 255)]
+    raw = _save(pages[0], "TIFF", save_all=True, append_images=pages[1:])
+    out = n.normalize(raw, "fax.tiff", max_pages=10)
+    assert [p.filename for p in out] == ["fax.tiff (hal. 1/3)", "fax.tiff (hal. 2/3)", "fax.tiff (hal. 3/3)"]
+    assert [_open(p).convert("L").getpixel((5, 5)) for p in out][0] < 20
+    assert _open(out[2]).convert("L").getpixel((5, 5)) > 235
+
+
+def test_gif_animasi_hanya_frame_pertama():
+    frames = [Image.new("P", (10, 10), i) for i in range(4)]
+    raw = _save(frames[0], "GIF", save_all=True, append_images=frames[1:])
+    assert len(n.normalize(raw, "anim.gif", max_pages=10)) == 1
+
+
+def test_halaman_melebihi_batas():
+    pages = [Image.new("L", (4, 4)) for _ in range(11)]
+    raw = _save(pages[0], "TIFF", save_all=True, append_images=pages[1:])
+    with pytest.raises(n.TooManyPages) as e:
+        n.normalize(raw, "x.tif", max_pages=10)
+    assert e.value.pages == 11
+
+
+@pytest.mark.parametrize("raw", [b"", b"halo dunia", b"%PDF-1.4\n...", b"\x89PNG\r\n\x1a\nrusak"])
+def test_bukan_gambar(raw):
+    with pytest.raises(n.NotAnImage):
+        n.normalize(raw, "a.png", max_pages=10)
+
+
+def test_nama_panjang_dipotong():
+    pages = [Image.new("L", (4, 4)) for _ in range(2)]
+    raw = _save(pages[0], "TIFF", save_all=True, append_images=pages[1:])
+    out = n.normalize(raw, "x" * 400 + ".tif", max_pages=10)
+    assert all(len(p.filename) <= 255 for p in out)
+    assert out[0].filename.endswith("(hal. 1/2)")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+docker run --rm -v /data/scorecard_v2/telemarketing-qc-api:/src:ro -w /tmp local/qc-api:latest \
+  sh -c 'cp -r /src /tmp/w && pip install -q pytest pillow-heif==1.8.0 && PYTHONPATH=/tmp/w/core:/tmp/w python -m pytest -q -p no:cacheprovider /tmp/w/tests/test_ocr_image_normalize.py'
+```
+Expected: FAIL — `ImportError: cannot import name 'ocr_image_normalize'`.
+
+- [ ] **Step 3: Implement**
+
+`api/ocr_image_normalize.py`:
+
+```python
+"""Normalisasi gambar menu OCR Gambar.
+
+File apa pun yang terbaca Pillow (plus HEIC/HEIF lewat ``pillow-heif``) diubah
+menjadi satu atau beberapa halaman JPEG/PNG/WEBP — satu-satunya bentuk yang
+diterima model vision dan bisa ditampilkan browser. Dijalankan API saat upload,
+sebelum apa pun disimpan, sehingga worker tidak perlu tahu format asalnya.
+
+TIFF multi-halaman (scan/fax) dipecah per halaman; format lain hanya frame
+pertama (GIF/WEBP animasi, MPO kamera). Hasil konversi disimpan JPEG, bukan PNG:
+foto HEIC/TIFF besar sebagai PNG bisa melewati batas ukuran request model.
+"""
+import io
+from dataclasses import dataclass
+
+from PIL import Image, ImageOps
+
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+except ImportError:  # image lama tanpa pillow-heif: HEIC ditolak sebagai bukan gambar
+    pass
+
+MAX_SIDE = 4096
+JPEG_QUALITY = 90
+MAX_NAME = 230
+_KEEP = {
+    "JPEG": ("image/jpeg", ".jpg"),
+    "PNG": ("image/png", ".png"),
+    "WEBP": ("image/webp", ".webp"),
+}
+_SPLIT_FORMATS = {"TIFF"}
+
+
+class NotAnImage(ValueError):
+    """Isi file tidak terbaca sebagai gambar."""
+
+
+class TooManyPages(ValueError):
+    def __init__(self, pages: int):
+        super().__init__(f"{pages} halaman")
+        self.pages = pages
+
+
+@dataclass(frozen=True)
+class Page:
+    filename: str
+    data: bytes
+    mime_type: str
+    ext: str
+
+
+def normalize(data: bytes, filename: str, max_pages: int) -> list:
+    try:
+        im = Image.open(io.BytesIO(data))
+        fmt = im.format
+        frames = getattr(im, "n_frames", 1)
+    except Exception as exc:
+        raise NotAnImage(filename) from exc
+    count = frames if fmt in _SPLIT_FORMATS else 1
+    if count > max_pages:
+        raise TooManyPages(count)
+    base = (filename or "gambar")[:MAX_NAME]
+    pages = []
+    for i in range(count):
+        try:
+            im.seek(i)
+            body, mime, ext = _encode(im, data, fmt, single_frame=frames == 1)
+        except Exception as exc:
+            raise NotAnImage(filename) from exc
+        label = base if count == 1 else f"{base} (hal. {i + 1}/{count})"
+        pages.append(Page(label, body, mime, ext))
+    return pages
+
+
+def _encode(im, raw, fmt, single_frame):
+    if fmt in _KEEP and single_frame and max(im.size) <= MAX_SIDE:
+        im.load()  # memastikan isinya benar-benar bisa didekode, bukan hanya header
+        mime, ext = _KEEP[fmt]
+        return raw, mime, ext
+    frame = _to_rgb(ImageOps.exif_transpose(im.copy()))
+    frame.thumbnail((MAX_SIDE, MAX_SIDE))
+    buf = io.BytesIO()
+    frame.save(buf, "JPEG", quality=JPEG_QUALITY)
+    return buf.getvalue(), "image/jpeg", ".jpg"
+
+
+def _to_rgb(img):
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, "white")
+        bg.paste(rgba, mask=rgba.getchannel("A"))
+        return bg
+    if img.mode.startswith("I;16") or img.mode == "I":
+        return img.convert("I").point(lambda v: v * (1 / 256)).convert("L").convert("RGB")
+    return img.convert("RGB")
+```
+
+`api/requirements.txt`: tambahkan baris `pillow-heif`. `api/constraints.txt`: tambahkan `pillow-heif==1.8.0` di bawah `pillow==12.3.0`.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run perintah Step 2 → Expected: `26 passed`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /data/scorecard_v2/telemarketing-qc-api
+git add api/ocr_image_normalize.py api/requirements.txt api/constraints.txt tests/test_ocr_image_normalize.py
+git commit -m "feat(api): normalisasi gambar OCR (semua format, HEIC, TIFF multi-halaman)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Router API OCR Gambar
 
 **Files:**
 - Create: `telemarketing-qc-api/api/routers/ocr_image.py`
@@ -608,7 +874,7 @@ done
 - Test: `telemarketing-qc-api/tests/test_ocr_image_router.py`
 
 **Interfaces:**
-- Consumes: `api.ocr_image_store.*` (Task 2), `api.permissions.MENU_OCR_IMAGE`, `api.permissions.ADMIN_LIKE_ROLES`, `api.rbac.require` (Task 1).
+- Consumes: `api.ocr_image_store.*` (Task 2), `api.ocr_image_normalize.normalize/NotAnImage/TooManyPages/Page` (Task 3), `api.permissions.MENU_OCR_IMAGE`, `api.permissions.ADMIN_LIKE_ROLES`, `api.rbac.require` (Task 1).
 - Produces (HTTP, semua di belakang `require(MENU_OCR_IMAGE)`):
   - `POST /ocr_images` multipart field `files` (berulang) → `{"batch_id": str, "items": [Summary]}`
   - `GET /ocr_images?page=1&page_size=20` → `{"items": [Summary], "total": int, "page": int, "page_size": int}`
@@ -742,16 +1008,53 @@ def test_file_lebih_dari_10mb_ditolak(env, monkeypatch):
     assert _status(e) == 422 and "melebihi 10 MB" in e.value.detail
 
 
-def test_ekstensi_lain_ditolak(env):
+def test_file_teks_ditolak(env):
     with pytest.raises(HTTPException) as e:
-        mod.upload_ocr_images(files=[_upload("a.gif", _png())], db=None, current_user=QC)
-    assert _status(e) == 422 and "bukan JPG/PNG" in e.value.detail
+        mod.upload_ocr_images(files=[_upload("catatan.txt", b"halo")], db=None, current_user=QC)
+    assert _status(e) == 422 and e.value.detail == "File 'catatan.txt' bukan gambar yang bisa dibaca"
 
 
 def test_png_palsu_ditolak(env):
     with pytest.raises(HTTPException) as e:
         mod.upload_ocr_images(files=[_upload("a.png", b"%PDF-1.4 bukan gambar")], db=None, current_user=QC)
-    assert _status(e) == 422 and "tidak valid" in e.value.detail
+    assert _status(e) == 422 and "bukan gambar yang bisa dibaca" in e.value.detail
+
+
+def _encode(img, fmt, **kw):
+    buf = io.BytesIO()
+    img.save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+def test_gif_dan_bmp_diterima_disimpan_jpeg(env):
+    files = [_upload("a.gif", _encode(Image.new("P", (4, 4)), "GIF")),
+             _upload("b.bmp", _encode(Image.new("RGB", (4, 4)), "BMP"))]
+    out = mod.upload_ocr_images(files=files, db=None, current_user=QC)
+    assert [i["filename"] for i in out["items"]] == ["a.gif", "b.bmp"]
+    assert {ct for _, _, ct in env.put} == {"image/jpeg"}
+    assert all(name.endswith(".jpg") for _, name, _ in env.put)
+
+
+def _tiff(pages):
+    imgs = [Image.new("L", (4, 4)) for _ in range(pages)]
+    return _encode(imgs[0], "TIFF", save_all=True, append_images=imgs[1:])
+
+
+def test_tiff_multi_halaman_dipecah(env):
+    out = mod.upload_ocr_images(files=[_upload("fax.tif", _tiff(3))], db=None, current_user=QC)
+    assert [i["filename"] for i in out["items"]] == [
+        "fax.tif (hal. 1/3)", "fax.tif (hal. 2/3)", "fax.tif (hal. 3/3)"]
+    assert len(env.sent) == 3
+    assert len({i["batch_id"] for i in out["items"]}) == 1
+
+
+def test_total_halaman_melebihi_batas(env):
+    files = [_upload("a.png", _png()), _upload("fax.tif", _tiff(10))]
+    with pytest.raises(HTTPException) as e:
+        mod.upload_ocr_images(files=files, db=None, current_user=QC)
+    assert _status(e) == 422
+    assert e.value.detail == "Maksimal 10 gambar per upload (termasuk tiap halaman TIFF; total 11)"
+    assert env.put == [] and env.store.rows == {}
 
 
 def test_satu_file_salah_tidak_ada_yang_tersimpan(env):
@@ -835,7 +1138,7 @@ def test_page_size_dibatasi(env):
 
 ```bash
 docker run --rm -v /data/scorecard_v2/telemarketing-qc-api:/src:ro -w /tmp local/qc-api:latest \
-  sh -c 'cp -r /src /tmp/w && pip install -q pytest && PYTHONPATH=/tmp/w/core:/tmp/w python -m pytest -q -p no:cacheprovider /tmp/w/tests/test_ocr_image_router.py'
+  sh -c 'cp -r /src /tmp/w && pip install -q pytest pillow-heif==1.8.0 && PYTHONPATH=/tmp/w/core:/tmp/w python -m pytest -q -p no:cacheprovider /tmp/w/tests/test_ocr_image_router.py'
 ```
 Expected: FAIL — `ImportError: cannot import name 'ocr_image' from 'api.routers'`.
 
@@ -844,7 +1147,7 @@ Expected: FAIL — `ImportError: cannot import name 'ocr_image' from 'api.router
 `api/routers/ocr_image.py`:
 
 ```python
-"""Menu OCR Gambar: upload JPG/PNG, worker menyalin teksnya, riwayat per pengunggah.
+"""Menu OCR Gambar: upload gambar, worker menyalin teksnya, riwayat per pengunggah.
 
 Alat mandiri (1 Oktober 2026) — tidak terikat tiket/result. Seluruh router di
 belakang ``menu.ocr_image`` (Admin/Demo lewat role, user lain lewat
@@ -854,15 +1157,14 @@ bocor.
 """
 import io
 import logging
-import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from PIL import Image
 from sqlalchemy.orm import Session
 
 from api import ocr_image_store as store
+from api.ocr_image_normalize import NotAnImage, TooManyPages, normalize
 from api.dependencies import get_current_user, get_db, get_minio, get_settings
 from api.permissions import ADMIN_LIKE_ROLES, MENU_OCR_IMAGE
 from api.rbac import require
@@ -876,8 +1178,6 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGE_SIZE = 100
 OBJECT_PREFIX = "ocr-images/"
 TASK_NAME = "worker.tasks.process_ocr_image.process_ocr_image"
-_EXT_MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
-_PIL_FORMATS = {"JPEG", "PNG"}
 
 
 def _owner_id(current_user):
@@ -892,35 +1192,29 @@ def _invalid(detail: str):
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
 
 
-def _is_image(data: bytes) -> bool:
-    try:
-        with Image.open(io.BytesIO(data)) as im:
-            fmt = im.format
-            im.verify()
-        return fmt in _PIL_FORMATS
-    except Exception:
-        return False
-
-
 def _read_validated(files):
-    """Baca & periksa SEMUA file sebelum apa pun disimpan: satu salah = tolak semua."""
+    """Baca, periksa, dan normalkan SEMUA file sebelum apa pun disimpan: satu salah =
+    tolak semua. Mengembalikan daftar ``Page`` (TIFF multi-halaman sudah dipecah)."""
     if not files:
         raise _invalid("Pilih minimal satu gambar")
     if len(files) > MAX_FILES:
         raise _invalid(f"Maksimal {MAX_FILES} gambar per upload")
-    out = []
+    pages = []
     for f in files:
-        name = f.filename or ""
-        ext = os.path.splitext(name)[1].lower()
-        if ext not in _EXT_MIME:
-            raise _invalid(f"File '{name}' bukan JPG/PNG — hanya file JPG/PNG yang diterima")
+        name = f.filename or "gambar"
         data = f.file.read(MAX_BYTES + 1)
         if len(data) > MAX_BYTES:
             raise _invalid(f"File '{name}' melebihi 10 MB")
-        if not _is_image(data):
-            raise _invalid(f"File '{name}' bukan gambar JPG/PNG yang valid")
-        out.append((name, data, ext, _EXT_MIME[ext]))
-    return out
+        try:
+            pages.extend(normalize(data, name, max_pages=MAX_FILES - len(pages)))
+        except TooManyPages as exc:
+            raise _invalid(
+                f"Maksimal {MAX_FILES} gambar per upload "
+                f"(termasuk tiap halaman TIFF; total {len(pages) + exc.pages})"
+            )
+        except NotAnImage:
+            raise _invalid(f"File '{name}' bukan gambar yang bisa dibaca")
+    return pages
 
 
 def _iso(dt):
@@ -961,19 +1255,19 @@ def upload_ocr_images(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    checked = _read_validated(files)
+    pages = _read_validated(files)
     settings = get_settings()
     client = get_minio()
     batch_id = uuid.uuid4()
     rows = []
-    for name, data, ext, mime in checked:
+    for page in pages:
         image_id = uuid.uuid4()
-        object_path = f"{OBJECT_PREFIX}{image_id}{ext}"
-        client.put_object(settings.minio_bucket_documents, object_path, io.BytesIO(data),
-                          length=len(data), content_type=mime)
+        object_path = f"{OBJECT_PREFIX}{image_id}{page.ext}"
+        client.put_object(settings.minio_bucket_documents, object_path, io.BytesIO(page.data),
+                          length=len(page.data), content_type=page.mime_type)
         rows.append(store.create(db, image_id=image_id, user_id=current_user.id, batch_id=batch_id,
-                                 filename=name, object_path=object_path, mime_type=mime,
-                                 size_bytes=len(data)))
+                                 filename=page.filename, object_path=object_path,
+                                 mime_type=page.mime_type, size_bytes=len(page.data)))
     for row in rows:
         _send(row.id)
     return {"batch_id": str(batch_id), "items": [_summary(r) for r in rows]}
@@ -1058,7 +1352,7 @@ Catatan: test `test_detail_milik_orang_lain_404` memanggil `ocr_image_file` — 
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run perintah Step 2 → Expected: `15 passed`.
+Run perintah Step 2 → Expected: `18 passed`.
 Lalu pastikan app masih bisa di-import dan rutenya terdaftar:
 ```bash
 docker run --rm -v /data/scorecard_v2/telemarketing-qc-api:/src:ro -w /tmp local/qc-api:latest \
@@ -1078,7 +1372,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Task worker `process_ocr_image`
+### Task 5: Task worker `process_ocr_image`
 
 **Files:**
 - Create: `telemarketing-qc-worker/worker/tasks/process_ocr_image.py`
@@ -1363,7 +1657,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Halaman dashboard "OCR Gambar"
+### Task 6: Halaman dashboard "OCR Gambar"
 
 **Files:**
 - Create: `telemarketing-qc-dashboard/src/utils/ocrImage.js`, `src/utils/ocrImage.test.mjs`
@@ -1371,8 +1665,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `src/permissions.js` (konstanta `P`, `ROUTE_PERMISSIONS`, `LANDING_ORDER`), `src/router/index.js` (route setelah `/upload/reprocess`), `src/components/SidebarMenu.vue` (link setelah Reprocess All Ticket ~baris 93-95, dan `showUploadGroup` ~baris 139), `package.json` (`test` script)
 
 **Interfaces:**
-- Consumes: endpoint Task 3 (bentuk respons di Interfaces Task 3).
-- Produces: `validateOcrFiles(files) -> string` (`''` = valid), `txtFilename(filename) -> string`, `hasActive(items) -> boolean`, `STATUS_LABEL`, `OCR_MAX_FILES`, `OCR_MAX_BYTES`; `P.MENU_OCR_IMAGE = 'menu.ocr_image'`; route `/upload/ocr-image`.
+- Consumes: endpoint Task 4 (bentuk respons di Interfaces Task 4).
+- Produces: `validateOcrFiles(files) -> string` (`''` = valid; jumlah halaman TIFF tidak bisa dicek di klien — API yang menolak), `OCR_ACCEPT`, `txtFilename(filename) -> string`, `hasActive(items) -> boolean`, `STATUS_LABEL`, `OCR_MAX_FILES`, `OCR_MAX_BYTES`; `P.MENU_OCR_IMAGE = 'menu.ocr_image'`; route `/upload/ocr-image`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1383,7 +1677,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { validateOcrFiles, txtFilename, hasActive, OCR_MAX_BYTES } from './ocrImage.js'
 
-const f = (name, size = 100) => ({ name, size })
+const f = (name, size = 100, type = 'image/png') => ({ name, size, type })
 
 test('kosong ditolak', () => {
   assert.equal(validateOcrFiles([]), 'Pilih minimal satu gambar')
@@ -1394,9 +1688,14 @@ test('lebih dari 10 ditolak', () => {
   assert.equal(validateOcrFiles(files), 'Maksimal 10 gambar per upload')
 })
 
-test('ekstensi selain jpg/jpeg/png ditolak, kapital diterima', () => {
-  assert.equal(validateOcrFiles([f('a.gif')]), "File 'a.gif' bukan JPG/PNG — hanya file JPG/PNG yang diterima")
-  assert.equal(validateOcrFiles([f('A.JPG'), f('b.jpeg'), f('c.png')]), '')
+test('jenis gambar apa pun diterima; HEIC/TIFF dikenali dari ekstensi bila type kosong', () => {
+  assert.equal(validateOcrFiles([f('a.gif', 1, 'image/gif'), f('b.bmp', 1, 'image/bmp'), f('c.webp', 1, 'image/webp')]), '')
+  assert.equal(validateOcrFiles([f('IMG_0001.HEIC', 1, ''), f('scan.tif', 1, ''), f('x.heif', 1, '')]), '')
+})
+
+test('bukan gambar ditolak dengan pesan yang sama dengan API', () => {
+  assert.equal(validateOcrFiles([f('catatan.txt', 1, 'text/plain')]), "File 'catatan.txt' bukan gambar yang bisa dibaca")
+  assert.equal(validateOcrFiles([f('a.pdf', 1, 'application/pdf')]), "File 'a.pdf' bukan gambar yang bisa dibaca")
 })
 
 test('lebih dari 10 MB ditolak', () => {
@@ -1435,7 +1734,10 @@ Expected: FAIL — `Cannot find module '.../src/utils/ocrImage.js'`.
 // penolakannya terjadi.
 export const OCR_MAX_FILES = 10
 export const OCR_MAX_BYTES = 10 * 1024 * 1024
-const EXTENSIONS = ['.jpg', '.jpeg', '.png']
+// Browser sering memberi `type` kosong untuk HEIC/HEIF (Windows) — ekstensi ini
+// tetap diterima; pemeriksaan sebenarnya ada di API (isi file dibaca Pillow).
+const IMAGE_EXTENSIONS = ['.heic', '.heif', '.tif', '.tiff', '.avif', '.jfif', '.jp2']
+export const OCR_ACCEPT = 'image/*,.heic,.heif'
 
 export const STATUS_LABEL = {
   pending: 'Menunggu',
@@ -1450,9 +1752,8 @@ export function validateOcrFiles(files) {
   if (list.length > OCR_MAX_FILES) return `Maksimal ${OCR_MAX_FILES} gambar per upload`
   for (const f of list) {
     const name = (f.name || '').toLowerCase()
-    if (!EXTENSIONS.some((e) => name.endsWith(e))) {
-      return `File '${f.name}' bukan JPG/PNG — hanya file JPG/PNG yang diterima`
-    }
+    const isImage = (f.type || '').startsWith('image/') || IMAGE_EXTENSIONS.some((e) => name.endsWith(e))
+    if (!isImage) return `File '${f.name}' bukan gambar yang bisa dibaca`
     if (f.size > OCR_MAX_BYTES) return `File '${f.name}' melebihi 10 MB`
   }
   return ''
@@ -1468,7 +1769,7 @@ export function hasActive(items) {
 }
 ```
 
-Run: `npm test` → Expected: semua PASS (termasuk 6 test baru).
+Run: `npm test` → Expected: semua PASS (termasuk 7 test baru).
 
 - [ ] **Step 4: Wire permission, route, sidebar**
 
@@ -1506,7 +1807,7 @@ dan tambahkan `P.MENU_OCR_IMAGE,` ke argumen `auth.canAny(...)` di `showUploadGr
     <div class="ocr-page">
       <div class="upload-card">
         <h2 class="card-title">OCR Gambar</h2>
-        <p class="card-subtitle">Upload gambar <strong>JPG/PNG</strong> (maks {{ OCR_MAX_FILES }} file, 10 MB per file). Teks di dalam gambar disalin apa adanya.</p>
+        <p class="card-subtitle">Upload gambar format apa pun (JPG, PNG, HEIC, TIFF, WEBP, BMP, …) — maks {{ OCR_MAX_FILES }} gambar, 10 MB per file; TIFF multi-halaman dihitung per halaman. Teks di dalam gambar disalin apa adanya.</p>
 
         <div
           class="drop-zone"
@@ -1516,7 +1817,7 @@ dan tambahkan `P.MENU_OCR_IMAGE,` ke argumen `auth.canAny(...)` di `showUploadGr
           @drop.prevent="onDrop"
           @click="fileInput.click()"
         >
-          <input ref="fileInput" type="file" accept=".jpg,.jpeg,.png" multiple class="hidden-input" @change="onSelect" />
+          <input ref="fileInput" type="file" :accept="OCR_ACCEPT" multiple class="hidden-input" @change="onSelect" />
           <div v-if="!files.length" class="drop-placeholder">
             <p>Drag & drop gambar di sini</p>
             <p class="drop-hint">atau klik untuk browse (multi-file)</p>
@@ -1597,7 +1898,7 @@ dan tambahkan `P.MENU_OCR_IMAGE,` ke argumen `auth.canAny(...)` di `showUploadGr
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
-import { OCR_MAX_FILES, STATUS_LABEL, hasActive, txtFilename, validateOcrFiles } from '../../utils/ocrImage.js'
+import { OCR_ACCEPT, OCR_MAX_FILES, STATUS_LABEL, hasActive, txtFilename, validateOcrFiles } from '../../utils/ocrImage.js'
 
 const POLL_MS = 3000
 
@@ -1810,15 +2111,16 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: E2E OCR Gambar
+### Task 7: E2E OCR Gambar
 
 **Files:**
 - Modify: `telemarketing-qc-api/e2e/stub_llm/app.py` (cabang OCR di `chat()`)
 - Modify: `telemarketing-qc-api/e2e/.env.e2e` (tambah `OCR_IMAGE_CAMPAIGNS=E2E-Complaint`)
+- Modify: `telemarketing-qc-api/e2e/tests/Dockerfile` (tambah `"pillow==12.3.0" "pillow-heif==1.8.0"` ke `pip install` — test membuat TIFF/HEIC sendiri)
 - Create: `telemarketing-qc-api/e2e/tests/test_09_ocr_gambar.py`
 
 **Interfaces:**
-- Consumes: semua endpoint Task 3, task Task 4, fixture e2e `api`, `auth`, `q`, `db`, `STUB`.
+- Consumes: semua endpoint Task 4, task Task 5, fixture e2e `api`, `auth`, `q`, `db`, `STUB`.
 - Produces: stub mengembalikan teks tetap `STUB_OCR_TEKS = "TEKS OCR STUB\n| a | b |"` untuk system prompt yang memuat `"You are an OCR engine"`, dan mencatat `jenis: "ocr"` di `/_jejak`.
 
 - [ ] **Step 1: Add the stub branch**
@@ -1880,7 +2182,7 @@ STUB_OCR_TEKS = "TEKS OCR STUB\n| a | b |"
 
 
 def _png():
-    # PNG 1x1 yang valid (diverifikasi Pillow 1 Oktober 2026) — image test tidak memuat Pillow.
+    # PNG 1x1 yang valid (diverifikasi Pillow 1 Oktober 2026).
     import base64
     return base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC")
@@ -1986,6 +2288,42 @@ def test_campuran_ditolak(complaint, q):
     assert q("select count(*) from ocr_images")[0][0] == sebelum
 
 
+def _encode(img, fmt, **kw):
+    buf = io.BytesIO()
+    img.save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+@allure.title("TIFF 3 halaman dipecah menjadi 3 entri dan semuanya di-OCR")
+def test_tiff_multi_halaman(complaint):
+    from PIL import Image
+    pages = [Image.new("L", (40, 20), v) for v in (0, 128, 255)]
+    raw = _encode(pages[0], "TIFF", save_all=True, append_images=pages[1:])
+    r = requests.post(f"{API}/ocr_images", headers=complaint,
+                      files=[("files", ("fax.tiff", io.BytesIO(raw), "image/tiff"))], timeout=60)
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert [i["filename"] for i in items] == ["fax.tiff (hal. 1/3)", "fax.tiff (hal. 2/3)", "fax.tiff (hal. 3/3)"]
+    rows = _tunggu_selesai(complaint, [i["id"] for i in items])
+    assert all(x["status"] == "done" and x["mime_type"] == "image/jpeg" for x in rows)
+
+
+@allure.title("HEIC (foto iPhone) diterima, disimpan JPEG, dan di-OCR")
+def test_heic(complaint):
+    import pillow_heif
+    from PIL import Image
+    pillow_heif.register_heif_opener()
+    raw = _encode(Image.new("RGB", (40, 20), "white"), "HEIF")
+    r = requests.post(f"{API}/ocr_images", headers=complaint,
+                      files=[("files", ("IMG_0001.HEIC", io.BytesIO(raw), "image/heic"))], timeout=60)
+    assert r.status_code == 200, r.text
+    image_id = r.json()["items"][0]["id"]
+    [row] = _tunggu_selesai(complaint, [image_id])
+    assert row["status"] == "done" and row["mime_type"] == "image/jpeg"
+    g = requests.get(f"{API}/ocr_images/{image_id}/image", headers=complaint, timeout=30)
+    assert g.headers["content-type"] == "image/jpeg" and g.content[:2] == b"\xff\xd8"
+
+
 @allure.title("Hapus menghilangkan baris dan gambar")
 def test_hapus(complaint):
     r = requests.post(f"{API}/ocr_images", headers=complaint,
@@ -2002,13 +2340,13 @@ def test_hapus(complaint):
 cd /data/scorecard_v2/telemarketing-qc-dashboard && npm run build
 cd /data/scorecard_v2/telemarketing-qc-api/e2e && ./jalankan.sh
 ```
-Expected: test `test_09_ocr_gambar.py` 6 passed, dan test 01–08 tetap PASS. Bila ada test lama yang gagal, ulangi run dengan keempat repo di `main` (`git -C <repo> checkout main`, `./jalankan.sh`, lalu kembali ke `feat/ocr-gambar`): gagal juga di `main` = bukan regresi fitur ini — catat dan laporkan; lulus di `main` = regresi, perbaiki sebelum lanjut.
+Expected: test `test_09_ocr_gambar.py` 8 passed, dan test 01–08 tetap PASS. Bila ada test lama yang gagal, ulangi run dengan keempat repo di `main` (`git -C <repo> checkout main`, `./jalankan.sh`, lalu kembali ke `feat/ocr-gambar`): gagal juga di `main` = bukan regresi fitur ini — catat dan laporkan; lulus di `main` = regresi, perbaiki sebelum lanjut.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 cd /data/scorecard_v2/telemarketing-qc-api
-git add e2e/stub_llm/app.py e2e/.env.e2e e2e/tests/test_09_ocr_gambar.py
+git add e2e/stub_llm/app.py e2e/.env.e2e e2e/tests/Dockerfile e2e/tests/test_09_ocr_gambar.py
 git commit -m "test(e2e): OCR Gambar ujung ke ujung
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -2018,7 +2356,7 @@ Biarkan stack e2e menyala selama review; matikan dengan `./jalankan.sh bersih` s
 
 ---
 
-### Task 7: Spec sinkron + catatan deploy
+### Task 8: Spec sinkron + catatan deploy
 
 **Files:**
 - Modify: `telemarketing-qc-api/docs/superpowers/specs/2026-10-01-ocr-gambar-design.md`
@@ -2040,7 +2378,7 @@ Di spec:
   OCR Gambar untuk non-admin. Prod: `Complaint Handling`. Kosong = hanya Admin/Demo.
 ```
 
-`docs/API_REFERENCE.md`, tambahkan bagian "OCR Gambar" berisi enam endpoint dan bentuk respons persis seperti blok **Interfaces** Task 3.
+`docs/API_REFERENCE.md`, tambahkan bagian "OCR Gambar" berisi enam endpoint dan bentuk respons persis seperti blok **Interfaces** Task 4, plus aturan format/halaman dari spec §5a.
 
 - [ ] **Step 3: Commit**
 
@@ -2058,7 +2396,7 @@ Tulis ringkasan ini ke user dan tunggu konfirmasi sebelum menyentuh prod:
 
 1. Merge `feat/ocr-gambar` → `main` di keempat repo (push dilakukan user, lihat memori git push).
 2. api `.env`: tambah `OCR_IMAGE_CAMPAIGNS=Complaint Handling` (backup `.env` dulu).
-3. Build candidate api/worker/dashboard sesuai prosedur (constraints.txt), diff freeze, tag image lama untuk rollback.
+3. Build candidate api/worker/dashboard sesuai prosedur (constraints.txt), diff freeze, tag image lama untuk rollback. Image api WAJIB di-build ulang (dependency baru `pillow-heif==1.8.0`); cek `docker run --rm <cand> python -c "import pillow_heif"`.
 4. Recreate api (CMD-nya menjalankan `alembic upgrade head` → 0064), lalu worker/beat, lalu dashboard.
 5. Smoke: `select version_num from dashboard.alembic_version` = `0064`; login Admin → menu OCR Gambar tampil; upload satu screenshot uji tanpa data nasabah → `done`.
 6. Kube worker (10.158.3.13) tidak perlu diubah: Redis-nya terpisah, task ini tidak sampai ke sana; tabel baru tidak mengganggu kode lamanya.
