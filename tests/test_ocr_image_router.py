@@ -50,6 +50,9 @@ class FakeStore:
     def reset_pending(self, db, row):
         row.status = "pending"
 
+    def mark_failed(self, db, row, message):
+        row.status, row.error_message = "failed", message
+
     def delete(self, db, row):
         self.rows.pop(str(row.id))
 
@@ -240,3 +243,89 @@ def test_page_size_dibatasi(env):
     with pytest.raises(HTTPException) as e:
         mod.list_ocr_images(page=1, page_size=500, db=None, current_user=QC)
     assert _status(e) == 422
+
+
+class _Obj:
+    def read(self):
+        return b"IMG"
+
+    def close(self):
+        pass
+
+    def release_conn(self):
+        pass
+
+
+@pytest.mark.parametrize("nama", ['a"b.png', "a\r\nSet-Cookie: x.png", "scan “kontrak” – 1.png", "a\\b.png"])
+def test_header_content_disposition_aman(env, monkeypatch, nama):
+    row = _seed(env, QC)
+    row.filename = nama
+    monkeypatch.setattr(mod, "get_minio", lambda: SimpleNamespace(get_object=lambda b, n: _Obj()))
+    resp = mod.ocr_image_file(image_id=str(row.id), db=None, current_user=QC)
+    header = resp.headers["content-disposition"]
+    header.encode("latin-1")
+    assert "\r" not in header and "\n" not in header
+    assert header.startswith('inline; filename="') and "filename*=UTF-8''" in header
+    fallback = header.split('filename="')[1].split('"')[0]
+    assert fallback.isascii() and "\\" not in fallback
+
+
+def test_put_object_gagal_di_tengah_membersihkan(env, monkeypatch):
+    calls = []
+
+    def put(bucket, name, data, length, content_type):
+        calls.append(name)
+        if len(calls) == 2:
+            raise RuntimeError("minio down")
+    removed = env.removed
+    monkeypatch.setattr(mod, "get_minio", lambda: SimpleNamespace(
+        put_object=put, remove_object=lambda b, n: removed.append((b, n))))
+    files = [_upload(f"{i}.png", _png()) for i in range(3)]
+    with pytest.raises(HTTPException) as e:
+        mod.upload_ocr_images(files=files, db=SimpleNamespace(rollback=lambda: None), current_user=QC)
+    assert _status(e) == 503 and e.value.detail == "Gagal menyimpan gambar, silakan coba lagi"
+    assert env.store.rows == {} and env.sent == []
+    assert sorted(n for _, n in removed) == sorted(calls)
+
+
+def test_store_create_gagal_membersihkan(env, monkeypatch):
+    real, n = env.store.create, []
+
+    def create(db, **kw):
+        if n:
+            raise RuntimeError("db down")
+        n.append(1)
+        return real(db, **kw)
+    monkeypatch.setattr(env.store, "create", create)
+    files = [_upload(f"{i}.png", _png()) for i in range(2)]
+    with pytest.raises(HTTPException) as e:
+        mod.upload_ocr_images(files=files, db=SimpleNamespace(rollback=lambda: None), current_user=QC)
+    assert _status(e) == 503
+    assert env.store.rows == {} and env.sent == []
+    assert len(env.removed) == 2 and len(env.put) == 2
+
+
+def _broker_down(monkeypatch):
+    import api.celery_client as cc
+
+    def boom(name, args):
+        raise RuntimeError("broker down")
+    monkeypatch.setattr(cc, "celery_app", SimpleNamespace(send_task=boom))
+
+
+def test_send_task_gagal_baris_ditandai_failed(env, monkeypatch):
+    _broker_down(monkeypatch)
+    out = mod.upload_ocr_images(files=[_upload("a.png", _png())], db=None, current_user=QC)
+    assert out["items"][0]["status"] == "failed"
+    row = next(iter(env.store.rows.values()))
+    assert row.error_message == "Gagal masuk antrean proses — klik Proses ulang"
+
+
+def test_retry_send_gagal_503_dan_failed(env, monkeypatch):
+    row = _seed(env, QC, status="failed")
+    _broker_down(monkeypatch)
+    with pytest.raises(HTTPException) as e:
+        mod.retry_ocr_image(image_id=str(row.id), db=None, current_user=QC)
+    assert _status(e) == 503 and e.value.detail == "Gagal masuk antrean proses, silakan coba lagi"
+    assert row.status == "failed"
+    assert row.error_message == "Gagal masuk antrean proses — klik Proses ulang"

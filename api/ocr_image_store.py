@@ -56,6 +56,13 @@ def reset_pending(db: Session, row: OcrImage) -> None:
     db.commit()
 
 
+def mark_failed(db: Session, row: OcrImage, message: str) -> None:
+    """Tandai gagal (mis. task tak sempat masuk antrean) supaya bisa diproses ulang."""
+    row.status = "failed"
+    row.error_message = message
+    db.commit()
+
+
 def delete(db: Session, row: OcrImage) -> None:
     db.delete(row)
     db.commit()

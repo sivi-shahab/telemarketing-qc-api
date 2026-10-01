@@ -81,6 +81,12 @@ def test_reset_pending_membersihkan_hasil(db):
         "pending", None, None, None, None)
 
 
+def test_mark_failed_menyimpan_pesan(db):
+    row = _img(db, _user(db, "a"))
+    store.mark_failed(db, row, "antrean mati")
+    assert (row.status, row.error_message) == ("failed", "antrean mati")
+
+
 def test_delete_menghapus_baris(db):
     row = _img(db, _user(db, "a"))
     store.delete(db, row)
