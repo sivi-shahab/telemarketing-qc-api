@@ -6,7 +6,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from api.dependencies import ensure_buckets
 # qc_database dinonaktifkan (bucket qc-database di-comment di api/dependencies.py)
-from api.routers import agent_error, app_setting, auth, campaign, collection, document, error_code_appeal, qc_assignment, qc_manual_check, qc_status, reprocess, role, sales_database, stats, stats_collection, tickets_daily, tickets_daily_pdf, transcript, webhook
+from api.routers import agent_error, app_setting, auth, campaign, collection, document, error_code_appeal, ocr_image, qc_assignment, qc_manual_check, qc_status, reprocess, role, sales_database, stats, stats_collection, tickets_daily, tickets_daily_pdf, transcript, webhook
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ app.include_router(tickets_daily.router)
 app.include_router(tickets_daily_pdf.router)
 app.include_router(app_setting.router)
 app.include_router(collection.router)
+app.include_router(ocr_image.router)
 
 
 @app.get("/health")
