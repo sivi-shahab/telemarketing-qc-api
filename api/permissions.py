@@ -66,6 +66,11 @@ MENU_MANAGE_USER = "menu.manage_user"
 MENU_MANAGE_ROLE = "menu.manage_role"
 MENU_ROLE_HIERARCHY = "menu.role_hierarchy"
 MENU_COLLECTION_RESULTS = "menu.collection_results"
+# Menu OCR Gambar (1 Oktober 2026): alat OCR mandiri. Admin/Demo memegangnya lewat
+# role; user lain mendapatkannya saat request bila campaign efektifnya tercantum di
+# env ``OCR_IMAGE_CAMPAIGNS`` (lihat ``api.rbac.permissions_for``). Admin-only di
+# level role, jadi tidak muncul di checkbox Manage Role.
+MENU_OCR_IMAGE = "menu.ocr_image"
 
 # --- Fitur di dalam halaman Results ---
 RESULTS_EVALUATION_DETAIL = "results.evaluation_detail"
@@ -171,6 +176,7 @@ ALL_PERMISSIONS = [
     MENU_UPLOAD_QC_DATABASE, MENU_REPROCESS_TICKETS, MENU_DELETE_CAMPAIGN,
     MENU_MANAGE_USER,
     MENU_MANAGE_ROLE, MENU_ROLE_HIERARCHY, MENU_COLLECTION_RESULTS,
+    MENU_OCR_IMAGE,
     RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE, RESULTS_CATEGORY_SCORE,
     RESULTS_STATUS_REASON_FULL,
     RESULTS_LAYOUT_DEMO,
@@ -229,6 +235,7 @@ ADMIN_ONLY_PERMISSIONS = {
     ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_REPROCESS,
     ADMIN_DOC_SLA_WRITE,
     MENU_COLLECTION_RESULTS,
+    MENU_OCR_IMAGE,
 }
 
 # --- Penyesuaian untuk login campaign COLLECTION (2 September 2026) ---
@@ -407,6 +414,7 @@ _ADMIN_PERMISSIONS = [
         MENU_REPROCESS_TICKETS,
         MENU_DELETE_CAMPAIGN, MENU_MANAGE_USER, MENU_MANAGE_ROLE,
         MENU_ROLE_HIERARCHY,
+        MENU_OCR_IMAGE,
         # Tanpa MENU_COLLECTION_RESULTS: menu itu dihitung saat request oleh
         # ``api.rbac.permissions_for`` (hanya bila COLLECTION_CAMPAIGNS terisi).
         RESULTS_EVALUATION_DETAIL, RESULTS_CRITICAL_FAILURE,

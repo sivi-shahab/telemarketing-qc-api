@@ -111,6 +111,26 @@ def collection_campaigns_from_env() -> frozenset:
     return parse_collection_campaigns(os.getenv("COLLECTION_CAMPAIGNS", ""))
 
 
+def ocr_image_campaigns_from_env() -> frozenset:
+    """Campaign yang membuka menu OCR Gambar, dari env ``OCR_IMAGE_CAMPAIGNS``.
+
+    Dibaca tiap kali seperti ``collection_campaigns_from_env``. Kosong = hanya
+    Admin/Demo (lewat role) yang memegang menu itu — itu pula bentuk rollback-nya.
+    """
+    return parse_collection_campaigns(os.getenv("OCR_IMAGE_CAMPAIGNS", ""))
+
+
+def ocr_image_granted(campaigns, ocr_campaigns) -> bool:
+    """Apakah campaign efektif user memuat salah satu campaign OCR Gambar.
+
+    ``None`` (tidak dibatasi) TIDAK dihitung: menu ini untuk orang yang memegang
+    campaign itu secara eksplisit, bukan untuk setiap login tanpa batas campaign.
+    """
+    if not ocr_campaigns or not campaigns:
+        return False
+    return any(str(c or "").strip().casefold() in ocr_campaigns for c in campaigns)
+
+
 def collection_adjusted_permissions(permissions, campaigns, collection_campaigns) -> set:
     """Capability setelah disesuaikan untuk login yang HANYA memegang collection.
 
@@ -138,7 +158,7 @@ def collection_adjusted_permissions(permissions, campaigns, collection_campaigns
     )
 
 
-def permissions_for(db: Session, user) -> set:
+def _base_permissions_for(db: Session, user) -> set:
     """Capability efektif user — sumber tunggal untuk menu (``/auth/me``) MAUPUN
     gate endpoint (``require``).
 
@@ -164,6 +184,19 @@ def permissions_for(db: Session, user) -> set:
     out.discard(perms.MENU_COLLECTION_RESULTS)
     if collection_results_visible(getattr(user, "role", None), role["data_scope"], effective, collection):
         out.add(perms.MENU_COLLECTION_RESULTS)
+    return out
+
+
+def permissions_for(db: Session, user) -> set:
+    """Capability efektif user — sumber tunggal untuk menu (``/auth/me``) MAUPUN
+    gate endpoint (``require``). Lihat ``_base_permissions_for`` untuk penyesuaian
+    collection; di sini ditambahkan menu OCR Gambar (``OCR_IMAGE_CAMPAIGNS``).
+    """
+    out = set(_base_permissions_for(db, user))
+    if perms.MENU_OCR_IMAGE not in out:
+        ocr = ocr_image_campaigns_from_env()
+        if ocr and ocr_image_granted(effective_campaigns_for(db, user), ocr):
+            out.add(perms.MENU_OCR_IMAGE)
     return out
 
 
