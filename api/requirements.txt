@@ -17,3 +17,4 @@ passlib[bcrypt]
 bcrypt==3.2.2
 openpyxl
 requests>=2.31
+pillow-heif
