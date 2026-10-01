@@ -182,7 +182,7 @@ nilai yang mengandung `changeme*` sebelum production.
 > **rebuild dashboard** (bukan sekadar restart). Nilai umum:
 > - `http://localhost:4000` — akses lokal langsung.
 > - `http://<ip-server>:4010` — akses jaringan langsung (sesuaikan port host api = 4010).
-> - `/telemarketing_qc_system/api` — **relatif**, mengandalkan reverse proxy di depan (lihat bagian 9).
+> - `/telemarketing_qc_system/api` — **relatif**, mengandalkan reverse proxy di depan (lihat bagian 10).
 
 ---
 
@@ -222,7 +222,7 @@ curl http://localhost:4010/health          # {"status":"ok"} — perhatikan port
    docker compose up -d --build dashboard
    ```
 3. Buka port firewall yang perlu diakses browser (mis. `4010` dan `4006`), atau cukup
-   `80/443` bila memakai reverse proxy (bagian 9).
+   `80/443` bila memakai reverse proxy (bagian 10).
 
 ### 6.4 Update setelah perubahan kode
 
@@ -275,7 +275,7 @@ sudo apt install -y postgresql-16 redis-server
 sudo -u postgres psql -c "CREATE USER bankqc WITH PASSWORD '<password>';"
 sudo -u postgres psql -c "CREATE DATABASE bankqc OWNER bankqc;"
 
-# MinIO (binary resmi) — jalankan sebagai service (lihat contoh systemd di bagian 9)
+# MinIO (binary resmi) — jalankan sebagai service (lihat contoh systemd di bagian 10)
 # Contoh manual:
 export MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD='<secret>'
 minio server /var/lib/minio --address ":4003" --console-address ":4004"
@@ -335,7 +335,7 @@ celery -A worker.celery_app worker --loglevel=info --concurrency=8
 celery -A worker.celery_app flower --port=4005
 ```
 
-> Untuk production, jangan jalankan manual di terminal — pakai **systemd** (bagian 9.3).
+> Untuk production, jangan jalankan manual di terminal — pakai **systemd** (bagian 10.3).
 
 ### 7.6 Build & sajikan dashboard tanpa Docker
 

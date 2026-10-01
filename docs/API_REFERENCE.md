@@ -172,17 +172,50 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 | `GET /documents/{result_id}` | Daftar dokumen result | `results.document.view` |
 | `GET /document_file/{document_id}` | Ambil file dokumen | `results.document.view` |
 
+> Tabel perbandingan OCR-vs-acuan di modal "View Document" dijaga permission terpisah
+> `results.document.verification`. Penyembunyiannya **bukan di frontend**: `/documents/{id}`
+> mengosongkan `ocr_json` & `error_message` untuk role tanpa capability itu, jadi datanya
+> tidak pernah sampai ke browser. Yang memilikinya hanya **QC, Team Leader QC, SPQ Head** —
+> **Admin dan Team Leader Sales bisa membuka dokumennya tetapi tidak melihat vonisnya.**
+>
+> Sejak 14 Agustus 2026 **Sales Agent tidak punya `results.document.view`** → kedua endpoint
+> di atas membalas `403`, dan kolom **Document** di halaman Results hilang untuk role yang
+> tidak punya `view` maupun `upload`.
+
 ### OCR Gambar (Menu upload & transkripsi mandiri; 1 Oktober 2026)
+
 | Method & Path | Fungsi | Guard |
 |---|---|---|
-| `POST /ocr_images` | Upload satu atau beberapa gambar (multipart `files[]`, maks 10 × 10 MB); validasi format & ukuran; buat batch; per file: simpan ke MinIO + insert baris `pending` + enqueue task OCR | `menu.ocr_image` |
-| `GET /ocr_images?page=&page_size=` | Daftar riwayat OCR (terbaru dulu, tanpa kolom `text`); non-admin: hanya punya diri; admin: semua + nama pengunggah | `menu.ocr_image` |
-| `GET /ocr_images/{id}` | Detail satu gambar termasuk teks hasil OCR & pesan error (jika ada) | `menu.ocr_image` |
-| `GET /ocr_images/{id}/image` | Stream gambar asli dari MinIO (dengan mime type) — Content-Disposition: `inline; filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>` (RFC 6266/5987) | `menu.ocr_image` |
-| `POST /ocr_images/{id}/retry` | Reset gambar `failed` ke `pending` dan enqueue ulang task OCR | `menu.ocr_image` |
-| `DELETE /ocr_images/{id}` | Hapus gambar (objek MinIO + baris DB) | `menu.ocr_image` |
+| `POST /ocr_images` | Upload satu atau beberapa gambar; validasi, normalisasi, menyimpan batch; enqueue task OCR per file | `menu.ocr_image` |
+| `GET /ocr_images?page=&page_size=` | Daftar riwayat (terbaru dulu, tanpa `text`); non-admin: milik diri; admin: semua + pengunggah | `menu.ocr_image` |
+| `GET /ocr_images/{id}` | Detail: teks OCR + error message (jika ada) | `menu.ocr_image` |
+| `GET /ocr_images/{id}/image` | Stream gambar asli dengan Content-Disposition RFC 6266/5987 | `menu.ocr_image` |
+| `POST /ocr_images/{id}/retry` | Reset `failed` → `pending` + enqueue ulang | `menu.ocr_image` |
+| `DELETE /ocr_images/{id}` | Hapus (MinIO + DB) | `menu.ocr_image` |
 
-**Respons `POST /ocr_images` (success 200):**
+**Upload (`POST /ocr_images`) — Aturan & Perilaku:**
+
+- **Validasi file**: Terima 1–10 file asli, maks 10 MB per file.
+- **Format**: Format gambar apa pun yang Pillow baca (JPEG, PNG, WebP, TIFF, GIF, HEIC/HEIF via `pillow-heif==1.8.0`). Validasi berdasarkan **isi file**, bukan ekstensi.
+- **Multi-halaman (TIFF)**: Tiap halaman menjadi satu entri tersendiri; nama tampilan: `"<nama asli> (hal. i/n)"`. Format lain hanya frame pertama.
+- **Normalisasi per halaman**: Simpan APA ADANYA jika JPEG/PNG/WebP, satu frame, sisi terpanjang ≤ 4096 px. Sebaliknya: terapkan orientasi EXIF, ratakan transparansi ke putih, perkecil sisi terpanjang ke ≤ 4096 px, simpan **JPEG q90** (format: `image/jpeg`, ekstensi: `.jpg`). JPEG dipilih agar file besar tidak melampaui batas request model.
+- **Batas total**: Setelah pemecahan, maksimal 10 entri per upload.
+- **Jika validasi gagal**: Tidak ada yang disimpan — return **422** tanpa role/ownership check.
+
+**Error `POST /ocr_images`:**
+
+| Status | Pesan (tepat sama dengan code) |
+|---|---|
+| **422** | `Pilih minimal satu gambar` |
+| **422** | `Maksimal 10 gambar per upload` |
+| **422** | `File '<nama>' melebihi 10 MB` |
+| **422** | `File '<nama>' bukan gambar yang bisa dibaca` |
+| **422** | `Maksimal 10 gambar per upload (termasuk tiap halaman TIFF; total <n>)` |
+| **503** | `Gagal menyimpan gambar, silakan coba lagi` (storage fail midway: semua dibersihkan, DB rollback, MinIO object dihapus) |
+
+**Enqueue failure (`POST /ocr_images`)**: Bila task enqueueing gagal untuk satu item, mark row `failed` dengan `error_message` = `"Gagal masuk antrean proses — klik Proses ulang"`, tapi **respons tetap 200** (partial batch success).
+
+**Respons `POST /ocr_images` (200):**
 ```json
 {
   "batch_id": "<uuid>",
@@ -193,11 +226,17 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 }
 ```
 
-**Respons `GET /ocr_images` (success 200):**
+**Error `GET /ocr_images`:**
+
+| Status | Kondisi |
+|---|---|
+| **422** | `page minimal 1 dan page_size 1–100` |
+
+**Respons `GET /ocr_images` (200):**
 ```json
 {
   "items": [
-    {"id": "<uuid>", "batch_id": "<uuid>", "filename": "contoh.jpg", "status": "done", "size_bytes": 123456, "created_at": "2026-10-01T15:30:00Z", "finished_at": "2026-10-01T15:32:15Z", "uploader_name": "Budi" },
+    {"id": "<uuid>", "batch_id": "<uuid>", "filename": "contoh.jpg", "status": "done", "size_bytes": 123456, "created_at": "2026-10-01T15:30:00Z", "finished_at": "2026-10-01T15:32:15Z", "uploader_name": "Budi"},
     ...
   ],
   "total": 42,
@@ -206,7 +245,7 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 }
 ```
 
-**Respons `GET /ocr_images/{id}` (success 200):**
+**Respons `GET /ocr_images/{id}` (200):**
 ```json
 {
   "id": "<uuid>",
@@ -222,19 +261,15 @@ Kolom **Guard** = permission efektif hasil introspeksi. `login` = hanya `get_cur
 }
 ```
 
-**Pesan error — lihat** [`docs/superpowers/specs/2026-10-01-ocr-gambar-design.md`](./superpowers/specs/2026-10-01-ocr-gambar-design.md) **§5a.**
+**Error `POST /ocr_images/{id}/retry`:**
 
----
+| Status | Kondisi |
+|---|---|
+| **404** | Gambar tidak ada atau bukan milik user (non-admin) |
+| **409** | `Hanya gambar berstatus gagal yang bisa diproses ulang` |
+| **503** | `Gagal masuk antrean proses, silakan coba lagi` (queue fail: row ditandai `failed` lagi) |
 
-> Catatan untuk Document endpoint: Tabel perbandingan OCR-vs-acuan di modal "View Document" dijaga permission terpisah
-> `results.document.verification`. Penyembunyiannya **bukan di frontend**: `/documents/{id}`
-> mengosongkan `ocr_json` & `error_message` untuk role tanpa capability itu, jadi datanya
-> tidak pernah sampai ke browser. Yang memilikinya hanya **QC, Team Leader QC, SPQ Head** —
-> **Admin dan Team Leader Sales bisa membuka dokumennya tetapi tidak melihat vonisnya.**
->
-> Sejak 14 Agustus 2026 **Sales Agent tidak punya `results.document.view`** → kedua endpoint
-> di atas membalas `403`, dan kolom **Document** di halaman Results hilang untuk role yang
-> tidak punya `view` maupun `upload`.
+**Kepemilikan**: Baris milik user lain → **404** (bukan 403) untuk non-admin di semua endpoint per-id (`GET {id}`, `GET {id}/image`, `POST {id}/retry`, `DELETE {id}`).
 
 ### Webhook
 | Method & Path | Fungsi | Guard |

@@ -13,7 +13,7 @@ memproses ulang tiket, dan penanganan insiden. Ditujukan untuk tim yang menjaga 
 setelah deploy. Untuk instalasi awal lihat [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 > Sebagian besar contoh memakai **Docker**. Untuk bare-metal, ganti `docker compose ...`
-> dengan operasi service/systemd yang setara (lihat DEPLOYMENT.md §9.3).
+> dengan operasi service/systemd yang setara (lihat DEPLOYMENT.md §10.3).
 
 ---
 
