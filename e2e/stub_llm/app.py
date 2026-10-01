@@ -28,6 +28,10 @@ app = FastAPI(title="stub-llm")
 
 PANGGILAN = []  # jejak untuk di-assert test: bentuk prompt yang benar-benar dikirim
 
+# Balasan tetap untuk menu OCR Gambar (``worker.tasks.process_ocr_image``) — dikenali
+# dari system prompt "You are an OCR engine".
+STUB_OCR_TEKS = "TEKS OCR STUB\n| a | b |"
+
 
 def _klasifikasi(berkas):
     """Rekaman pertama utama, sisanya perbaikan — cukup untuk menguji alurnya."""
@@ -178,7 +182,10 @@ async def chat(path: str, request: Request):
     # dan penyebabnya sulit ditebak.
     riplay = "ekstraktor dokumen RIPLAY" in user
     klasifikasi = "TEPAT SATU label jenis" in system
-    if riplay:
+    ocr = "You are an OCR engine" in system
+    if ocr:
+        isi = STUB_OCR_TEKS
+    elif riplay:
         isi = json.dumps(_riplay(), ensure_ascii=False)
     elif klasifikasi:
         berkas = re.findall(r"^\s*-\s*([^\s|]+\.pdf)", user, re.M) or re.findall(r"([\w.-]+\.pdf)", user)
@@ -187,7 +194,7 @@ async def chat(path: str, request: Request):
         isi = json.dumps(_evaluasi(), ensure_ascii=False)
 
     PANGGILAN.append({
-        "jenis": "riplay" if riplay else ("klasifikasi" if klasifikasi else "penilaian"),
+        "jenis": "ocr" if ocr else ("riplay" if riplay else ("klasifikasi" if klasifikasi else "penilaian")),
         # Berapa gambar yang benar-benar terkirim — membuktikan PDF sungguh dirender,
         # bukan sekadar prompt teks yang lewat.
         "jumlah_gambar": sum(
