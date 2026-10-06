@@ -115,6 +115,7 @@ from compliance.scoring import (
 )
 from compliance.stats_aggregate import (
     data_gap_map,
+    pending_data_gap,
     data_gap_reasons,
     doc_sla_enabled,
     _doc_sla_expired,
@@ -1000,7 +1001,8 @@ def list_results(
         # maupun temuan yang memicu keempatnya lahir dari evaluasi yang acuannya tidak
         # lengkap. Urutannya sama persis dengan helper kanonik ``_result_ai_status``;
         # kalau berbeda, kolom di layar akan bertentangan dengan angka di Statistics.
-        if data_gap:
+        # Agent tidak terpetakan tidak ikut (6 Oktober 2026) — lihat PENDING_DATA_GAPS.
+        if pending_data_gap(data_gap):
             ai_status = "PENDING"
         # 3) Vonis human yang SUDAH DISETUJUI mengunci AI Status — menimpa ketiga aturan
         # di atas. Sengaja memanggil helper kanonik yang sama dengan yang dipakai Stats,
@@ -1041,6 +1043,10 @@ def list_results(
             # Ditulis PALING DEPAN: ini penyebab yang tidak bisa diselesaikan agent
             # maupun QC — datanya harus dilengkapi lebih dulu. SEMUA kekurangan
             # disebut, bukan hanya yang pertama ditemukan.
+            pending_reasons.append(data_gap_reasons(data_gap))
+        elif data_gap and show_full_reason:
+            # Agent tidak terpetakan tidak lagi memaksa PENDING, tapi tetap ditulis
+            # sebagai catatan supaya rosternya dilengkapi.
             pending_reasons.append(data_gap_reasons(data_gap))
         if ai_status == "PENDING" and missing_docs:
             _need = [_doc_label(t) for t in document_missing_types] or ["pendukung"]
@@ -2162,7 +2168,7 @@ def export_result_xlsx(
         _status = ai_status_for_result(db, result)
         _notes = []
         _gap = data_gap_map(db, [result]).get(result_id)
-        if _gap and _status in ("PENDING", "FAIL"):
+        if _gap:
             _notes.append(data_gap_reasons(_gap))
         if _missing_docs_map(db, [result], {result_id: data.result_json}).get(result_id):
             if _status == "PENDING":
