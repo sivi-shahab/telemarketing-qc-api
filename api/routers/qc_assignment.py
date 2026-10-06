@@ -3,9 +3,9 @@
 One ticket -> one QC (reassignable). Managed by Team Leader QC (and SPQ Head). A QC
 is then scoped to only their assigned tickets for Results / Statistics / appeals.
 """
-import random
+from datetime import datetime, timezone
 from typing import Optional
-from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
@@ -14,13 +14,33 @@ from sqlalchemy.orm import Session
 from api import campaign_context as cc
 from api.dependencies import get_current_user, get_db
 from api.permissions import QC_ASSIGNMENT_WRITE, SCOPE_ALL
-from api.qc_scope import scoped_customer_ids, split_ticket_ids, ticket_id_for_result
-from api.rbac import collection_campaigns_from_env, data_scope_for, effective_campaigns_for
+from api.qc_scope import scoped_customer_ids, split_ticket_ids
+from api.rbac import data_scope_for, effective_campaigns_for
 from api.rbac import require
+import qc_auto_assign as auto
 from db import crud
 from db.models import QcAssignment, User
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+_WIB = ZoneInfo("Asia/Jakarta")
+
+
+def _wib_date(dt):
+    """WIB calendar date for a naive-UTC ``assigned_at`` (None if missing)."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc).astimezone(_WIB).date()
+
+
+def _parse_ymd(value):
+    """Parse a 'YYYY-MM-DD' string into a date (None if missing/invalid)."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _assignment_dict(a) -> dict:
@@ -111,6 +131,74 @@ def list_assignments(
     return [_assignment_dict(a) for a in rows]
 
 
+@router.get("/qc_assignment/log")
+def qc_assignment_log(
+    date_start: Optional[str] = Query(None, description="Batas bawah tanggal assign (YYYY-MM-DD, WIB)"),
+    date_end: Optional[str] = Query(None, description="Batas atas tanggal assign (YYYY-MM-DD, WIB)"),
+    db: Session = Depends(get_db),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
+):
+    """Log assign QC per hari (WIB): tiket apa saja yang (saat ini) dipegang tiap
+    QC, dikelompokkan berdasarkan tanggal assign/re-assign TERAKHIRnya.
+
+    ``qc_assignments`` adalah tabel STATE (satu baris per tiket, di-UPSERT saat
+    re-assign — lihat ``crud.assign_ticket_to_qc``), bukan tabel event. Jadi log ini
+    menunjukkan kepemilikan tiket saat ini dikelompokkan menurut hari assign-nya,
+    BUKAN riwayat lengkap setiap kali sebuah tiket berpindah tangan — re-assign
+    sebelumnya tertimpa dan tidak lagi punya baris sendiri di sini.
+
+    Cakupannya sama dengan ``GET /qc_assignments`` (``_assignment_scope``).
+    """
+    d_start = _parse_ymd(date_start)
+    d_end = _parse_ymd(date_end)
+    allowed = _assignment_scope(db, current_user)
+    rows = crud.list_qc_assignments(db)
+    if allowed is not None:
+        rows = [a for a in rows if (a.ticket_id or "").strip() in allowed]
+
+    usernames = {(a.qc_username or "").strip() for a in rows if (a.qc_username or "").strip()}
+    names = {}
+    if usernames:
+        for u in db.query(User).filter(User.username.in_(list(usernames))).all():
+            names[u.username] = u.name
+
+    by_date: dict = {}
+    for a in rows:
+        d = _wib_date(a.assigned_at)
+        if d is None:
+            continue
+        if d_start and d < d_start:
+            continue
+        if d_end and d > d_end:
+            continue
+        qc = (a.qc_username or "").strip()
+        by_date.setdefault(d, {}).setdefault(qc, []).append(a.ticket_id)
+
+    days = []
+    for d in sorted(by_date.keys(), reverse=True):
+        qc_list = [
+            {
+                "qc_username": u,
+                "qc_name": names.get(u) or u,
+                "count": len(tids),
+                "ticket_ids": sorted(tids),
+            }
+            for u, tids in by_date[d].items()
+        ]
+        qc_list.sort(key=lambda x: (x["qc_name"] or "").lower())
+        days.append({
+            "date": d.isoformat(),
+            "total": sum(x["count"] for x in qc_list),
+            "qc": qc_list,
+        })
+
+    return {
+        "date_start": d_start.isoformat() if d_start else None,
+        "date_end": d_end.isoformat() if d_end else None,
+        "days": days,
+    }
+
+
 @router.post("/qc_assignment")
 def assign_ticket(
     ticket_id: str = Form(...),
@@ -156,71 +244,7 @@ def eligible_tickets(requested, allowed, already_assigned) -> list:
     return out
 
 
-def split_by_load(ticket_ids, qc_usernames, current_load=None, rnd=None) -> list:
-    """Bagi ``ticket_ids`` ke ``qc_usernames`` MERATA ATAS TOTAL BEBAN:
-    ``[(ticket_id, qc_username), ...]``.
-
-    ``current_load`` = ``{qc_username: jumlah tiket yang SUDAH dipegang}``. Jatah
-    dihitung dari angka itu, bukan dari nol: yang paling sedikit dapat lebih dulu,
-    terus begitu sampai antreannya habis.
-
-    Aturan sebelumnya (``split_evenly``) membagi rata PER BATCH — ``floor(N/K)`` per
-    orang, sisa disebar satu-satu. Itu memang membuat selisih dalam satu batch tidak
-    pernah lebih dari satu tiket, tetapi ia MENGAWETKAN ketimpangan yang sudah ada:
-    QC yang memegang 40 dan QC yang memegang 10 tetap menerima jumlah yang sama pada
-    batch berikutnya, jadi selisih 30 itu tidak pernah mengecil. Aturan bisnis
-    4 September 2026 menutup celah itu dengan menghitung dari beban total.
-
-    Urutan antreannya DIKOCOK dan seri diundi, supaya tidak ada QC yang selalu
-    kebagian tiket tertua atau termuda, dan supaya nama pertama secara alfabetis
-    tidak selalu unggul saat bebannya sama. ``rnd`` bisa diisi ``random.Random(seed)``
-    agar hasilnya bisa diuji.
-
-    QC yang tidak ada di ``current_load`` dianggap berbeban nol. Tanpa tiket atau
-    tanpa QC hasilnya kosong.
-    """
-    if not ticket_ids or not qc_usernames:
-        return []
-    rnd = rnd or random.Random()
-    load = {u: int((current_load or {}).get(u, 0)) for u in qc_usernames}
-    pool = list(ticket_ids)
-    rnd.shuffle(pool)
-    pairs = []
-    for tid in pool:
-        low = min(load.values())
-        candidates = [u for u, c in load.items() if c == low]
-        owner = rnd.choice(candidates)
-        load[owner] += 1
-        pairs.append((tid, owner))
-    return pairs
-
-
-def current_assignment_load(db, qc_usernames) -> dict:
-    """``{qc_username: jumlah tiket yang sedang dipegang}`` untuk ``split_by_load``.
-
-    Dicocokkan case-insensitive, sama seperti ``assigned_ticket_ids_for_qc``.
-    Assignment milik akun QC yang sudah nonaktif atau terhapus TIDAK dihitung —
-    orangnya memang tidak ikut dibagi, jadi bebannya tidak boleh mempengaruhi jatah
-    orang lain.
-    """
-    by_key = {u.casefold(): u for u in qc_usernames}
-    load = {u: 0 for u in qc_usernames}
-    for (owner,) in db.query(QcAssignment.qc_username).all():
-        u = by_key.get((owner or "").strip().casefold())
-        if u:
-            load[u] += 1
-    return load
-
-
-def _active_qc_usernames(db) -> list:
-    """Username QC aktif, urut nama — populasi penerima auto assign."""
-    rows = (
-        db.query(User)
-        .filter(User.role == "qc", User.is_active == True)  # noqa: E712
-        .order_by(User.name, User.username)
-        .all()
-    )
-    return [(u.username or "").strip() for u in rows if (u.username or "").strip()]
+_active_qc_usernames = auto.active_qc_usernames
 
 
 def _auto_assign_pool(db, current_user):
@@ -236,29 +260,15 @@ def _auto_assign_pool(db, current_user):
     menu Assign Ticket (upload QC Support dikecualikan di sana juga). ``limit`` sengaja
     dibuka lebar: yang perlu dibagi adalah SELURUH antrean, bukan satu halaman — dan
     itulah bedanya dengan daftar ~100 baris yang termuat di layar.
+
+    Definisinya tinggal di ``qc_auto_assign.unassigned_pool`` supaya batch terjadwal
+    di worker memakai himpunan yang sama (termasuk pengecualian Collection).
     """
-    results, _total = crud.list_results(
+    return auto.unassigned_pool(
         db,
         campaigns=effective_campaigns_for(db, current_user),
         customer_ids=scoped_customer_ids(db, current_user),
-        page=1,
-        limit=1_000_000,
-        exclude_uploaded_by_role="qc_support",
-        # Campaign Collection tidak mengenal Assign Ticket (lihat
-        # COLLECTION_REMOVED_PERMISSIONS) — tiketnya tidak boleh ikut dibagikan.
-        exclude_campaigns=sorted(collection_campaigns_from_env()) or None,
     )
-    # Satu ticket id bisa punya lebih dari satu baris Result (tiket dua-agent), dan
-    # assignment-nya per TIKET — jadi di-unique-kan dulu, kalau tidak tiket yang sama
-    # akan terhitung (dan menghabiskan jatah) dua kali.
-    seen, ticket_ids = set(), []
-    for r in results:
-        tid = (ticket_id_for_result(r) or "").strip()
-        if tid and tid not in seen:
-            seen.add(tid)
-            ticket_ids.append(tid)
-    assigned_ids = {(a.ticket_id or "").strip() for a in crud.list_qc_assignments(db)}
-    return ticket_ids, [t for t in ticket_ids if t not in assigned_ids]
 
 
 @router.get("/qc_assignment/unassigned")
@@ -285,6 +295,26 @@ def unassigned_summary(
     }
 
 
+@router.get("/qc_assignment/schedule")
+def auto_assign_schedule(current_user=Depends(require(QC_ASSIGNMENT_WRITE))):
+    """Jadwal batch auto assign otomatis + batch berikutnya (untuk countdown di layar).
+
+    ``enabled`` mengikuti ``QC_AUTO_ASSIGN_ENABLED`` di env API — isi sama dengan env
+    worker, kalau tidak layar menghitung mundur ke batch yang tidak akan jalan.
+    ``now`` ikut dikirim supaya countdown memakai jam server, bukan jam browser.
+    """
+    now = datetime.now(timezone.utc)
+    nxt = auto.next_run(now)
+    return {
+        "enabled": auto.schedule_enabled(),
+        "timezone": "Asia/Jakarta",
+        "slots": auto.schedule_labels(),
+        "now": now.isoformat(),
+        "next_run_at": nxt.isoformat(),
+        "seconds_until_next": max(0, int((nxt - now).total_seconds())),
+    }
+
+
 @router.post("/qc_assignment/auto")
 def auto_assign(
     ticket_ids: list | None = Form(None),
@@ -293,8 +323,9 @@ def auto_assign(
 ):
     """Bagikan ticket yang BELUM punya QC ke seluruh QC aktif, acak dan merata.
 
-    Merata atas TOTAL beban, bukan per batch: jatah dihitung dari jumlah tiket yang
-    sudah dipegang tiap QC (aturan bisnis 4 September 2026 — lihat ``split_by_load``).
+    Merata per MOMEN tombol ditekan, di antara QC yang aktif saat itu (2 Oktober
+    2026, mengganti aturan "merata atas total beban" 4 September) — lihat
+    ``qc_auto_assign.distribute_evenly``. Aturan yang sama dipakai batch terjadwal.
 
     Satu permintaan, satu transaksi. Alternatifnya — browser mem-POST
     ``/qc_assignment`` sekali per tiket — berarti ratusan request yang bisa putus
@@ -332,11 +363,9 @@ def auto_assign(
             detail="Tidak ada user QC aktif untuk dibagikan.",
         )
 
-    # Jatah dihitung dari beban yang SUDAH dipegang tiap QC, bukan dibagi rata per
-    # batch — lihat ``split_by_load``. Tanpa ini ketimpangan yang sudah ada tidak
-    # pernah mengecil, berapa kali pun tombol ini ditekan.
+    # Rata di antara QC aktif SAAT INI; beban lama tidak dihitung (2 Oktober 2026).
     usernames = [u.username for u in qcs]
-    pairs = split_by_load(pending, usernames, current_assignment_load(db, usernames))
+    pairs = auto.distribute_evenly(pending, usernames)
     assigned_at = datetime.utcnow()
     for tid, qc_username in pairs:
         db.add(QcAssignment(

@@ -1,0 +1,626 @@
+[
+	{
+		"category": "Greeting",
+		"item_code": "SC_NTB_1",
+		"requirement": "Agent menyampaikan salam pembuka",
+		"kb_reference": "KB_NTB_1",
+		"weight": 1,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_NTB_2",
+		"requirement": "Agent menyebutkan nama agent",
+		"kb_reference": "KB_NTB_2",
+		"weight": 2,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_NTB_3",
+		"requirement": "Agent menyebutkan nama Bank Mega",
+		"kb_reference": "KB_NTB_3",
+		"weight": 2,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Greeting",
+		"item_code": "SC_NTB_4",
+		"requirement": "Agent menanyakan kesediaan waktu nasabah",
+		"kb_reference": "KB_NTB_4",
+		"weight": 5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Probing",
+		"item_code": "SC_NTB_5",
+		"requirement": "Agent menyampaikan informasi promo dan diskon Bank Mega",
+		"kb_reference": "KB_NTB_5",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Probing",
+		"item_code": "SC_NTB_6",
+		"requirement": "Agent menyampaikan range limit kartu kredit",
+		"kb_reference": "KB_NTB_6",
+		"weight": 1,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Probing",
+		"item_code": "SC_NTB_7",
+		"requirement": "Agent menyampaikan poin MPC",
+		"kb_reference": "KB_NTB_7",
+		"weight": 1,
+		"tolerable": "YES"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_8",
+		"requirement": "Agent menanyakan atau menyebutkan jenis kartu kredit yang dikehendaki/diajukan nasabah",
+		"kb_reference": "KB_NTB_8",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_9",
+		"requirement": "Agent menanyakan atau mengonfirmasi nama lengkap nasabah sesuai KTP",
+		"kb_reference": "KB_NTB_9",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_10",
+		"requirement": "Agent menanyakan nomor KTP/KITAS nasabah",
+		"kb_reference": "KB_NTB_10",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_11",
+		"requirement": "Agent menanyakan atau mengonfirmasi kewarganegaraan nasabah",
+		"kb_reference": "KB_NTB_11",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_12",
+		"requirement": "Agent menanyakan atau mengonfirmasi jenis kelamin nasabah",
+		"kb_reference": "KB_NTB_12",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_13",
+		"requirement": "Agent menanyakan atau mengonfirmasi status perkawinan nasabah",
+		"kb_reference": "KB_NTB_13",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_14",
+		"requirement": "Agent menanyakan tempat lahir nasabah",
+		"kb_reference": "KB_NTB_14",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_15",
+		"requirement": "Agent menanyakan tanggal lahir nasabah",
+		"kb_reference": "KB_NTB_15",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_16",
+		"requirement": "Agent menanyakan alamat rumah nasabah (baris pertama: jalan, nomor)",
+		"kb_reference": "KB_NTB_16",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_17",
+		"requirement": "Agent menanyakan lanjutan alamat rumah (baris kedua) atau menyatakan baris kedua diisi titik karena cukup pada alamat pertama",
+		"kb_reference": "KB_NTB_17",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_18",
+		"requirement": "Agent menanyakan RT alamat rumah nasabah",
+		"kb_reference": "KB_NTB_18",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_19",
+		"requirement": "Agent menanyakan RW alamat rumah nasabah",
+		"kb_reference": "KB_NTB_19",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_20",
+		"requirement": "Agent menanyakan kelurahan alamat rumah nasabah",
+		"kb_reference": "KB_NTB_20",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_21",
+		"requirement": "Agent menanyakan kecamatan alamat rumah nasabah",
+		"kb_reference": "KB_NTB_21",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_22",
+		"requirement": "Agent menanyakan nomor handphone nasabah yang aktif",
+		"kb_reference": "KB_NTB_22",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_23",
+		"requirement": "Agent menanyakan alamat email nasabah",
+		"kb_reference": "KB_NTB_23",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_24",
+		"requirement": "Agent menanyakan nama keluarga dekat nasabah",
+		"kb_reference": "KB_NTB_24",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_25",
+		"requirement": "Agent menanyakan nomor handphone keluarga dekat nasabah",
+		"kb_reference": "KB_NTB_25",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_26",
+		"requirement": "Agent menanyakan nama gadis ibu kandung nasabah",
+		"kb_reference": "KB_NTB_26",
+		"weight": 3,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_27",
+		"requirement": "Agent menanyakan jabatan nasabah",
+		"kb_reference": "KB_NTB_27",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_28",
+		"requirement": "Agent menanyakan bidang usaha tempat nasabah bekerja",
+		"kb_reference": "KB_NTB_28",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_29",
+		"requirement": "Agent menanyakan pekerjaan nasabah",
+		"kb_reference": "KB_NTB_29",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_30",
+		"requirement": "Agent menanyakan nama perusahaan tempat nasabah bekerja",
+		"kb_reference": "KB_NTB_30",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_31",
+		"requirement": "Agent menanyakan alamat kantor nasabah (baris pertama)",
+		"kb_reference": "KB_NTB_31",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_32",
+		"requirement": "Agent menanyakan lanjutan alamat kantor (baris kedua) atau menyatakan baris kedua diisi titik karena cukup pada alamat pertama",
+		"kb_reference": "KB_NTB_32",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_33",
+		"requirement": "Agent menanyakan kelurahan alamat kantor nasabah",
+		"kb_reference": "KB_NTB_33",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_34",
+		"requirement": "Agent menanyakan kecamatan alamat kantor nasabah",
+		"kb_reference": "KB_NTB_34",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_35",
+		"requirement": "Agent menanyakan nomor telepon kantor nasabah",
+		"kb_reference": "KB_NTB_35",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_36",
+		"requirement": "Agent menanyakan penghasilan kotor nasabah per bulan",
+		"kb_reference": "KB_NTB_36",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_37",
+		"requirement": "Agent menanyakan alamat pengiriman kartu",
+		"kb_reference": "KB_NTB_37",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_38",
+		"requirement": "Agent menanyakan alamat penagihan (tagihan bulanan)",
+		"kb_reference": "KB_NTB_38",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_39",
+		"requirement": "Source code pengajuan terisi sesuai campaign (diisi sistem)",
+		"kb_reference": "KB_NTB_39",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_40",
+		"requirement": "Agent meminta persetujuan penggunaan data nasabah (sharing data) untuk penawaran produk Bank Mega dan perusahaan mitra",
+		"kb_reference": "KB_NTB_40",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Basic",
+		"item_code": "SC_NTB_41",
+		"requirement": "Agent menanyakan atau menginformasikan pilihan e-statement",
+		"kb_reference": "KB_NTB_41",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Pengisian Data Supplement",
+		"item_code": "SC_NTB_42",
+		"requirement": "Agent menanyakan nama kartu tambahan (supplement)",
+		"kb_reference": "KB_NTB_42",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Pengisian Data Supplement",
+		"item_code": "SC_NTB_43",
+		"requirement": "Agent menanyakan jenis kelamin pemegang kartu tambahan",
+		"kb_reference": "KB_NTB_43",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Pengisian Data Supplement",
+		"item_code": "SC_NTB_44",
+		"requirement": "Agent menanyakan hubungan kekerabatan pemegang kartu tambahan dengan nasabah",
+		"kb_reference": "KB_NTB_44",
+		"weight": 1,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Pengisian Data Supplement",
+		"item_code": "SC_NTB_45",
+		"requirement": "Agent menginformasikan bahwa kartu tambahan dikirim ke alamat yang sama dengan kartu utama",
+		"kb_reference": "KB_NTB_45",
+		"weight": 1,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Pengisian Data Supplement",
+		"item_code": "SC_NTB_46",
+		"requirement": "Agent meminta persetujuan penggunaan data pribadi (PDP) untuk pengajuan kartu tambahan",
+		"kb_reference": "KB_NTB_46",
+		"weight": 5,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_47",
+		"requirement": "Agent menjelaskan besaran premi Mega Ultima Shield",
+		"kb_reference": "KB_NTB_47",
+		"weight": 3,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_48",
+		"requirement": "Agent menjelaskan benefit Mega Ultima Shield",
+		"kb_reference": "KB_NTB_48",
+		"weight": 4.5,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_49",
+		"requirement": "Agent menyampaikan simulasi perhitungan premi Mega Ultima Shield",
+		"kb_reference": "KB_NTB_49",
+		"weight": 3,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_50",
+		"requirement": "Agent meminta persetujuan penggunaan data pribadi (PDP) untuk pengajuan asuransi Mega Ultima Shield",
+		"kb_reference": "KB_NTB_50",
+		"weight": 3,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_51",
+		"requirement": "Agent menanyakan kesediaan pernyataan Health Declaration",
+		"kb_reference": "KB_NTB_51",
+		"weight": 3,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_52",
+		"requirement": "Agent menyampaikan Health Declaration",
+		"kb_reference": "KB_NTB_52",
+		"weight": 5,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Penjelasan Mega Ultima Shield",
+		"item_code": "SC_NTB_53",
+		"requirement": "Agent menanyakan konfirmasi Health Declaration",
+		"kb_reference": "KB_NTB_53",
+		"weight": 3,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_54",
+		"requirement": "Agent menyebutkan hari dan tanggal pada konfirmasi akhir pengajuan",
+		"kb_reference": "KB_NTB_54",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_55",
+		"requirement": "Agent menyebutkan nama nasabah (CH) pada konfirmasi akhir",
+		"kb_reference": "KB_NTB_55",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_56",
+		"requirement": "Agent menginformasikan iuran tahunan kartu kredit",
+		"kb_reference": "KB_NTB_56",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_57",
+		"requirement": "Agent menginformasikan bahwa persetujuan kartu serta jenis dan limitnya ditentukan oleh hasil analisa internal Bank Mega",
+		"kb_reference": "KB_NTB_57",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_58",
+		"requirement": "Agent menginformasikan pengaktifan kartu setelah kartu disetujui dan diterima",
+		"kb_reference": "KB_NTB_58",
+		"weight": 1,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_59",
+		"requirement": "Agent mengonfirmasi alamat pengiriman kartu utama",
+		"kb_reference": "KB_NTB_59",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Basic",
+		"item_code": "SC_NTB_60",
+		"requirement": "Agent menginformasikan persetujuan nasabah untuk dikirimkan link microsite",
+		"kb_reference": "KB_NTB_60",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Final Konfirmasi Supplement",
+		"item_code": "SC_NTB_61",
+		"requirement": "Agent mengonfirmasi nama kartu tambahan pada konfirmasi akhir",
+		"kb_reference": "KB_NTB_61",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Final Konfirmasi Supplement",
+		"item_code": "SC_NTB_62",
+		"requirement": "Agent mengonfirmasi hubungan kekerabatan pemegang kartu tambahan pada konfirmasi akhir",
+		"kb_reference": "KB_NTB_62",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Final Konfirmasi Supplement",
+		"item_code": "SC_NTB_63",
+		"requirement": "Agent mengonfirmasi limit sharing/berbagi kartu tambahan pada konfirmasi akhir",
+		"kb_reference": "KB_NTB_63",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Final Konfirmasi Supplement",
+		"item_code": "SC_NTB_64",
+		"requirement": "Agent menginformasikan lembar penagihan (billing) kartu tambahan menjadi satu dengan kartu utama",
+		"kb_reference": "KB_NTB_64",
+		"weight": 1,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Final Konfirmasi Supplement",
+		"item_code": "SC_NTB_65",
+		"requirement": "Agent menyampaikan informasi bahwa pengajuan kartu kredit utama dan tambahan berizin dan diawasi Otoritas Jasa Keuangan (Pasal 35 ayat 1.b POJK 22 Tahun 2023)",
+		"kb_reference": "KB_NTB_65",
+		"weight": 2,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_NTB_66",
+		"requirement": "Agent menyampaikan bahwa Mega Ultima Shield adalah produk asuransi PFI Mega Life Insurance yang diawasi OJK dan bukan produk Bank Mega, serta data nasabah disampaikan kepada PFI Mega Life",
+		"kb_reference": "KB_NTB_66",
+		"weight": 4,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_NTB_67",
+		"requirement": "Agent menyampaikan informasi pengiriman salinan sertifikat asuransi melalui WhatsApp dan hardcopy sertifikat disimpan di PFI Mega Life Insurance",
+		"kb_reference": "KB_NTB_67",
+		"weight": 4.25,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_NTB_68",
+		"requirement": "Agent menyampaikan informasi bahwa premi yang telah dibayarkan atas keikutsertaan Mega Ultima Shield tidak dapat dikembalikan apabila nasabah mengajukan pembatalan",
+		"kb_reference": "KB_NTB_68",
+		"weight": 4.25,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_NTB_69",
+		"requirement": "Agent menjelaskan Ringkasan Informasi Produk dan Layanan (RIPLAY) dan sertifikat asuransi Mega Ultima Shield",
+		"kb_reference": "KB_NTB_69",
+		"weight": 4,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"item_code": "SC_NTB_70",
+		"requirement": "Agent menyampaikan informasi klaim Mega Ultima Shield",
+		"kb_reference": "KB_NTB_70",
+		"weight": 4,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Legal Statement Basic",
+		"item_code": "SC_NTB_71",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu kredit",
+		"kb_reference": "KB_NTB_71",
+		"weight": 5,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Legal Statement Supplement",
+		"item_code": "SC_NTB_72",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu tambahan",
+		"kb_reference": "KB_NTB_72",
+		"weight": 5,
+		"tolerable": "NO",
+		"applies_to": "SUPL"
+	},
+	{
+		"category": "Legal Statement Mega Ultima Shield",
+		"item_code": "SC_NTB_73",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas keikutsertaan Mega Ultima Shield",
+		"kb_reference": "KB_NTB_73",
+		"weight": 5,
+		"tolerable": "NO",
+		"applies_to": "MUS"
+	},
+	{
+		"category": "Closing",
+		"item_code": "SC_NTB_74",
+		"requirement": "Agent mengonfirmasi kesediaan nasabah melengkapi dokumen tambahan bila diminta analis",
+		"kb_reference": "KB_NTB_74",
+		"weight": 2,
+		"tolerable": "NO"
+	},
+	{
+		"category": "Closing",
+		"item_code": "SC_NTB_75",
+		"requirement": "Agent menginformasikan bahwa pembicaraan direkam",
+		"kb_reference": "KB_NTB_75",
+		"weight": 2,
+		"tolerable": "NO"
+	}
+]

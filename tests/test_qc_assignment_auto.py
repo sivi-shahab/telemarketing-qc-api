@@ -13,15 +13,21 @@ Aturan pembagiannya sudah dua kali berganti:
    batch, tetapi MENGAWETKAN ketimpangan yang sudah ada: QC yang memegang 40 dan yang
    memegang 10 tetap menerima jumlah yang sama pada batch berikutnya.
 3. `split_by_load` (aturan bisnis 4 September 2026) — jatah dihitung dari beban TOTAL
-   yang sudah dipegang tiap QC. Yang paling sedikit dapat lebih dulu, seri diundi, dan
-   antreannya dikocok supaya tidak ada yang selalu kebagian tiket tertua/termuda.
+   yang sudah dipegang tiap QC. Akibatnya QC yang baru aktif diborong tiket sampai
+   "menyusul" total QC lain, dan QC lama dengan banyak tiket kebagian nol.
+4. `qc_auto_assign.distribute_evenly` (2 Oktober 2026, diport dari 4-service@6296b02)
+   — merata per MOMEN pembagian di antara QC yang aktif saat itu; beban lama tidak
+   dihitung. Selisih dalam satu pembagian paling banyak 1 tiket; antrean dikocok dan
+   seri diundi supaya tidak ada yang selalu kebagian tiket tertua/termuda. Aturan yang
+   sama dipakai batch terjadwal di worker.
 
-Yang diuji di bawah adalah aturan ke-3. Undiannya diberi `random.Random(seed)` supaya
+Yang diuji di bawah adalah aturan ke-4. Undiannya diberi `random.Random(seed)` supaya
 hasilnya bisa diperiksa, bukan ditebak.
 """
 import random
 
-from api.routers.qc_assignment import eligible_tickets, split_by_load
+from api.routers.qc_assignment import eligible_tickets
+from qc_auto_assign import distribute_evenly
 
 
 def _by_qc(pairs):
@@ -37,79 +43,55 @@ def _counts(pairs):
 
 
 # --------------------------------------------------------------------------
-# split_by_load
+# distribute_evenly
 # --------------------------------------------------------------------------
 
-def test_tanpa_beban_awal_terbagi_serata_mungkin():
-    pairs = split_by_load([f"t{i}" for i in range(6)], ["a", "b", "c"], rnd=random.Random(1))
+def test_terbagi_serata_mungkin():
+    pairs = distribute_evenly([f"t{i}" for i in range(6)], ["a", "b", "c"], rnd=random.Random(1))
     assert sorted(_counts(pairs).values()) == [2, 2, 2]
 
 
 def test_sisa_tidak_pernah_menumpuk_lebih_dari_satu():
-    pairs = split_by_load([f"t{i}" for i in range(7)], ["a", "b", "c"], rnd=random.Random(1))
-    c = sorted(_counts(pairs).values())
-    assert max(c) - min(c) <= 1
-
-
-def test_ketimpangan_yang_SUDAH_ada_dikejar_lebih_dulu():
-    """Inti aturan ke-3: yang sudah berat tidak dapat apa-apa sampai yang lain menyusul."""
-    pairs = split_by_load(["t1", "t2", "t3"], ["berat", "ringan"],
-                          current_load={"berat": 10, "ringan": 7}, rnd=random.Random(0))
-    counts = _counts(pairs)
-    assert counts.get("ringan") == 3, "yang ringan mengejar dulu"
-    assert "berat" not in counts, "yang berat belum boleh dapat tambahan"
-
-
-def test_setelah_menyusul_pembagiannya_kembali_berselang():
-    """Begitu bebannya sama, tambahan berikutnya tersebar, bukan menumpuk."""
-    pairs = split_by_load([f"t{i}" for i in range(6)], ["a", "b"],
-                          current_load={"a": 2, "b": 0}, rnd=random.Random(3))
-    c = _counts(pairs)
-    assert c["b"] == 4 and c["a"] == 2, "b mengejar 2 dulu, sisanya dibagi rata"
-
-
-def test_beban_akhir_selisihnya_tidak_lebih_dari_satu():
     for seed in range(5):
-        load = {"a": 9, "b": 3, "c": 5}
-        pairs = split_by_load([f"t{i}" for i in range(10)], ["a", "b", "c"],
-                              current_load=load, rnd=random.Random(seed))
-        akhir = dict(load)
-        for _t, qc in pairs:
-            akhir[qc] += 1
-        assert max(akhir.values()) - min(akhir.values()) <= 1, akhir
+        pairs = distribute_evenly([f"t{i}" for i in range(7)], ["a", "b", "c"], rnd=random.Random(seed))
+        c = sorted(_counts(pairs).values())
+        assert max(c) - min(c) <= 1
 
 
-def test_qc_tanpa_catatan_beban_dianggap_nol():
-    pairs = split_by_load(["t1"], ["a", "baru"], current_load={"a": 5}, rnd=random.Random(0))
-    assert _counts(pairs) == {"baru": 1}
+def test_semua_qc_aktif_kebagian_tanpa_melihat_beban_lama():
+    """Inti aturan ke-4: 8 QC aktif -> 8 QC kebagian. Fungsi ini memang tidak
+    menerima beban lama, jadi QC yang sudah berat tetap dapat jatah yang sama."""
+    qcs = [f"qc{i}" for i in range(8)]
+    pairs = distribute_evenly([f"t{i}" for i in range(16)], qcs, rnd=random.Random(0))
+    assert _counts(pairs) == {q: 2 for q in qcs}
 
 
 def test_seluruh_tiket_terbagi_habis_dan_tidak_ada_yang_kembar():
     tickets = [f"t{i}" for i in range(23)]
-    pairs = split_by_load(tickets, ["a", "b", "c", "d"], rnd=random.Random(7))
+    pairs = distribute_evenly(tickets, ["a", "b", "c", "d"], rnd=random.Random(7))
     assert len(pairs) == len(tickets)
     assert sorted(t for t, _ in pairs) == sorted(tickets)
 
 
 def test_tiket_lebih_sedikit_daripada_qc():
-    pairs = split_by_load(["t1", "t2"], ["a", "b", "c", "d"], rnd=random.Random(2))
+    pairs = distribute_evenly(["t1", "t2"], ["a", "b", "c", "d"], rnd=random.Random(2))
     assert len(pairs) == 2
     assert len(set(qc for _t, qc in pairs)) == 2, "dua QC berbeda, bukan satu orang dua kali"
 
 
 def test_satu_qc_mengambil_semuanya():
-    pairs = split_by_load(["t1", "t2", "t3"], ["solo"], rnd=random.Random(0))
+    pairs = distribute_evenly(["t1", "t2", "t3"], ["solo"], rnd=random.Random(0))
     assert _counts(pairs) == {"solo": 3}
 
 
 def test_tanpa_tiket_atau_tanpa_qc_tidak_menghasilkan_apa_apa():
-    assert split_by_load([], ["a", "b"]) == []
-    assert split_by_load(["t1"], []) == []
+    assert distribute_evenly([], ["a", "b"]) == []
+    assert distribute_evenly(["t1"], []) == []
 
 
 def test_undiannya_deterministik_untuk_seed_yang_sama():
-    a = split_by_load([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
-    b = split_by_load([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
+    a = distribute_evenly([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
+    b = distribute_evenly([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
     assert a == b
 
 
@@ -169,7 +151,6 @@ def test_pool_membuang_tiket_yang_sudah_punya_qc(monkeypatch):
 
     monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
-    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
     monkeypatch.setattr(qa.crud, "list_results",
                         lambda *a, **k: ([_R("t1"), _R("t2"), _R("t3")], 3))
     monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [_A("t2")])
@@ -190,7 +171,6 @@ def test_pool_meng_unique_kan_tiket_dua_agent(monkeypatch):
 
     monkeypatch.setattr(qa, "effective_campaigns_for", lambda db, u: None)
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: None)
-    monkeypatch.setattr(qa, "ticket_id_for_result", lambda r: r.source_files[0].split("_", 1)[0])
     monkeypatch.setattr(qa.crud, "list_results", lambda *a, **k: ([_R("t1"), _R("t1")], 2))
     monkeypatch.setattr(qa.crud, "list_qc_assignments", lambda db: [])
 

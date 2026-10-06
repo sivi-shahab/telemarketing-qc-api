@@ -70,6 +70,7 @@ from compliance.badwords import badword_fail_reason, badword_rows, has_badword
 from compliance.error_codes import (
     _appeal_kind,
     added_appeals_only,
+    negate_requirement,
     apply_added_score_appeals,
     inject_added_rows,
     merge_dynamic_verification_rows,
@@ -1583,35 +1584,90 @@ def _campaign_period_stats(snap: dict, key: str) -> "dict | None":
         "h": node.get("risk_high", 0),
         "m": node.get("risk_medium", 0),
         "l": node.get("risk_low", 0),
+        "approved": node.get("approve", 0),
     }
 
 
-def _am_spv_tables(snap: dict):
-    """Baris [nama, campaign, grand_total, error_rate, H, M, L, approved, is_total]
-    untuk slide "Error Rate Area Manager" & "Error Rate SPV" (SPV = Team Leader).
+# Pengelompokan campaign mengikuti PPT acuan (USAGE / CARD / RETENTION),
+# 2 Oktober 2026. Campaign Activation SENGAJA tidak ada di sini — dikeluarkan
+# dari deck atas permintaan user. Campaign aktif yang tidak masuk grup mana pun
+# dan bukan Activation dikumpulkan di grup "LAINNYA" supaya tidak hilang diam-diam.
+_PPT_EXCLUDED_CAMPAIGNS = {"activation"}
+_PPT_CAMPAIGN_GROUPS = (
+    ("USAGE", ("cashline", "megabill", "loc", "megapay")),
+    ("CARD", ("ntb", "reinstate", "supplement")),
+    ("RETENTION", ("retention", "retention (info penjelasan)", "retention (program benefit)")),
+)
 
-    Baris per-campaign datang dari ``hierarchy_by_campaign`` (pohon dipisah per
-    campaign, cara yang sama dengan filter campaign di tab Failure Rate); baris
-    "TOTAL" per AM/SPV datang dari pohon GLOBAL (``hierarchy``, semua campaign)
-    supaya totalnya tidak perlu dijumlah manual dari baris campaign di atasnya
-    dan tetap konsisten dengan angka yang tampil di tab Failure Rate."""
+
+def _ppt_excluded_campaigns() -> frozenset:
+    """Campaign yang tidak masuk deck: Activation + campaign Collection-kind
+    (``COLLECTION_CAMPAIGNS``, 6 Oktober 2026). Data Collection memang sudah tidak
+    ikut Statistics (``exclude_hidden_results``), tetapi campaign aktifnya masih
+    terdaftar dan tanpa ini muncul sebagai baris 0 di grup LAINNYA plus slide
+    Detail Error Reason yang kosong."""
+    from api.rbac import collection_campaigns_from_env
+    return frozenset(_PPT_EXCLUDED_CAMPAIGNS) | collection_campaigns_from_env()
+
+
+def _ppt_group_campaigns(keys) -> "list[tuple[str, list[str]]]":
+    """[(nama grup, [campaign key, ...])] urut sesuai PPT acuan; grup kosong dibuang."""
+    excluded = _ppt_excluded_campaigns()
+    remaining = [k for k in dict.fromkeys(keys) if (k or "").strip().casefold() not in excluded]
+    by_fold = {(k or "").strip().casefold(): k for k in remaining}
+    groups, used = [], set()
+    for name, members in _PPT_CAMPAIGN_GROUPS:
+        found = [by_fold[m] for m in members if m in by_fold]
+        used.update(m for m in members if m in by_fold)
+        if found:
+            groups.append((name, found))
+    others = [k for f, k in by_fold.items() if f not in used]
+    if others:
+        groups.append(("LAINNYA", others))
+    return groups
+
+
+def _node_row(name, label, node, is_total=False):
+    h, m, l = node["risk_high"], node["risk_medium"], node["risk_low"]
+    return [name, label, node["ticket_count"], h + m + l, node["error_rate"], h, m, l, node["approve"], is_total]
+
+
+def _sum_hierarchy_rows(rows: list) -> list:
+    """Baris TOTAL per nama = penjumlahan baris campaign-nya (bukan pohon global),
+    supaya Activation yang dikeluarkan dari deck tidak ikut terhitung di total."""
+    totals: dict = {}
+    for r in rows:
+        t = totals.setdefault(r[0], [0, 0, 0, 0, 0, 0])
+        for i, v in enumerate((r[2], r[3], r[5], r[6], r[7], r[8])):
+            t[i] += v or 0
+    out = []
+    for name, (sub, err, h, m, l, appr) in totals.items():
+        rate = round(err / sub * 100, 2) if sub else 0.0
+        out.append([name, "TOTAL", sub, err, rate, h, m, l, appr, True])
+    return out
+
+
+def _am_spv_tables(snap: dict):
+    """Baris [nama, campaign, submission, error_count, error_rate, H, M, L, approved,
+    is_total] untuk slide "Error Rate Area Manager" & "Error Rate SPV" (SPV = Team
+    Leader). ``error_count`` = H+M+L; ``error_rate`` = persennya terhadap submission.
+
+    Baris per-campaign datang dari ``hierarchy_by_campaign``; baris "TOTAL" per
+    AM/SPV dijumlahkan dari baris campaign yang tampil (tanpa Activation)."""
     am_rows, spv_rows = [], []
+    excluded = _ppt_excluded_campaigns()
     for camp_key, tree in (snap.get("hierarchy_by_campaign") or {}).items():
+        if (camp_key or "").strip().casefold() in excluded:
+            continue
         label = _campaign_label(camp_key)
         for am in tree.get("area_managers") or []:
-            am_rows.append([am["name"], label, am["ticket_count"], am["error_rate"],
-                             am["risk_high"], am["risk_medium"], am["risk_low"], am["approve"], False])
+            am_rows.append(_node_row(am["name"], label, am))
             for tl in am.get("team_leaders") or []:
-                spv_rows.append([tl["name"], label, tl["ticket_count"], tl["error_rate"],
-                                  tl["risk_high"], tl["risk_medium"], tl["risk_low"], tl["approve"], False])
-    for am in (snap.get("hierarchy") or {}).get("area_managers") or []:
-        am_rows.append([am["name"], "TOTAL", am["ticket_count"], am["error_rate"],
-                         am["risk_high"], am["risk_medium"], am["risk_low"], am["approve"], True])
-        for tl in am.get("team_leaders") or []:
-            spv_rows.append([tl["name"], "TOTAL", tl["ticket_count"], tl["error_rate"],
-                              tl["risk_high"], tl["risk_medium"], tl["risk_low"], tl["approve"], True])
-    am_rows.sort(key=lambda r: (r[0], r[8]))
-    spv_rows.sort(key=lambda r: (r[0], r[8]))
+                spv_rows.append(_node_row(tl["name"], label, tl))
+    am_rows += _sum_hierarchy_rows(am_rows)
+    spv_rows += _sum_hierarchy_rows(spv_rows)
+    am_rows.sort(key=lambda r: (r[0], r[9]))
+    spv_rows.sort(key=lambda r: (r[0], r[9]))
     return am_rows, spv_rows
 
 
@@ -1634,6 +1690,7 @@ def export_error_rate_pptx(
         compute_failure_reasons,
         compute_failure_reasons_hierarchy,
         compute_top_tlo_by_aging,
+        compute_top_tlo_flat,
     )
 
     ds_curr, de_curr = _month_bounds(period_current)
@@ -1649,60 +1706,102 @@ def export_error_rate_pptx(
         + list(snap_prev.get("campaigns") or [])
     ))
 
-    trend_rows = []
-    for key in all_camp_keys:
-        prev = _campaign_period_stats(snap_prev, key)
-        curr = _campaign_period_stats(snap_curr, key)
-        trend_rows.append({
-            "label": _campaign_label(key), "has_data": True, "is_total": False,
-            "prev": prev or {"submission": 0, "error_rate": 0.0},
-            "curr": curr or {"submission": 0, "error_rate": 0.0, "h": 0, "m": 0, "l": 0},
-        })
-    ov_prev, ov_curr = snap_prev.get("overview") or {}, snap_curr.get("overview") or {}
-    grand_curr = (snap_curr.get("hierarchy") or {}).get("all_telesales") or {}
-    trend_rows.append({
-        "label": "GRAND TOTAL", "has_data": True, "is_total": True,
-        "prev": {"submission": ov_prev.get("evaluated", 0), "error_rate": ov_prev.get("error_rate", 0.0)},
-        "curr": {
-            "submission": ov_curr.get("evaluated", 0), "error_rate": ov_curr.get("error_rate", 0.0),
-            "h": grand_curr.get("risk_high", 0), "m": grand_curr.get("risk_medium", 0),
-            "l": grand_curr.get("risk_low", 0),
-        },
-    })
+    groups = _ppt_group_campaigns(all_camp_keys)
+
+    def _stat(snap, key):
+        st = _campaign_period_stats(snap, key) or {}
+        sub = st.get("submission", 0)
+        h, m, l = st.get("h", 0), st.get("m", 0), st.get("l", 0)
+        return {"submission": sub, "error": h + m + l, "h": h, "m": m, "l": l,
+                "approved": st.get("approved", 0)}
+
+    def _with_rate(d):
+        d["error_rate"] = round(d["error"] / d["submission"] * 100, 2) if d["submission"] else 0.0
+        return d
+
+    def _sum_stats(items):
+        tot = {"submission": 0, "error": 0, "h": 0, "m": 0, "l": 0, "approved": 0}
+        for it in items:
+            for k in tot:
+                tot[k] += it[k]
+        return _with_rate(tot)
+
+    # Trend: per grup (USAGE/CARD/RETENTION) -> baris header grup, baris campaign,
+    # baris "TOTAL <grup>"; ditutup GRAND TOTAL = jumlah semua grup (tanpa Activation).
+    trend_rows, grand_prev, grand_curr = [], [], []
+    for gname, members in groups:
+        trend_rows.append({"label": gname, "is_group": True})
+        g_prev, g_curr = [], []
+        for key in members:
+            prev, curr = _with_rate(_stat(snap_prev, key)), _with_rate(_stat(snap_curr, key))
+            g_prev.append(prev)
+            g_curr.append(curr)
+            trend_rows.append({"label": _campaign_label(key), "prev": prev, "curr": curr})
+        trend_rows.append({"label": f"TOTAL {gname}", "is_total": True,
+                           "prev": _sum_stats(g_prev), "curr": _sum_stats(g_curr)})
+        grand_prev += g_prev
+        grand_curr += g_curr
+    trend_rows.append({"label": "GRAND TOTAL", "is_total": True,
+                       "prev": _sum_stats(grand_prev), "curr": _sum_stats(grand_curr)})
 
     am_table, spv_table = _am_spv_tables(snap_curr)
-    top_tlo = compute_top_tlo_by_aging(db, snap_curr.get("hierarchy") or {}, de_curr)
 
+    # Top 10 TLO per aging + top 3 failure reason dari 10 TLO itu. Teks requirement
+    # per agent hanya dikumpulkan server-side (``agent_requirements``) — tidak ikut
+    # ke payload hierarki Failure Rate (rincian per sales agent berhenti di kategori).
+    tlo_summary: dict = {}
+    top_tlo = compute_top_tlo_by_aging(
+        db, snap_curr.get("hierarchy") or {}, de_curr, summary_out=tlo_summary
+    )
+    agent_reqs: dict = {}
+    compute_failure_reasons_hierarchy(
+        db, date_start=ds_curr, date_end=de_curr, agent_requirements=agent_reqs
+    )
+    top_tlo_blocks = {}
+    for bucket, rows_in in top_tlo.items():
+        counts: dict = {}
+        for r in rows_in:
+            for req, n in (agent_reqs.get((r["agent_id"] or "").casefold()) or {}).items():
+                counts[req] = counts.get(req, 0) + n
+        top3 = sorted(counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:3]
+        top_tlo_blocks[bucket] = {
+            "rows": rows_in,
+            "total_tlo": tlo_summary.get(bucket, {}).get("total", 0),
+            "over_6": tlo_summary.get(bucket, {}).get("over_6", 0),
+            "reasons": [negate_requirement(req) for req, _ in top3],
+        }
+
+    # Detail Error Reason: per campaign, top 3 kategori + top 10 TLO ber-error-rate
+    # tertinggi campaign itu (satu slide).
     error_reason = []
-    for key in active_campaigns:
-        fr = compute_failure_reasons(db, campaign=key, date_start=ds_curr, date_end=de_curr)
-        fr_h = compute_failure_reasons_hierarchy(db, campaign=key, date_start=ds_curr, date_end=de_curr)
-        categories = [
-            {
-                "category": c["category"],
-                "example": (c["top_reasons"][0]["example"] if c.get("top_reasons") else "") or "-",
-                "fail_count": c["fail_count"],
-            }
-            for c in (fr.get("categories") or [])[:8]
-        ]
-        agents = [
-            a
-            for am in (fr_h.get("area_managers") or [])
-            for tl in (am.get("team_leaders") or [])
-            for a in (tl.get("agents") or [])
-        ]
-        agents.sort(key=lambda a: (a.get("fail_tickets", 0), a.get("evaluated", 0)), reverse=True)
-        error_reason.append({
-            "label": _campaign_label(key), "has_data": True,
-            "categories": categories, "top_agents": agents[:10],
-        })
+    for gname, members in groups:
+        for key in members:
+            if key not in active_campaigns:
+                continue
+            fr = compute_failure_reasons(db, campaign=key, date_start=ds_curr, date_end=de_curr)
+            categories = [
+                {
+                    "category": c["category"],
+                    # Negasi requirement teratas ("Agent tidak menyebutkan nama agent"),
+                    # bukan cuplikan reason/evidence dari tiket (1 Oktober 2026).
+                    "example": negate_requirement(c["top_reasons"][0]["requirement"]) if c.get("top_reasons") else "-",
+                    "fail_count": c["fail_count"],
+                }
+                for c in (fr.get("categories") or [])[:3]
+            ]
+            camp_tree = (snap_curr.get("hierarchy_by_campaign") or {}).get(key) or {}
+            error_reason.append({
+                "group": gname, "label": _campaign_label(key),
+                "categories": categories,
+                "top_agents": compute_top_tlo_flat(db, camp_tree, de_curr),
+            })
     data = {
         "period_previous": {"label": _period_label(period_previous), "key": period_previous},
         "period_current": {"label": _period_label(period_current), "key": period_current},
         "trend_rows": trend_rows,
         "am_table": am_table,
         "spv_table": spv_table,
-        "top_tlo": top_tlo,
+        "top_tlo": top_tlo_blocks,
         "error_reason": error_reason,
     }
     buffer = build_error_rate_pptx(data)

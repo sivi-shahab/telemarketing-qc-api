@@ -346,6 +346,8 @@ Detail ketiga endpoint terakhir: §5.
 |---|---|---|
 | `GET /qc_assignment/qc_users` | Daftar QC yang bisa di-assign | `qc.assignment.write` |
 | `GET /qc_assignments` | Daftar assignment | `qc.assignment.write` |
+| `GET /qc_assignment/log` | Log assign per hari WIB (`date_start`, `date_end` YYYY-MM-DD) — kepemilikan tiket saat ini, dikelompokkan menurut tanggal assign terakhir | `qc.assignment.write` |
+| `GET /qc_assignment/schedule` | Jadwal batch auto assign (08:00/11:00/13:00/15:00/16:30 WIB), `enabled` = `QC_AUTO_ASSIGN_ENABLED`, `next_run_at` + `now` server untuk countdown | `qc.assignment.write` |
 | `POST /qc_assignment` | Buat assignment | `qc.assignment.write` |
 | `DELETE /qc_assignment/{ticket_id}` | Hapus assignment | `qc.assignment.write` |
 
