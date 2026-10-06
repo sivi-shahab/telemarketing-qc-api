@@ -1,6 +1,8 @@
 # Merge `4-service-telemarketing-qc-system` branch `cashline_mus` → repo production (6 Oktober 2026)
 
-Status: **branch `merge/4service-06102026` di keempat repo — belum merge, belum deploy.**
+Status: **Merged dan deployed ke production 6 Oktober 2026 ~15:23 WIB.**
+PR api #39 (`af9a7a6`), core #23 (`c557d0c`), worker #27 (`56e081d`), dashboard #19 (`1cf3d37`).
+Rollback: image `local/qc-{api,worker,dashboard}:pre-4service-06102026` (lihat §5).
 
 ## 1. Ruang lingkup
 
@@ -68,12 +70,38 @@ Versi view dan router dari A **tidak** diambil utuh. Hanya fitur di atas yang di
 - Ketiga salinan `qc_auto_assign.py`, `stats_aggregate.py`, dan `ppt_error_rate.py`
   identik setelah prefix `qc_core.` dibuang.
 
-## 5. Deploy (belum, perlu persetujuan terpisah)
+## 5. Deploy (6 Oktober 2026 ~15:23 WIB)
 
-Ikuti `deployment_guidelines.md`: tag `pre-4service-06102026`, build `TAG=cand`, diff
-`pip freeze`, smoke test, retag, lalu `up -d --no-build`. Yang perlu di-rebuild: api,
-worker (termasuk `beat`, karena `beat_schedule` berubah), dan dashboard. Env tidak perlu
-diubah, karena saklarnya default mati.
+Mengikuti `deployment_guidelines.md`:
+
+1. Image yang berjalan ditandai `pre-4service-06102026`: api `5b9ee2298dc6`, worker
+   `1666d42cf0d9`, dashboard `1fc541b2dad1`.
+2. Build `TAG=cand`: api `cfb8ee261ebb`, worker `3cd8a86c21fb`, dashboard `929058027dff`.
+   `pip freeze` cand dibanding pre memberi 0 perbedaan di api dan worker. Hash
+   `qc_auto_assign.py`, `stats_aggregate.py`, dan `ppt_error_rate.py` di image sama
+   dengan git.
+3. Smoke test api cand di `qc-net`, hanya baca: alembic `0064 (head)`, `/health` 200,
+   `/qc_assignment/log` dan `/qc_assignment/schedule` terdaftar,
+   `schedule_enabled() = False`. Antrean 347 tiket, 268 belum di-assign, 10 QC aktif.
+   Campaign aktif `Complaint Handling`, `Cashline`, dan `Collection` menghasilkan grup PPT
+   `[("USAGE", ["Cashline"])]`. Smoke test worker cand tanpa jaringan: 5 slot
+   `auto-assign-*` ditambah 3 jadwal pemeliharaan, dan task mengembalikan
+   `skipped: disabled`.
+4. **Dua uji dilewati.** Pembuatan PPT dari data prod dan koneksi DB dari image worker cand
+   ditolak oleh pengaman otomatis Claude Code (akses baca prod). User memutuskan tetap
+   deploy. Pengecekan PPT dilakukan user lewat menu Generate PPT Error Rate.
+5. Retag `cand` menjadi `latest`, lalu `up -d --no-build` untuk api, worker, beat,
+   flower, dan dashboard.
+
+Setelah deploy: kelima container berjalan dengan image baru tanpa restart, api healthy,
+dan tidak ada error di log. Worker mendaftarkan `auto_assign.scheduled_auto_assign`.
+Bundle dashboard memuat tab Log QC, `/` menjawab 200, dan
+`/api-b/qc_assignment/schedule` tanpa login menjawab 401 (route ada). Env tidak diubah,
+jadi batch terjadwal tetap MATI.
+
+**Rollback:** `docker tag local/qc-<svc>:pre-4service-06102026 local/qc-<svc>:latest`
+untuk api, worker, dan dashboard, lalu jalankan `docker compose up -d --no-build` di
+ketiga repo. Tidak perlu downgrade DB.
 
 Untuk menyalakan batch terjadwal nanti, isi `QC_AUTO_ASSIGN_ENABLED=true` di env **api**
 (banner) dan **worker** (yang membagi), lalu restart `api`, `worker`, dan `beat`. Pastikan
