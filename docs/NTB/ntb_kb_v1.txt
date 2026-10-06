@@ -1,0 +1,2099 @@
+[
+	{
+		"conversation_phases": {
+			"Greeting": {
+				"description": "Salam pembuka, perkenalan agent, penyebutan Bank Mega, dan permintaan kesediaan waktu nasabah."
+			},
+			"Probing": {
+				"description": "Penawaran awal: informasi promo/diskon Bank Mega (Transmart, dining, travel & entertainment, program cashback NTB, Hartono), rentang limit, dan poin MPC. Terikat pada pembukaan panggilan, sebelum pengisian data dimulai."
+			},
+			"Pengisian Data Basic": {
+				"description": "Pengisian data aplikasi kartu utama setelah nasabah setuju (Agree Basic). Setiap item menilai APAKAH agent menanyakan/mengonfirmasi satu field dan nasabah menjawabnya; nilai jawaban tidak diverifikasi terhadap data apa pun. Field Provinsi, Kabupaten/Kota, dan Kode Pos terisi otomatis dari kecamatan, serta NPWP, telepon rumah, ekstensi telepon kantor, lama bekerja, kartu kredit bank lain, auto pay, dan memo bersifat opsional: semuanya TIDAK dinilai."
+			},
+			"Pengisian Data Supplement": {
+				"description": "Pengisian data kartu tambahan (maksimal 4 nama) dan persetujuan data pribadi (PDP) Supplement. Item pada kategori ini HANYA dinilai bila nasabah menyetujui kartu tambahan (ntb_supplement_interest = INTERESTED). Bila tidak, SEMUA item kategori ini berstatus TIDAK_DINILAI."
+			},
+			"Penjelasan Mega Ultima Shield": {
+				"description": "Penjelasan produk Mega Ultima Shield (MUS) dari PFI Mega Life Insurance: premi, manfaat, simulasi, persetujuan data pribadi (PDP) MUS, dan Health Declaration. Item pada kategori ini HANYA dinilai bila nasabah mengikuti MUS (ntb_mus_interest = INTERESTED) DAN tidak terhenti oleh Health Declaration (ntb_mus_eligibility != NOT_ELIGIBLE). Selain itu SEMUA item berstatus TIDAK_DINILAI. MUS bersifat OPSIONAL pada campaign NTB."
+			},
+			"Final Konfirmasi Basic": {
+				"description": "Konfirmasi akhir kartu utama. SEGMEN FINAL KONFIRMASI NTB = blok ucapan agent yang dibuka dengan 'Baik Bapak/Ibu, saya konfirmasikan pada hari ini, (hari), tanggal ...' (atau 'saya ulangi kembali ... dengan detail sebagai berikut') DAN memuat MINIMAL DUA unsur dari: nama nasabah + 'sudah mengerti dan memahami penjelasan kartu kredit', 'setuju kami proses pengajuan Kartu Kredit', 'jenis dan limit ditentukan sesuai hasil analisa internal Bank Mega', iuran tahunan, aktivasi kartu via Welcome Pack/Mega Call. Blok ini berakhir pada jawaban YA/SETUJU nasabah atas permintaan persetujuan. Pengulangan data saat pengisian, instruksi link microsite, dan penutup BUKAN segmen ini (kecuali item yang ketentuannya menyebut lain)."
+			},
+			"Final Konfirmasi Supplement": {
+				"description": "Konfirmasi akhir kartu tambahan di dalam segmen Final Konfirmasi (nama, hubungan, limit sharing, billing menyatu, pernyataan OJK). HANYA dinilai bila ntb_supplement_interest = INTERESTED; selain itu TIDAK_DINILAI."
+			},
+			"Final Konfirmasi Mega Ultima Shield": {
+				"description": "Informasi penutup Mega Ultima Shield di dalam segmen Final Konfirmasi: produk PFI Mega Life, sertifikat via WhatsApp, premi tidak dapat dikembalikan, RIPLAY, dan informasi klaim. HANYA dinilai bila MUS diikuti dan tidak terhenti Health Declaration; selain itu TIDAK_DINILAI."
+			},
+			"Legal Statement Basic": {
+				"description": "Persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu kredit utama."
+			},
+			"Legal Statement Supplement": {
+				"description": "Persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu tambahan. HANYA dinilai bila Supplement diikuti; selain itu TIDAK_DINILAI."
+			},
+			"Legal Statement Mega Ultima Shield": {
+				"description": "Persetujuan eksplisit nasabah (YA/SETUJU) atas keikutsertaan Mega Ultima Shield. HANYA dinilai bila MUS diikuti dan tidak terhenti Health Declaration; selain itu TIDAK_DINILAI."
+			},
+			"Closing": {
+				"description": "Konfirmasi dokumen tambahan dan pemberitahuan bahwa pembicaraan direkam."
+			}
+		}
+	},
+	{
+		"kb_code": "KB_NTB_1",
+		"category": "Greeting",
+		"requirement": "Agent menyampaikan salam pembuka",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Selamat pagi Bapak",
+			"Selamat siang Ibu",
+			"Selamat sore Pak",
+			"Selamat Pagi, bisa berbicara dengan Bapak/Ibu YYY?",
+			"Selamat Siang, bisa berbicara dengan Bapak/Ibu YYY?",
+			"Selamat Sore, bisa berbicara dengan Bapak/Ibu YYY?"
+		],
+		"scoring_rule": "SESUAI bila agent mengucapkan salam waktu (selamat pagi/siang/sore/malam) pada pembukaan. Ketepatan salam terhadap jam (Pagi 08.00-10.00, Siang 10.00-14.00, Sore 14.00-18.00) BUKAN syarat penilaian (sama seperti campaign lain); jangan menilai BELUM_SESUAI hanya karena salam tidak sesuai jam."
+	},
+	{
+		"kb_code": "KB_NTB_2",
+		"category": "Greeting",
+		"requirement": "Agent menyebutkan nama agent",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Perkenalkan saya (Nama agent)",
+			"Perkenalkan saya dengan (Nama agent)",
+			"Perkenalkan nama saya (Nama agent)"
+		],
+		"scoring_rule": "SESUAI HANYA bila nama yang disebut agent pada perkenalan COCOK dengan 'name_online' pada AGENT REFERENCE DATA (case-insensitive, toleran salah dengar/salah eja ringan - mis. 'Alvin' vs NAME ONLINE 'ELVIN'; TIDAK toleran bila namanya jelas BERBEDA, mis. 'Eveline' vs NAME ONLINE 'LINA'). Bila agent tidak pernah menyebutkan nama apa pun di seluruh panggilan (lihat evidence_selection_rule di atas), BELUM_SESUAI. Bila agent menyebutkan SUATU nama tetapi tidak cocok 'name_online', BELUM_SESUAI juga - KEDUANYA sama-sama BELUM_SESUAI, tetapi WAJIB dibedakan lewat field top-level 'agent_name_said' (lihat STRUCTURED DATA EXTRACTION): isi persis nama yang diucapkan bila ADA nama disebut (walau tidak cocok), atau null bila TIDAK ADA nama disebut sama sekali. Field ini menentukan error code B12 vs B29, JANGAN dikosongkan hanya karena item ini dinilai BELUM_SESUAI. Bila AGENT REFERENCE DATA tidak tersedia ('name_online' null/kosong), nilai berdasarkan APAKAH agent menyebutkan nama saja, tanpa mensyaratkan kecocokan."
+	},
+	{
+		"kb_code": "KB_NTB_3",
+		"category": "Greeting",
+		"requirement": "Agent menyebutkan nama Bank Mega",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"dari Pusat Informasi Promo Bank Mega",
+			"dari Kartu Kredit Bank Mega",
+			"dari Card Centre Bank Mega",
+			"dari Bank Mega",
+			"pusat informasi Bank Mega",
+			"layanan informasi Bank Mega",
+			"pusat layanan bank mega"
+		]
+	},
+	{
+		"kb_code": "KB_NTB_4",
+		"category": "Greeting",
+		"requirement": "Agent menanyakan kesediaan waktu nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "KHUSUS category Greeting pada input MULTI-PANGGILAN: tiap panggilan punya segmen greeting SENDIRI (timestamp sama-sama mulai 00:0x), dan agent SERING mengulang salam/nama agent/nama Bank Mega/permintaan kesediaan waktu di panggilan berikutnya karena telepon terputus. WAJIB periksa greeting di SEMUA panggilan, JANGAN berhenti di Panggilan ke-1. Terpenuhi di panggilan MANA PUN (cukup SATU kali) -> SESUAI. BELUM_SESUAI HANYA bila TIDAK terpenuhi di panggilan MANA PUN. Bila terpenuhi di lebih dari satu panggilan, ambil evidence dengan posisi (call_index, timestamp) TERBESAR. JANGAN menilai BELUM_SESUAI hanya karena Panggilan ke-1 tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Berkenan kami minta waktunya sebentar Pak/Bu untuk menyampaikan informasi promo-promo menarik yang bermanfaat untuk Bapak/Ibu",
+			"Kami ijin minta waktunya sebentar Pak/Bu, karna ada informasi promo yang bisa Bapak/Ibu manfaatkan",
+			"Mohon maaf mengganggu waktunya ya Pak/Bu",
+			"Izin meminta waktunya sebentar ya, Pak/Bu",
+			"Boleh minta waktunya sebentar, Pak/Bu?",
+			"izin waktunya ya Pak/Bu",
+			"izin waktunya kembali ya Pak/Bu"
+		],
+		"scoring_rule": "SESUAI HANYA jika agent secara EKSPLISIT meminta atau menanyakan kesediaan WAKTU nasabah - ditandai penyebutan kata 'waktu' ATAU permintaan waktu yang jelas (mis. 'minta waktunya sebentar', 'berkenan minta waktunya', 'izin waktunya', 'boleh minta waktunya?'). Frasa izin/pembuka GENERIK yang TIDAK menyebut kesediaan waktu nasabah - mis. 'mohon izin', 'izin sebentar', 'permisi' - TIDAK memenuhi requirement ini dan dinilai BELUM_SESUAI, meskipun terdengar sopan. Kata kunci pembeda: adanya permintaan atas WAKTU nasabah, bukan sekadar permintaan izin. Item ini adalah item KRITIS (persetujuan awal nasabah / PDP)."
+	},
+	{
+		"kb_code": "KB_NTB_5",
+		"category": "Probing",
+		"requirement": "Agent menyampaikan informasi promo dan diskon Bank Mega",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya. Evidence terikat pada fase penawaran awal (setelah salam, sebelum pengisian data dimulai); jangan mengambil kutipan dari konfirmasi akhir atau penutup."
+		},
+		"details": {
+			"transaksi_harian": "Transmart diskon reguler 10% atau cicilan 0% 6 bulan (full day sale)",
+			"dining_20_persen": "Yoshinoya up to 50% untuk merchant yang ada Transmart",
+			"dining_15_persen": "Pepper Lunch, Kimukatsu, Yakiniku Like, Shaburi Kintan",
+			"travel_entertainment": "Agoda disc 8%, tiket.com, XXI",
+			"cicilan": "Ubah transaksi menjadi cicilan dengan bunga ringan hingga 48 bulan",
+			"program_cashback_ntb": {
+				"nama": "Ngojek & Nonton Gratis sampai Rp45rb",
+				"cashback": "100% maksimal Rp15.000 per transaksi, tanpa minimum transaksi, sampai 3 transaksi (total maksimal Rp45.000 per nasabah)",
+				"merchant_ride_hailing": [
+					"Gojek",
+					"Grab",
+					"BlueBird",
+					"Green SM"
+				],
+				"merchant_digital_subscription": [
+					"Netflix",
+					"Spotify Premium",
+					"YouTube Premium",
+					"Disney+",
+					"Vidio",
+					"Prime Video",
+					"iQIYI",
+					"Viu",
+					"WeTV",
+					"Apple Music",
+					"Apple TV+"
+				],
+				"syarat": "Khusus nasabah baru (NTB) Kartu Kredit Bank Mega; transaksi pertama maksimal 30 hari setelah kartu disetujui; periode transaksi 3 bulan setelah kartu disetujui; cashback dikreditkan ke kartu kredit utama paling lambat 30 hari sejak akhir bulan transaksi; tidak dapat digabung dengan program cashback akuisisi lainnya"
+			},
+			"promo_hartono": "Cicilan 0% tenor 3, 6, 12 bulan di Hartono Elektronik, minimal transaksi Rp1.000.000, berlaku s.d. 31 Desember 2026, biaya konversi cicilan Rp50.000",
+			"catatan_periode": "Periode promo pada script (mis. tiket.com s.d. 31 Agustus 2025, XXI s.d. 31 Mei 2026) dapat sudah lewat; yang dinilai adalah APAKAH agent menyampaikan promo/diskon, bukan masa berlaku di script."
+		},
+		"example_phrases": [
+			"Saat ini Bank Mega memiliki berbagai macam promo menarik, dimana dengan fasilitas promo ini dapat memudahkan Bapak/Ibu untuk bertransaksi lebih hemat",
+			"Biasanya Bapak/Ibu menggunakan kartu kreditnya dimana saja?",
+			"Kebetulan sekali Bapak/Ibu, Bank Mega juga menyediakan fasilitas (promo yang sesuai dengan favorit nasabah)",
+			"kartu kredit Bank Mega memberikan keleluasaan pada Bapak/Ibu dalam transaksi harian, cicilan ringan dan berbagai promo menarik seperti makan bersama keluarga, jalan-jalan, hiburan hingga belanja online",
+			"Ngojek & Nonton Gratis sampai Rp45rb! ... cashback 100%, maksimal Rp15.000 per transaksi",
+			"Bapak/Ibu bisa menikmati cicilan 0% untuk pembelian berbagai produk di Hartono Elektronik ... tenor 3, 6, atau 12 bulan"
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan MINIMAL SATU promo/diskon/program spesifik Bank Mega (menyebut nama merchant atau program DAN manfaatnya, mis. diskon Transmart, cashback Ngojek & Nonton, cicilan 0% Hartono). Pernyataan generik 'ada banyak promo menarik' tanpa satu pun promo spesifik BELUM cukup. Urutan promo (favorit nasabah dulu) tidak dinilai."
+	},
+	{
+		"kb_code": "KB_NTB_6",
+		"category": "Probing",
+		"requirement": "Agent menyampaikan range limit kartu kredit",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya. Evidence terikat pada fase penawaran awal (setelah salam, sebelum pengisian data dimulai); jangan mengambil kutipan dari konfirmasi akhir atau penutup."
+		},
+		"example_phrases": [
+			"Limit kartu kredit yang bisa Bapak/Ibu dapatkan berkisar dari ... hingga ...",
+			"Untuk limitnya, nanti ditentukan sesuai hasil analisa, kisarannya mulai dari ..."
+		],
+		"scoring_rule": "ASUMSI v1 (script NTB tidak memuat kalimat range limit; menunggu konfirmasi Bank Mega): SESUAI bila agent menyebut KISARAN/RENTANG limit kartu kredit (nominal atau rentang) pada penawaran. Pernyataan 'limit ditentukan hasil analisa internal' tanpa menyebut kisaran TIDAK cukup untuk item ini (itu dinilai pada item Final Konfirmasi)."
+	},
+	{
+		"kb_code": "KB_NTB_7",
+		"category": "Probing",
+		"requirement": "Agent menyampaikan poin MPC",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya. Evidence terikat pada fase penawaran awal (setelah salam, sebelum pengisian data dimulai); jangan mengambil kutipan dari konfirmasi akhir atau penutup."
+		},
+		"example_phrases": [
+			"Dapatkan MPC melalui transaksi setiap kelipatan Rp10.000 diluar merchant-merchant CT Corp (jumlah poin yang didapatkan tergantung jenis kartu)",
+			"MPC dapat ditukarkan untuk transaksi di seluruh merchant jaringan CT Corp dan partner yang bekerjasama, serta untuk pembayaran Annual Fee melalui MEGACALL 08041500010"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut MPC (poin) yang diperoleh dari transaksi, dengan kelipatan Rp10.000 ATAU kegunaan penukarannya. Menyebut kata 'poin' tanpa kaitan transaksi/penukaran BELUM cukup."
+	},
+	{
+		"kb_code": "KB_NTB_8",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau menyebutkan jenis kartu kredit yang dikehendaki/diajukan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "JENIS_KARTU_YANG_DIKEHENDAKI",
+				"description": "Jenis Kartu yang dikehendaki"
+			}
+		],
+		"agent_example_phrases": [
+			"Kartu kredit yang Bapak/Ibu kehendaki jenisnya apa?",
+			"Untuk jenis kartunya, kita ajukan Visa Metro Card ya Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Metro Card",
+			"Visa Gold"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Script NTB tidak memuat kalimat baku untuk field ini; SESUAI bila agent menanyakan ATAU menyebut jenis/nama kartu yang diajukan dan nasabah tidak menyangkalnya.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_9",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau mengonfirmasi nama lengkap nasabah sesuai KTP",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "NAMA_LENGKAP_SESUAI_KTP",
+				"description": "Nama Lengkap Sesuai KTP"
+			}
+		],
+		"agent_example_phrases": [
+			"Nama lengkap sesuai KTP nya siapa Pak/Bu?",
+			"Mohon disebutkan nama lengkap Bapak/Ibu sesuai KTP"
+		],
+		"customer_example_responses": [
+			"Antoni Sopian"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Menyebut nama nasabah pada salam pembuka BUKAN pemenuhan; harus ada pertanyaan/konfirmasi nama LENGKAP sesuai KTP pada rangkaian pengisian data.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_10",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nomor KTP/KITAS nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "NO_KTP_KITAS",
+				"description": "No KTP/Kitas"
+			}
+		],
+		"agent_example_phrases": [
+			"Mohon disebutkan nomor KTP-nya Pak/Bu",
+			"Nomor KTP atau KITAS nya berapa?"
+		],
+		"customer_example_responses": [
+			"3 6 7 1 0 1 1 3 ..."
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Nasabah sering mendiktekan 16 digit terpotong-potong dengan sela 'iya'/'baik' dari agent; sambung dulu sebelum menyimpulkan. Jumlah digit tidak diverifikasi.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_11",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau mengonfirmasi kewarganegaraan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "KEWARGANEGARAAN",
+				"description": "Kewarganegaraan"
+			}
+		],
+		"agent_example_phrases": [
+			"Kewarganegaraannya WNI ya Pak/Bu?",
+			"Untuk kewarganegaraan, WNI atau WNA?"
+		],
+		"customer_example_responses": [
+			"WNI",
+			"Iya WNI"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_12",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau mengonfirmasi jenis kelamin nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "JENIS_KELAMIN",
+				"description": "Jenis Kelamin"
+			}
+		],
+		"agent_example_phrases": [
+			"Mohon maaf, jenis kelaminnya Laki-laki atau Perempuan?",
+			"Jenis kelaminnya laki-laki ya Pak?"
+		],
+		"customer_example_responses": [
+			"Laki-laki",
+			"Perempuan"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Sapaan 'Bapak'/'Ibu' saja BUKAN pemenuhan; harus ada pertanyaan atau konfirmasi eksplisit jenis kelamin.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_13",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau mengonfirmasi status perkawinan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "STATUS_PERKAWINAN",
+				"description": "Status perkawinan"
+			}
+		],
+		"agent_example_phrases": [
+			"Status perkawinannya apa Pak/Bu, kawin, belum kawin, atau cerai?"
+		],
+		"customer_example_responses": [
+			"Kawin",
+			"Belum kawin"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_14",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan tempat lahir nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "TEMPAT_LAHIR",
+				"description": "Tempat Lahir"
+			}
+		],
+		"agent_example_phrases": [
+			"Tempat lahirnya di mana Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Tangerang"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_15",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan tanggal lahir nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "TANGGAL_LAHIR",
+				"description": "Tanggal Lahir"
+			}
+		],
+		"agent_example_phrases": [
+			"Tanggal lahirnya tanggal berapa Pak/Bu?",
+			"Mohon disebutkan tanggal, bulan, dan tahun lahirnya"
+		],
+		"customer_example_responses": [
+			"13 Juni 1978",
+			"13 06 78"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Di campaign ini tanggal lahir adalah DATA YANG DIKUMPULKAN, bukan verifikasi identitas: nilainya tidak dibandingkan dengan data apa pun.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_16",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan alamat rumah nasabah (baris pertama: jalan, nomor)",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_RUMAH_1",
+				"description": "Alamat Rumah 1"
+			}
+		],
+		"agent_example_phrases": [
+			"Alamat rumahnya di mana Pak/Bu, mohon disebutkan nama jalan dan nomornya"
+		],
+		"customer_example_responses": [
+			"Jalan KH Hasyim Ashari Gang Kunir nomor 12"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_17",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan lanjutan alamat rumah (baris kedua) atau menyatakan baris kedua diisi titik karena cukup pada alamat pertama",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_RUMAH_2",
+				"description": "Alamat Rumah 2"
+			}
+		],
+		"agent_example_phrases": [
+			"Ada lanjutan alamatnya Pak/Bu? Kalau tidak ada saya isi titik ya"
+		],
+		"customer_example_responses": [
+			"Tidak ada",
+			"Cukup itu aja"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Script: bila alamat cukup pada baris pertama, baris kedua diisi titik. Agent yang menanyakan lanjutan alamat ATAU menyatakan akan mengisinya titik (dan nasabah tidak keberatan) = SESUAI.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_18",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan RT alamat rumah nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "RUMAH_RT",
+				"description": "Rumah RT"
+			}
+		],
+		"agent_example_phrases": [
+			"RT nya berapa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"RT 008"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Boleh ditanyakan bersama RW dalam satu pertanyaan (mis. 'RT RW nya?').",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_19",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan RW alamat rumah nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "RUMAH_RW",
+				"description": "Rumah RW"
+			}
+		],
+		"agent_example_phrases": [
+			"RW nya berapa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"RW 020"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Boleh ditanyakan bersama RT dalam satu pertanyaan (mis. 'RT RW nya?').",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_20",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan kelurahan alamat rumah nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "RUMAH_KELURAHAN",
+				"description": "Rumah Kelurahan"
+			}
+		],
+		"agent_example_phrases": [
+			"Kelurahannya apa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Kelurahan Pegangsaan Dua"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_21",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan kecamatan alamat rumah nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "RUMAH_KECAMATAN",
+				"description": "Rumah Kecamatan"
+			}
+		],
+		"agent_example_phrases": [
+			"Kecamatannya apa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Kecamatan Kelapa Gading"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Provinsi, Kabupaten/Kota, dan Kode Pos terisi otomatis dari kecamatan sehingga TIDAK dinilai.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_22",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nomor handphone nasabah yang aktif",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "HANDPHONE",
+				"description": "Handphone"
+			}
+		],
+		"agent_example_phrases": [
+			"Nomor handphone yang aktif berapa Pak/Bu?",
+			"Boleh dikonfirmasi kembali nomor handphone yang bisa dihubungi?"
+		],
+		"customer_example_responses": [
+			"0812 3456 7890"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Script mewajibkan agent menanyakan KEMBALI nomor yang aktif, bukan hanya mengandalkan nomor yang sedang dihubungi.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_23",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan alamat email nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "EMAIL_ADDRESS",
+				"description": "Email Address"
+			}
+		],
+		"agent_example_phrases": [
+			"Alamat emailnya apa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"antoni at gmail titik com"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Penyebutan 'at'/'titik' dan ejaan huruf per huruf adalah hal biasa; jangan dinilai dari kerapian format.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_24",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nama keluarga dekat nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "NAMA_KELUARGA_DEKAT",
+				"description": "Nama Keluarga Dekat"
+			}
+		],
+		"agent_example_phrases": [
+			"Nama keluarga dekat yang bisa dihubungi siapa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Siti"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_25",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nomor handphone keluarga dekat nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "HANDPHONE_KELUARGA_DEKAT",
+				"description": "Handphone Keluarga Dekat"
+			}
+		],
+		"agent_example_phrases": [
+			"Nomor handphone keluarga dekatnya berapa?"
+		],
+		"customer_example_responses": [
+			"0813 ..."
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_26",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nama gadis ibu kandung nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "NAMA_GADIS_IBU_KANDUNG",
+				"description": "Nama Gadis Ibu Kandung"
+			}
+		],
+		"agent_example_phrases": [
+			"Nama gadis ibu kandungnya siapa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Nani Dewani"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Hanya dicatat sebagai data aplikasi; TIDAK dibandingkan dengan data apa pun.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_27",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan jabatan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "JABATAN",
+				"description": "Jabatan"
+			}
+		],
+		"agent_example_phrases": [
+			"Jabatan Bapak/Ibu apa?"
+		],
+		"customer_example_responses": [
+			"Staf",
+			"Manajer"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_28",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan bidang usaha tempat nasabah bekerja",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "BIDANG_USAHA",
+				"description": "Bidang Usaha"
+			}
+		],
+		"agent_example_phrases": [
+			"Bidang usaha perusahaannya apa?"
+		],
+		"customer_example_responses": [
+			"Perdagangan",
+			"Jasa"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_29",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan pekerjaan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "PEKERJAAN",
+				"description": "Pekerjaan"
+			}
+		],
+		"agent_example_phrases": [
+			"Pekerjaannya sebagai apa Pak/Bu, wirausaha, karyawan swasta, PNS, BUMN?"
+		],
+		"customer_example_responses": [
+			"Karyawan swasta"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_30",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nama perusahaan tempat nasabah bekerja",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "NAMA_PERUSAHAAN",
+				"description": "Nama Perusahaan"
+			}
+		],
+		"agent_example_phrases": [
+			"Nama perusahaan tempat bekerja apa?"
+		],
+		"customer_example_responses": [
+			"PT Maju Jaya"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_31",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan alamat kantor nasabah (baris pertama)",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_KANTOR_1",
+				"description": "Alamat Kantor 1"
+			}
+		],
+		"agent_example_phrases": [
+			"Alamat kantornya di mana Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Jalan Sudirman nomor 5"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_32",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan lanjutan alamat kantor (baris kedua) atau menyatakan baris kedua diisi titik karena cukup pada alamat pertama",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_KANTOR_2",
+				"description": "Alamat Kantor 2"
+			}
+		],
+		"agent_example_phrases": [
+			"Ada lanjutan alamat kantornya? Kalau tidak saya isi titik ya"
+		],
+		"customer_example_responses": [
+			"Tidak ada"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Script: boleh diisi titik bila alamat kantor cukup pada baris pertama. Agent yang menanyakan lanjutan ATAU menyatakan akan mengisinya titik = SESUAI.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_33",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan kelurahan alamat kantor nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "KANTOR_KELURAHAN",
+				"description": "Kantor Kelurahan"
+			}
+		],
+		"agent_example_phrases": [
+			"Kelurahan kantornya apa?"
+		],
+		"customer_example_responses": [
+			"Karet Tengsin"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_34",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan kecamatan alamat kantor nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "KANTOR_KECAMATAN",
+				"description": "Kantor Kecamatan"
+			}
+		],
+		"agent_example_phrases": [
+			"Kecamatan kantornya apa?"
+		],
+		"customer_example_responses": [
+			"Tanah Abang"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab. Provinsi, Kabupaten/Kota, dan Kode Pos kantor terisi otomatis dari kecamatan sehingga TIDAK dinilai.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_35",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan nomor telepon kantor nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "TELEPON_KANTOR",
+				"description": "Telepon Kantor"
+			}
+		],
+		"agent_example_phrases": [
+			"Nomor telepon kantornya berapa?"
+		],
+		"customer_example_responses": [
+			"021 5555 ..."
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_36",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan penghasilan kotor nasabah per bulan",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "PENGHASILAN_KOTOR_PERBULAN",
+				"description": "Penghasilan Kotor Perbulan"
+			}
+		],
+		"agent_example_phrases": [
+			"Penghasilan kotor per bulannya kira-kira berapa Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Sepuluh juta"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_37",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan alamat pengiriman kartu",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_PENGIRIMAN_KARTU",
+				"description": "Alamat Pengiriman Kartu"
+			}
+		],
+		"agent_example_phrases": [
+			"Kartunya mau dikirim ke alamat rumah atau kantor Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Ke alamat rumah"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_38",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan alamat penagihan (tagihan bulanan)",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan (pengisian data sering terulang setelah telepon terputus). SESUAI bila field ini ditanyakan/dikonfirmasi di panggilan MANA PUN; evidence = kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Nilai jawaban TIDAK dibandingkan dengan data apa pun."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"required_customer_entities": [
+			{
+				"entity": "ALAMAT_TAGIHAN_BULANAN",
+				"description": "Alamat Tagihan Bulanan"
+			}
+		],
+		"agent_example_phrases": [
+			"Tagihan bulanannya dikirim ke alamat rumah atau kantor?"
+		],
+		"customer_example_responses": [
+			"Ke rumah"
+		],
+		"scoring_rule": "SESUAI bila agent MENANYAKAN field ini dan nasabah MENJAWAB, ATAU nasabah menyebutkannya secara spontan lalu agent MENGONFIRMASI/mengulangnya. Nilai yang disebut TIDAK diverifikasi terhadap data apa pun. BELUM_SESUAI bila field ini tidak pernah ditanyakan/dikonfirmasi di panggilan mana pun, atau agent bertanya tetapi nasabah tidak pernah menjawab.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_39",
+		"category": "Pengisian Data Basic",
+		"requirement": "Source code pengajuan terisi sesuai campaign (diisi sistem)",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"details": {
+			"daftar_source_code": {
+				"TPIREGRFCNET": "NTB Eksternal reguler",
+				"TPIBDLREGNET": "NTB Eksternal reguler bundling program cashback Supplement",
+				"TWIREGRFCNIT": "NTB Funding Active",
+				"TWIBDLREGNIT": "NTB Funding Active bundling program cashback Supplement",
+				"TWIREGCTTM000": "Staff CT Corpora basic only (dedicated)",
+				"TWIBLREGCTTM00": "Staff CT Corpora bundling basic supplement (dedicated)",
+				"GDTBBLREGNPY00": "Staff Payroll"
+			}
+		},
+		"example_phrases": [
+			"(tidak diucapkan; diisi sistem)"
+		],
+		"scoring_rule": "ASUMSI v1 (menunggu konfirmasi Bank Mega): source code diisi OTOMATIS oleh sistem (catatan scorecard: 'by system') sehingga TIDAK DAPAT dinilai dari transkrip. SELALU set status = 'TIDAK_DINILAI', item_score = null, evidence = null, reason = 'Dilewati: source code diisi otomatis oleh sistem dan tidak dapat dinilai dari transkrip.'"
+	},
+	{
+		"kb_code": "KB_NTB_40",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent meminta persetujuan penggunaan data nasabah (sharing data) untuk penawaran produk Bank Mega dan perusahaan mitra",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_STATES_OR_ASKS",
+			"customer_response_required": false
+		},
+		"agent_example_phrases": [
+			"Apakah Bapak/Ibu bersedia memberikan persetujuan penggunaan data pribadi Bapak/Ibu kepada Bank Mega untuk tujuan memberikan informasi penawaran Produk/Layanan Bank Mega atau Perusahaan Lain yang bekerjasama dengan Bank Mega melalui sarana komunikasi pribadi? Mohon dibantu dengan jawaban YA / SETUJU"
+		],
+		"scoring_rule": "SESUAI bila agent MEMINTA persetujuan penggunaan data pribadi untuk tujuan informasi penawaran produk/layanan Bank Mega atau perusahaan mitra. Nasabah BOLEH menyetujui atau menolak (script: 'boleh menyetujui atau tidak'); jawabannya TIDAK memengaruhi status item ini. Bila nasabah menolak lalu agent membujuk ulang sesuai script, itu bukan kesalahan. BUKAN pemenuhan: persetujuan data pribadi untuk Mega Ultima Shield atau Kartu Tambahan (itu item PDP tersendiri)."
+	},
+	{
+		"kb_code": "KB_NTB_41",
+		"category": "Pengisian Data Basic",
+		"requirement": "Agent menanyakan atau menginformasikan pilihan e-statement",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Lembar tagihan bulanannya mau dikirim secara elektronik (e-statement) ke email ya Pak/Bu?",
+			"Untuk e-statement nya kita aktifkan ya Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Iya, e-statement saja",
+			"Dikirim ke email"
+		],
+		"scoring_rule": "ASUMSI v1 (script NTB tidak memuat kalimat baku e-statement; menunggu konfirmasi Bank Mega): SESUAI bila agent menanyakan atau menyebut pilihan/penggunaan e-statement (lembar tagihan elektronik) dan nasabah menanggapi. BELUM_SESUAI bila tidak pernah disinggung di panggilan mana pun.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_42",
+		"category": "Pengisian Data Supplement",
+		"requirement": "Agent menanyakan nama kartu tambahan (supplement)",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"untuk kartu tambahannya apakah boleh diinformasikan atas nama siapa?",
+			"Mohon disebutkan nama lengkap sesuai KTP kartu tambahannya"
+		],
+		"customer_example_responses": [
+			"Atas nama Siti Aminah"
+		],
+		"scoring_rule": "SESUAI bila agent menanyakan nama kartu tambahan (sesuai KTP) dan nasabah menyebutkannya. Maksimal 4 nama; item ini SESUAI bila nama dimintakan untuk setiap kartu tambahan yang diajukan (cukup bukti yang jelas untuk nama-nama itu).",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_43",
+		"category": "Pengisian Data Supplement",
+		"requirement": "Agent menanyakan jenis kelamin pemegang kartu tambahan",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Mohon maaf, laki-laki atau perempuan?",
+			"Jenis kelaminnya perempuan ya Pak/Bu?"
+		],
+		"customer_example_responses": [
+			"Perempuan"
+		],
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_44",
+		"category": "Pengisian Data Supplement",
+		"requirement": "Agent menanyakan hubungan kekerabatan pemegang kartu tambahan dengan nasabah",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Untuk hubungan kekerabatan dengan (nama supplement) sebagai apa?"
+		],
+		"customer_example_responses": [
+			"Istri saya",
+			"Anak",
+			"Saudara"
+		],
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_45",
+		"category": "Pengisian Data Supplement",
+		"requirement": "Agent menginformasikan bahwa kartu tambahan dikirim ke alamat yang sama dengan kartu utama",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_STATES_OR_ASKS",
+			"customer_response_required": false
+		},
+		"agent_example_phrases": [
+			"Sebagai informasi, pengiriman kartu tambahan ini akan kami kirimkan ke alamat yang sesuai dengan pengiriman kartu utama ya Pak/Bu"
+		],
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_46",
+		"category": "Pengisian Data Supplement",
+		"requirement": "Agent meminta persetujuan penggunaan data pribadi (PDP) untuk pengajuan kartu tambahan",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Sebelum kami proses lebih lanjut dengan ini Bapak/Ibu YYYY memberikan persetujuan atas data pribadi yang diberikan kepada Bank Mega untuk dipergunakan dalam proses pengajuan kartu tambahan sesuai dengan ketentuan Undang-Undang Perlindungan Data Pribadi yang berlaku. Mohon dibantu dengan jawaban YA/SETUJU"
+		],
+		"customer_example_responses": [
+			"YA",
+			"SETUJU"
+		],
+		"scoring_rule": "SESUAI HANYA jika KEDUANYA terpenuhi: (1) agent MEMINTA persetujuan atas penggunaan DATA PRIBADI untuk proses pengajuan KARTU TAMBAHAN, DAN (2) nasabah menjawab AFIRMATIF ('ya'/'setuju'/'iya'). Item KRITIS. BELUM_SESUAI bila agent hanya membacakan tanpa meminta jawaban, atau nasabah hanya menjawab 'oke'/'paham'. Persetujuan data pribadi untuk Mega Ultima Shield atau sharing data BUKAN pemenuhan item ini.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_47",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menjelaskan besaran premi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"details": {
+			"premi": "0,68% per bulan dari total tagihan terhutang kartu kredit"
+		},
+		"example_phrases": [
+			"Preminya relatif kecil, hanya 0.68% perbulan sesuai total tagihan terhutang Bapak/Ibu",
+			"preminya hanya 0,68% per bulan"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut besaran 0,68% (per bulan) DAN dasar perhitungannya yaitu total tagihan terhutang. Menyebut angka premi tanpa dasar perhitungan BELUM_SESUAI.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_48",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menjelaskan benefit Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"details": {
+			"manfaat": {
+				"meninggal_kecelakaan": "maksimum 500% dari total tagihan",
+				"meninggal_sakit": "maksimum 200% dari total tagihan",
+				"cacat_tetap_total": "100% dari total tagihan",
+				"cacat_sebagian": "hingga 10% dari total tagihan atau minimum Rp50 ribu selama 12 bulan",
+				"penyakit_kritis": "100% dari total tagihan (infark miokard, penyakit pembuluh darah koroner yang membutuhkan operasi by pass, stroke, kanker, gagal fungsi organ)"
+			}
+		},
+		"example_phrases": [
+			"Pertama, jika meninggal dunia karena kecelakaan uang pertanggungan maksimum 500% dari total tagihan kartu, dan jika meninggal karena sakit maksimum 200%. Dimana 100% nya akan dibayarkan untuk melunasi tagihan dan sisanya diserahkan kepada ahli waris",
+			"Kedua, apabila terjadi cacat tetap total manfaat santunan sebesar 100% dari total tagihan",
+			"Ketiga, apabila terjadi cacat sebagian manfaat santunan hingga 10% dari total tagihan atau minimum 50 ribu selama 12 bulan",
+			"Keempat, khusus penyakit kritis, santunan 100% dari total tagihan kartu jika tertanggung untuk pertama kalinya terdiagnosa salah satu penyakit kritis (infark miokard; penyakit pembuluh darah koroner yang membutuhkan operasi by pass; stroke; kanker; gagal fungsi organ - gagal ginjal dan gagal hati)"
+		],
+		"scoring_rule": "SESUAI bila agent menjelaskan manfaat inti MUS: (a) santunan meninggal dunia (kecelakaan dan sakit) DAN (b) minimal salah satu dari cacat tetap total / cacat sebagian / penyakit kritis. Tidak wajib menyebut seluruh jenis penyakit kritis satu per satu, tetapi angka persentase yang disebut TIDAK boleh bertentangan dengan details.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_49",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menyampaikan simulasi perhitungan premi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Bapak/Ibu jika saya hitung perkiraan premi dari tagihan kartu kredit, contoh jika tagihan Rp1.000.000 maka premi Bapak/Ibu hanya Rp6.800, ini hanya simulasi, perhitungan disesuaikan dengan tagihan nasabah",
+			"Misalkan total tagihan Rp6.000.000 maka premi yang dibayarkan 0,68% x Rp6.000.000 yaitu Rp40.800"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut CONTOH/SIMULASI nominal premi: sebuah nilai tagihan dan hasil premi 0,68% darinya (mis. Rp1.000.000 -> Rp6.800). Contoh dengan tagihan lain SAH selama hitungannya benar (tagihan x 0,68%, toleransi pembulatan). Hitungan yang jelas salah, atau hanya menyebut persentase tanpa nominal, BELUM_SESUAI.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_50",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent meminta persetujuan penggunaan data pribadi (PDP) untuk pengajuan asuransi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Sebelum kami bantu proses, perlu kami informasikan bahwa dengan melanjutkan proses pengajuan asuransi Mega Ultima Shield ini, Bapak/Ibu perlu memberikan persetujuan atas Data Pribadi yang Bapak/Ibu berikan kepada Bank Mega untuk pengajuan asuransi Mega Ultima Shield sesuai dengan ketentuan Undang-Undang Pelindungan Data Pribadi yang berlaku.",
+			"Dengan melanjutkan pengajuan asuransi Mega Ultima Shield, Bapak/Ibu memberikan persetujuan kepada Bank Mega untuk meneruskan Data Pribadi Bapak/Ibu kepada PFI Mega Life Insurance untuk keperluan pengajuan dan penerbitan polis Mega Ultima Shield.",
+			"Apakah Bapak/Ibu menyetujui penggunaan data pribadi Bapak/Ibu untuk proses pengajuan asuransi Mega Ultima Shield ini?"
+		],
+		"customer_example_responses": [
+			"Iya setuju",
+			"Ya"
+		],
+		"scoring_rule": "SESUAI HANYA jika (1) agent meminta persetujuan penggunaan data pribadi untuk pengajuan asuransi Mega Ultima Shield (termasuk diteruskannya ke PFI Mega Life Insurance) DAN (2) nasabah menjawab AFIRMATIF. Item KRITIS. Letaknya sebelum permintaan Health Declaration (usulan PEDP: sebelum atau sesudah HD sama-sama diterima). Persetujuan data pribadi untuk sharing data umum atau Kartu Tambahan BUKAN pemenuhan.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_51",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menanyakan kesediaan pernyataan Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Karena kepesertaan dalam program perlindungan tagihan ini tidak memerlukan pemeriksaan kesehatan, kami memerlukan Pernyataan Kesehatan dari Bapak/Ibu sebagai syarat pengajuan Mega Ultima Shield. Apakah Bapak/Ibu bersedia? Mohon dijawab YA atau TIDAK"
+		],
+		"scoring_rule": "SESUAI bila agent MENYAMPAIKAN bahwa pernyataan kesehatan DIPERLUKAN sebagai syarat pengajuan Mega Ultima Shield, DAN meminta nasabah menjawabnya. Permintaan jawaban itu terpenuhi oleh SALAH SATU bentuk berikut (cukup satu): (a) pertanyaan kesediaan eksplisit - 'Apakah Bapak/Ibu bersedia?'; ATAU (b) permintaan menjawab dengan benar sebelum pernyataan dibacakan - 'Mohon dijawab dengan sebenar-benarnya', 'mohon dijawab sejujurnya'; ATAU (c) pertanyaan konfirmasi setelah pernyataan dibacakan - 'Apakah pernyataan tersebut benar?'. JANGAN mensyaratkan kata 'bersedia' atau urutan tertentu. PENTING - SKRIP AGENT MENYATU: agent hampir selalu mengucapkan pengantar syarat + permintaan menjawab + isi pernyataan + pertanyaan konfirmasi dalam SATU blok ucapan panjang. Blok tunggal itu memenuhi item kesediaan, penyampaian, DAN konfirmasi Health Declaration sekaligus; ketiganya BOLEH memakai blok yang sama sebagai evidence. BELUM_SESUAI HANYA bila agent tidak pernah menyampaikan bahwa pernyataan kesehatan diperlukan, ATAU membacakan pernyataan tanpa pernah meminta jawaban/konfirmasi nasabah. Jawaban nasabah ('Iya', 'Benar', 'Ya bersedia') MENEGUHKAN item ini.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_52",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menyampaikan Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Mohon dijawab sebenar-benarnya dikarenakan pernyataan ini merupakan pernyataan penting, dan merupakan pertimbangan utama dari perusahaan asuransi saat mengkaji pengajuan klaim. Berikut Pernyataan Kesehatan-nya: Saya (sebutkan nama nasabah lengkap) menyatakan bahwa saya: pertama, dalam keadaan sehat dan tidak sedang dalam pengobatan atau perawatan dari dokter untuk suatu penyakit atau kecelakaan, kedua, saat ini tidak dirawat di rumah sakit, (khusus wanita) ketiga, tidak dalam keadaan mengandung lebih dari 7 bulan"
+		],
+		"scoring_rule": "SESUAI bila agent MEMBACAKAN isi pernyataan kesehatan: (1) sehat dan tidak sedang dalam pengobatan/perawatan dokter, DAN (2) tidak sedang dirawat di rumah sakit. Butir ketiga (hamil lebih dari 7 bulan) hanya untuk nasabah wanita dan tidak wajib bagi nasabah pria. Penyebutan nama lengkap nasabah di dalam pernyataan diharapkan tetapi bukan syarat tunggal.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_53",
+		"category": "Penjelasan Mega Ultima Shield",
+		"requirement": "Agent menanyakan konfirmasi Health Declaration",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Apakah Pernyataan tersebut BENAR? Mohon dijawab YA atau TIDAK"
+		],
+		"scoring_rule": "SESUAI bila SETELAH membacakan pernyataan kesehatan agent menanyakan konfirmasi kebenarannya ('Apakah pernyataan tersebut benar?') dan meminta jawaban Ya/Tidak. Jawaban nasabah (Ya atau Tidak) tidak memengaruhi status item ini; konsekuensi jawaban 'Tidak' diatur oleh ntb_mus_eligibility pada prompt.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_54",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menyebutkan hari dan tanggal pada konfirmasi akhir pengajuan",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Baik Bapak/Ibu saya konfirmasikan pada hari ini, (sebut nama hari), tanggal (sebut tanggal bulan dan tahun)"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut NAMA HARI dan TANGGAL (tanggal + bulan) pada blok konfirmasi akhir. Tahun toleran bila terpotong ASR. Hanya menyebut 'hari ini' tanpa hari/tanggal BELUM_SESUAI."
+	},
+	{
+		"kb_code": "KB_NTB_55",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menyebutkan nama nasabah (CH) pada konfirmasi akhir",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Bapak/Ibu XXX sudah mengerti dan memahami penjelasan kartu kredit Bank Mega, setuju kami proses pengajuan Kartu Kredit"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut nama nasabah (minimal nama yang dapat dikenali sebagai nasabah) di dalam blok konfirmasi akhir, mis. 'Bapak/Ibu [nama] sudah mengerti dan memahami ...'. Sapaan 'Bapak/Ibu' tanpa nama BELUM_SESUAI."
+	},
+	{
+		"kb_code": "KB_NTB_56",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menginformasikan iuran tahunan kartu kredit",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"details": {
+			"iuran_tahunan": "Gratis tahun pertama; tahun kedua dan seterusnya sesuai ketentuan Bank Mega, berkisar Rp500.000 sampai Rp1.000.000 tergantung jenis kartu yang disetujui"
+		},
+		"example_phrases": [
+			"Iuran tahunan akan digratiskan pada tahun pertama dan untuk tahun kedua dan selanjutnya akan dikenakan sesuai dengan ketentuan yang berlaku di Bank Mega. Besaran iuran tahunan berkisar antara Rp500.000 hingga Rp1.000.000, tergantung pada jenis kartu kredit yang disetujui."
+		],
+		"scoring_rule": "SESUAI bila agent menyebut KETIGA unsur: (1) iuran tahunan gratis pada tahun pertama, (2) dikenakan mulai tahun kedua, DAN (3) besaran berkisar Rp500.000 sampai Rp1.000.000. Unsur yang tidak disebut -> BELUM_SESUAI dan reason menyebut unsur yang kurang."
+	},
+	{
+		"kb_code": "KB_NTB_57",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menginformasikan bahwa persetujuan kartu serta jenis dan limitnya ditentukan oleh hasil analisa internal Bank Mega",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"dengan jenis dan limit kartu kredit yang kemudian akan ditentukan sesuai dengan hasil analisa internal Bank Mega"
+		],
+		"scoring_rule": "SESUAI bila agent menyatakan bahwa persetujuan/jenis/limit kartu ditentukan oleh analisa/analis internal Bank Mega (bukan dijanjikan pasti disetujui). Item yang sama berlaku untuk kartu tambahan bila ada."
+	},
+	{
+		"kb_code": "KB_NTB_58",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menginformasikan pengaktifan kartu setelah kartu disetujui dan diterima",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"jika kartu utama sudah disetujui dan sudah diterima Bapak/Ibu, mohon dibantu untuk langsung diaktifkan sesuai dengan format atau panduan yang ada di Welcome Pack. Informasi lebih lanjut dapat menghubungi Mega Call di 08041500010"
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan bahwa kartu yang sudah disetujui dan diterima harus diaktifkan (sesuai panduan Welcome Pack). Menyebut nomor Mega Call 08041500010 diharapkan tetapi bukan syarat tunggal."
+	},
+	{
+		"kb_code": "KB_NTB_59",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent mengonfirmasi alamat pengiriman kartu utama",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Kartu akan kami kirimkan ke alamat (rumah/kantor) sebagaimana tadi Bapak/Ibu sampaikan, benar ya Pak/Bu?"
+		],
+		"scoring_rule": "ASUMSI v1: script Final Confirmation tidak memuat kalimat alamat pengiriman; SESUAI bila di dalam segmen Final Konfirmasi (atau rangkaian konfirmasi tepat sebelum permintaan YA/SETUJU) agent MENGULANG/mengonfirmasi alamat pengiriman kartu utama (rumah/kantor atau alamatnya)."
+	},
+	{
+		"kb_code": "KB_NTB_60",
+		"category": "Final Konfirmasi Basic",
+		"requirement": "Agent menginformasikan persetujuan nasabah untuk dikirimkan link microsite",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Ucapan ini biasanya berada TEPAT SETELAH blok Final Konfirmasi (segmen link microsite). Boleh diambil dari segmen link microsite yang langsung menyusul blok Final Konfirmasi; pilih kemunculan yang MEMENUHI dengan posisi (call_index, timestamp) TERBESAR. Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Bapak/Ibu XXX setuju dengan penawaran Kartu Kredit Bank Mega dan bersedia untuk dikirimkan link Microsite untuk proses berikutnya. Terdapat beberapa ketentuan mengenai penawaran kartu kredit Bank Mega ini didalam Microsite tersebut yang perlu Bapak/Ibu perhatikan dan juga untuk diberikan konfirmasinya."
+		],
+		"scoring_rule": "SESUAI bila agent menyatakan bahwa nasabah akan dikirimi link microsite untuk proses berikutnya (menyebut microsite/link dan bahwa ketentuannya perlu dibaca/dikonfirmasi). Ucapan ini biasanya TEPAT SETELAH blok Final Konfirmasi: evidence boleh diambil dari segmen link microsite yang langsung menyusul blok itu (satu-satunya pengecualian batas segmen pada kategori ini)."
+	},
+	{
+		"kb_code": "KB_NTB_61",
+		"category": "Final Konfirmasi Supplement",
+		"requirement": "Agent mengonfirmasi nama kartu tambahan pada konfirmasi akhir",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Dan saya konfirmasikan juga, untuk proses pengajuan dengan kartu tambahan; 1. Atas nama: ..."
+		],
+		"scoring_rule": "SESUAI bila agent menyebut nama pemegang kartu tambahan (untuk setiap kartu tambahan yang diajukan).",
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_62",
+		"category": "Final Konfirmasi Supplement",
+		"requirement": "Agent mengonfirmasi hubungan kekerabatan pemegang kartu tambahan pada konfirmasi akhir",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"2. Hubungan: ..."
+		],
+		"scoring_rule": "SESUAI bila agent menyebut hubungan kekerabatan pemegang kartu tambahan dengan nasabah.",
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_63",
+		"category": "Final Konfirmasi Supplement",
+		"requirement": "Agent mengonfirmasi limit sharing/berbagi kartu tambahan pada konfirmasi akhir",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"3. Limit sharing / berbagi"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut bahwa limit kartu tambahan berbagi (sharing) dengan kartu utama, atau menyebut pembatasan limit bila nasabah menetapkannya.",
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_64",
+		"category": "Final Konfirmasi Supplement",
+		"requirement": "Agent menginformasikan lembar penagihan (billing) kartu tambahan menjadi satu dengan kartu utama",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Dan lembar penagihan/billing tagihan menjadi satu dengan kartu utama"
+		],
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_65",
+		"category": "Final Konfirmasi Supplement",
+		"requirement": "Agent menyampaikan informasi bahwa pengajuan kartu kredit utama dan tambahan berizin dan diawasi Otoritas Jasa Keuangan (Pasal 35 ayat 1.b POJK 22 Tahun 2023)",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Pengajuan Kartu Kredit Utama dan Tambahan milik Bapak/Ibu melalui Bank Mega berizin dan diawasi oleh Otoritas Jasa Keuangan sebagaimana diatur pada Pasal 35 ayat 1.b POJK 22 Tahun 2023 tentang Pelindungan Konsumen dan Masyarakat di Sektor Jasa Keuangan"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut bahwa pengajuan berizin dan diawasi OJK, DAN merujuk POJK 22 Tahun 2023 (Pasal 35 ayat 1.b). Catatan scorecard menyebut 'tidak ada di campaign NTB' pada sheet Supplement; ASUMSI v1: tetap dinilai karena kalimat ini ada pada script Final Confirmation Supplement.",
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_66",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan bahwa Mega Ultima Shield adalah produk asuransi PFI Mega Life Insurance yang diawasi OJK dan bukan produk Bank Mega, serta data nasabah disampaikan kepada PFI Mega Life",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Untuk Mega Ultima Shield ini, merupakan produk asuransi dari PFI Mega Life Insurance, Perusahaan asuransi jiwa yang berizin dan diawasi oleh OJK dan bukan merupakan produk Bank Mega. Dengan demikian, Data Bapak/Ibu akan kami sampaikan kepada PFI Mega Life Insurance untuk proses keikutsertaan program asuransi ini."
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan: (1) MUS adalah produk asuransi PFI Mega Life Insurance yang berizin/diawasi OJK, (2) BUKAN produk Bank Mega, DAN (3) data nasabah disampaikan kepada PFI Mega Life. Unsur yang tidak disebut -> BELUM_SESUAI.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_67",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi pengiriman salinan sertifikat asuransi melalui WhatsApp dan hardcopy sertifikat disimpan di PFI Mega Life Insurance",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Sebagai bukti keikutsertaan Bapak/ibu dalam produk Mega Ultima Shield, maka akan dikirimkan salinan sertifikat asuransi melalui whatsapp sesuai dengan nomor handphone yang terdaftar pada sistem Bank Mega dan akan diterima paling lambat 10 hari kerja setelah penawaran ini. Sebagai informasi, hardcopy sertifikat asuransi disimpan di PFI Mega Life Insurance."
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan salinan sertifikat dikirim via WhatsApp (nomor yang terdaftar di sistem Bank Mega, paling lambat 10 hari kerja) DAN hardcopy disimpan di PFI Mega Life Insurance.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_68",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi bahwa premi yang telah dibayarkan atas keikutsertaan Mega Ultima Shield tidak dapat dikembalikan apabila nasabah mengajukan pembatalan",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Perlu kami informasikan bahwa premi yang telah dibayarkan tidak dapat dikembalikan apabila Bapak/Ibu mengajukan pembatalan keikutsertaan.",
+			"Sebagai informasi premi yang telah dibayarkan atas keikutsertaan Mega Ultima Shield tidak dapat dikembalikan. Maka kami sarankan agar keinginan pembatalan dipertimbangkan kembali sehingga manfaat perlindungan tetap dapat dinikmati kedepannya."
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan DUA unsur: (1) premi yang SUDAH DIBAYARKAN TIDAK DAPAT DIKEMBALIKAN (tidak di-refund), DAN (2) konteksnya, yaitu pembatalan/penonaktifan keikutsertaan Mega Ultima Shield. Menyebut salah satu saja BELUM cukup. Kata tidak harus baku: 'keikutsertaan'/'kepesertaan' sama-sama sah; 'tidak dapat dikembalikan'/'tidak bisa dikembalikan'/'tidak dapat di-refund' sama-sama sah. TOLERAN SALAH DENGAR ASR dan sisipan disfluensi; yang dinilai ISI kedua unsur. Kalimat saran 'kami menyarankan agar pembatalan dipertimbangkan kembali' BUKAN syarat.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_69",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menjelaskan Ringkasan Informasi Produk dan Layanan (RIPLAY) dan sertifikat asuransi Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Bapak/ibu akan memperoleh Ringkasan Informasi Produk dan Layanan personal produk Mega Ultima Shield yang akan dikirimkan melalui email, atau untuk melihat versi umum, dapat Bapak/Ibu unduh di website PFI Mega Life Insurance (www.pfimegalife.co.id)"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut RIPLAY (Ringkasan Informasi Produk dan Layanan) dikirim melalui email ATAU dapat diunduh di website PFI Mega Life, dan bahwa nasabah memperoleh sertifikat asuransi.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_70",
+		"category": "Final Konfirmasi Mega Ultima Shield",
+		"requirement": "Agent menyampaikan informasi klaim Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "FINAL_CONFIRMATION",
+			"prefer": "MENTION_IN_FINAL_CONFIRMATION",
+			"fallback": "NONE",
+			"note": "Evidence WAJIB dari DALAM segmen Final Konfirmasi (blok 'saya konfirmasikan pada hari ini ...'; definisi lengkap di prompt dan conversation_phases). Multi-panggilan: segmen yang berlaku = blok yang MEMENUHI syarat pada panggilan TERAKHIR yang memilikinya, dibandingkan dengan posisi (call_index, timestamp). Banyak item Final Konfirmasi BELUM_SESUAI sekaligus = SINYAL segmen salah pilih - periksa panggilan yang lebih awal."
+		},
+		"example_phrases": [
+			"Sebagai penutup, terdapat beberapa informasi penting yang perlu kami sampaikan, agar proses claim dapat berjalan dengan baik. Yaitu: 1. Informasikan kepada ahli waris Bapak/Ibu bahwa bapak/Ibu memiliki proteksi terhadap kartu kreditnya 2. Terdapat batas waktu pengajuan klaim maksimal 90 hari kalender sejak tanggal terjadinya resiko yaitu meninggal dunia, mengalami cacat atau terdiagnosa penyakit kritis."
+		],
+		"scoring_rule": "SESUAI bila agent menyampaikan KEDUA unsur: (1) ahli waris perlu diberi tahu bahwa nasabah memiliki proteksi atas kartu kreditnya, DAN (2) batas waktu pengajuan klaim maksimal 90 hari kalender sejak terjadinya risiko.",
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_71",
+		"category": "Legal Statement Basic",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu kredit",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"Bapak/Ibu XXX sudah mengerti dan memahami penjelasan kartu kredit Bank Mega dan setuju kami proses pengajuan Kartu Kredit ... Boleh dibantu dengan kata YA atau SETUJU"
+		],
+		"customer_example_responses": [
+			"YA",
+			"SETUJU"
+		],
+		"scoring_rule": "SESUAI HANYA jika KEDUANYA terpenuhi: (1) AGENT MEMINTA PERSETUJUAN EKSPLISIT nasabah untuk MEMPROSES pengajuan kartu kredit (mis. 'Bapak/Ibu setuju kami proses pengajuan Kartu Kredit? Boleh dibantu dengan kata YA atau SETUJU'), DAN (2) NASABAH MERESPONS AFIRMATIF ('ya'/'setuju'/'iya, setuju'). Item KRITIS. BELUM_SESUAI bila agent hanya membacakan konfirmasi TANPA meminta persetujuan eksplisit; ATAU hanya menanyakan kejelasan ('jelas ya?'/'paham ya?'); ATAU nasabah hanya menjawab 'oke'/'jelas'/'paham'. Satu pertanyaan persetujuan gabungan (kartu utama + kartu tambahan + Mega Ultima Shield) dengan satu jawaban YA/SETUJU memenuhi ketiga item Legal Statement sekaligus, selama pertanyaannya MENYEBUT masing-masing produk. Persetujuan sharing data, PDP, atau Health Declaration BUKAN persetujuan item ini.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		}
+	},
+	{
+		"kb_code": "KB_NTB_72",
+		"category": "Legal Statement Supplement",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas pengajuan kartu tambahan",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"... setuju kami proses pengajuan Kartu Kredit dan kartu tambahan ... Boleh dibantu dengan kata YA atau SETUJU"
+		],
+		"customer_example_responses": [
+			"YA",
+			"SETUJU"
+		],
+		"scoring_rule": "SESUAI HANYA jika (1) agent meminta persetujuan eksplisit nasabah untuk memproses KARTU TAMBAHAN (pertanyaan persetujuan MENYEBUT kartu tambahan, tunggal atau gabungan dengan kartu utama), DAN (2) nasabah menjawab AFIRMATIF. Item KRITIS. Pertanyaan persetujuan yang hanya menyebut kartu utama TIDAK memenuhi item ini.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "SUPL"
+	},
+	{
+		"kb_code": "KB_NTB_73",
+		"category": "Legal Statement Mega Ultima Shield",
+		"requirement": "Agent meminta persetujuan eksplisit nasabah (YA/SETUJU) atas keikutsertaan Mega Ultima Shield",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"interaction_rule": {
+			"type": "AGENT_ASKS_CUSTOMER_RESPONDS",
+			"customer_response_required": true
+		},
+		"agent_example_phrases": [
+			"... setuju kami proses pengajuan Kartu Kredit dan Mega Ultima Shield ... Boleh dibantu dengan kata YA atau SETUJU"
+		],
+		"customer_example_responses": [
+			"YA",
+			"SETUJU"
+		],
+		"scoring_rule": "SESUAI HANYA jika (1) agent meminta persetujuan eksplisit nasabah untuk memproses MEGA ULTIMA SHIELD (pertanyaan persetujuan MENYEBUT Mega Ultima Shield, tunggal atau gabungan), DAN (2) nasabah menjawab AFIRMATIF. Item KRITIS. Persetujuan PDP MUS atau jawaban Health Declaration BUKAN persetujuan item ini.",
+		"evidence_rule": {
+			"must_include": [
+				"AGENT_QUESTION",
+				"CUSTOMER_ANSWER"
+			],
+			"quote_scope": "AGENT_TO_CUSTOMER_WINDOW",
+			"window_size": 2
+		},
+		"applies_to": "MUS"
+	},
+	{
+		"kb_code": "KB_NTB_74",
+		"category": "Closing",
+		"requirement": "Agent mengonfirmasi kesediaan nasabah melengkapi dokumen tambahan bila diminta analis",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Pada saat proses analisa apabila analis kami memerlukan dokumen tambahan, mohon kesediaan Bapak/Ibu untuk melengkapinya. Bank Mega akan mengingatkan Bapak/Ibu melalui dua jalur komunikasi, yaitu melalui WhatsApp resmi Bank Mega, dan apabila dokumen belum diterima, kami akan menghubungi kembali melalui telepon."
+		],
+		"scoring_rule": "SESUAI bila agent meminta kesediaan nasabah melengkapi dokumen tambahan jika diminta analis. Menyebut dua jalur pengingat (WhatsApp resmi dan telepon) diharapkan; permintaan kesediaannya adalah syarat utama."
+	},
+	{
+		"kb_code": "KB_NTB_75",
+		"category": "Closing",
+		"requirement": "Agent menginformasikan bahwa pembicaraan direkam",
+		"evidence_selection_rule": {
+			"phase_scope": "ANY",
+			"prefer": "LATEST_QUALIFYING_MENTION",
+			"fallback": "NONE",
+			"note": "Pindai SEMUA panggilan. Item dinilai SESUAI bila requirement terpenuhi di panggilan MANA PUN (panggilan pertama, kedua, dst.) - cukup SATU kemunculan yang benar. Evidence diambil dari kandidat MEMENUHI dengan posisi (call_index, timestamp) TERBESAR, yaitu penyebutan benar yang PALING BARU. Kemunculan yang TIDAK memenuhi bukan kandidat dan tidak menggeser pilihan. JANGAN menilai BELUM_SESUAI hanya karena panggilan pertama tidak memenuhinya."
+		},
+		"example_phrases": [
+			"Sebagai informasi pembicaraan ini direkam, terima kasih atas waktunya, selamat pagi/siang/sore. Semoga hari Bapak/Ibu menyenangkan"
+		],
+		"scoring_rule": "SESUAI bila agent menyebut bahwa pembicaraan direkam pada PENUTUP panggilan. Catatan: pemberitahuan perekaman yang disampaikan di awal (sebelum penawaran) TIDAK menggantikan item ini bila penutup tidak menyebutnya. Informasi M-SMILE dan website bersifat OPSIONAL dan tidak dinilai."
+	}
+]
