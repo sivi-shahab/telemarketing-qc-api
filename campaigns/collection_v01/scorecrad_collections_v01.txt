@@ -1,0 +1,221 @@
+[
+  {
+    "standard_penagihan": {
+      "scoring": "weighted_percentage",
+      "max_points": 30,
+      "items": [
+        {
+          "category": "Pembukaan & Identifikasi Petugas",
+          "item_code": "SC_COL_1_1",
+          "requirement": "menyampaikan salam pembuka",
+          "kb_reference": "KB_COL_1_1",
+          "tolerable": "YES",
+          "weight": 1,
+          "optional": false
+        },
+        {
+          "category": "Pembukaan & Identifikasi Petugas",
+          "item_code": "SC_COL_1_2",
+          "requirement": "menyebutkan nama penagih",
+          "kb_reference": "KB_COL_1_2",
+          "tolerable": "YES",
+          "weight": 1,
+          "optional": false
+        },
+        {
+          "category": "Pembukaan & Identifikasi Petugas",
+          "item_code": "SC_COL_1_3",
+          "requirement": "menyebutkan nama institusi/PUJK resmi yang diwakili",
+          "kb_reference": "KB_COL_1_3",
+          "tolerable": "YES",
+          "weight": 2,
+          "optional": false
+        },
+        {
+          "category": "Pembukaan & Identifikasi Petugas",
+          "item_code": "SC_COL_1_4",
+          "requirement": "menyampaikan tujuan telepon terkait kewajiban pembayaran/tagihan",
+          "kb_reference": "KB_COL_1_4",
+          "tolerable": "NO",
+          "weight": 3,
+          "optional": true,
+          "na_condition": "Pihak yang mengangkat bukan konsumen (tujuan terkait tagihan tidak boleh disampaikan ke pihak ketiga)"
+        },
+        {
+          "category": "Pembukaan & Identifikasi Petugas",
+          "item_code": "SC_COL_1_5",
+          "requirement": "menginformasikan bahwa percakapan direkam",
+          "kb_reference": "KB_COL_1_5",
+          "tolerable": "YES",
+          "weight": 1,
+          "optional": true,
+          "source": "SOP internal / transparansi UU PDP",
+          "na_condition": "Pemberitahuan rekaman sudah disampaikan otomatis oleh sistem/IVR"
+        },
+        {
+          "category": "Verifikasi Nasabah",
+          "item_code": "SC_COL_2_1",
+          "requirement": "memverifikasi identitas pihak yang diangkat telepon sebelum membahas tunggakan",
+          "kb_reference": "KB_COL_2_1",
+          "tolerable": "NO",
+          "weight": 7,
+          "optional": false
+        },
+        {
+          "category": "Penyampaian Informasi Tunggakan",
+          "item_code": "SC_COL_3_1",
+          "requirement": "menyampaikan tanggal jatuh tempo sesuai perjanjian",
+          "kb_reference": "KB_COL_3_1",
+          "tolerable": "YES",
+          "weight": 2,
+          "optional": true,
+          "na_condition": "Pihak yang mengangkat bukan konsumen, telepon terputus sebelum pembahasan tunggakan, atau konsumen sudah menyebutkan/mengonfirmasi jatuh tempo sendiri"
+        },
+        {
+          "category": "Penyampaian Informasi Tunggakan",
+          "item_code": "SC_COL_3_2",
+          "requirement": "menyampaikan jumlah hari keterlambatan pembayaran",
+          "kb_reference": "KB_COL_3_2",
+          "tolerable": "YES",
+          "weight": 2,
+          "optional": true,
+          "na_condition": "Pihak yang mengangkat bukan konsumen, telepon terputus sebelum pembahasan tunggakan, atau konsumen langsung berkomitmen bayar sebelum detail disampaikan"
+        },
+        {
+          "category": "Penyampaian Informasi Tunggakan",
+          "item_code": "SC_COL_3_3",
+          "requirement": "menyampaikan outstanding pokok terutang",
+          "kb_reference": "KB_COL_3_3",
+          "tolerable": "NO",
+          "weight": 4,
+          "optional": true,
+          "na_condition": "Pihak yang mengangkat bukan konsumen, telepon terputus sebelum pembahasan tunggakan, atau konsumen sudah mengetahui/menyebutkan nominal sendiri"
+        },
+        {
+          "category": "Penyampaian Informasi Tunggakan",
+          "item_code": "SC_COL_3_4",
+          "requirement": "menyampaikan denda dan/atau ganti rugi terutang",
+          "kb_reference": "KB_COL_3_4",
+          "tolerable": "NO",
+          "weight": 4,
+          "optional": true,
+          "na_condition": "Pihak yang mengangkat bukan konsumen, telepon terputus sebelum pembahasan tunggakan, atau tidak ada denda/ganti rugi yang terutang"
+        },
+        {
+          "category": "Penawaran Solusi Penyelesaian",
+          "item_code": "SC_COL_7_2",
+          "requirement": "mengonfirmasi komitmen bayar (tanggal dan nominal) secara eksplisit",
+          "kb_reference": "KB_COL_7_2",
+          "tolerable": "YES",
+          "weight": 2,
+          "optional": true,
+          "na_condition": "Bukan konsumen, telepon terputus, atau konsumen menyatakan sengketa/menolak berkomitmen"
+        },
+        {
+          "category": "Penutupan",
+          "item_code": "SC_COL_8_1",
+          "requirement": "merangkum hasil percakapan/kesepakatan dan menyampaikan salam penutup",
+          "kb_reference": "KB_COL_8_1",
+          "tolerable": "YES",
+          "weight": 1,
+          "optional": true,
+          "na_condition": "Panggilan diputus oleh konsumen"
+        }
+      ]
+    },
+    "etika_penagihan": {
+      "scoring": "pass_fail_gate",
+      "max_points": 120,
+      "items": [
+        {
+          "category": "Kerahasiaan Data",
+          "item_code": "SC_COL_2_2",
+          "requirement": "tidak menyampaikan informasi tunggakan/data pribadi kepada pihak selain konsumen",
+          "kb_reference": "KB_COL_2_2",
+          "tolerable": "NO",
+          "weight": 14,
+          "optional": false,
+          "eval_guideline": "Termasuk FAIL: menyebut tagihan/keterlambatan/unit penagihan kepada pihak ketiga, atau meminta pihak ketiga menyampaikan/membayar tagihan. Kepada pihak ketiga petugas hanya boleh menyebut nama dan menanyakan waktu yang tepat untuk menghubungi kembali konsumen."
+        },
+        {
+          "category": "Kerahasiaan Data",
+          "item_code": "SC_COL_2_3",
+          "requirement": "panggilan ditujukan ke nomor pribadi konsumen yang terdaftar, atau nomor lain atas persetujuan konsumen yang tercatat",
+          "kb_reference": "KB_COL_2_3",
+          "tolerable": "NO",
+          "weight": 9,
+          "optional": true,
+          "method": "metadata",
+          "data_source": [
+            "dialed_number",
+            "customer_contact_master.contact_type",
+            "customer_contact_consent"
+          ],
+          "na_condition": "Data nomor tujuan/contact_type tidak tersedia untuk panggilan ini",
+          "eval_guideline": "PASS jika contact_type=PRIBADI atau ada consent tercatat untuk nomor tsb. FAIL jika menghubungi nomor yang konsumen minta tidak dihubungi. Nomor kantor/kontak darurat tanpa consent: sesuai keputusan Compliance."
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_1",
+          "requirement": "tidak menggunakan ancaman, kekerasan, dan/atau tindakan yang mempermalukan konsumen",
+          "kb_reference": "KB_COL_4_1",
+          "tolerable": "NO",
+          "weight": 20,
+          "optional": false
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_2",
+          "requirement": "tidak menggunakan tekanan secara verbal",
+          "kb_reference": "KB_COL_4_2",
+          "tolerable": "NO",
+          "weight": 14,
+          "optional": false
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_3",
+          "requirement": "tidak menggunakan kata kasar, makian, atau bahasa yang merendahkan",
+          "kb_reference": "KB_COL_4_3",
+          "tolerable": "NO",
+          "weight": 14,
+          "optional": false
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_4",
+          "requirement": "tidak memberikan informasi tidak benar/menyesatkan (ancaman pidana, penyitaan tanpa dasar, mengaku aparat/kuasa hukum)",
+          "kb_reference": "KB_COL_4_4",
+          "tolerable": "NO",
+          "weight": 18,
+          "optional": false
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_5",
+          "requirement": "tidak mengandung unsur SARA",
+          "kb_reference": "KB_COL_4_5",
+          "tolerable": "NO",
+          "weight": 13,
+          "optional": false
+        },
+        {
+          "category": "Etika & Cara Penagihan",
+          "item_code": "SC_COL_4_6",
+          "requirement": "tidak meminta pembayaran ke rekening pribadi atau kanal tidak resmi",
+          "kb_reference": "KB_COL_4_6",
+          "tolerable": "NO",
+          "weight": 18,
+          "optional": false
+        }
+      ]
+    },
+    "final_score": {
+      "max_total": 150,
+      "case_points": "per case: sum(weight PASS) / sum(weight non-NA) * max_points",
+      "formula": "standard_penagihan.case_points (maks 30) + etika_penagihan.case_points (maks 120)",
+      "percentage": "final_points / 150 * 100",
+      "etika_gate": "jika ada item etika FAIL, final_points = 0"
+    }
+  }
+]

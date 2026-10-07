@@ -1,0 +1,216 @@
+[
+  {
+    "kb_code": "KB_COL_1_1",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyampaikan salam pembuka secara profesional",
+    "example_phrases": [
+      "Selamat pagi Bapak/Ibu",
+      "Selamat siang, bisa berbicara dengan Bapak/Ibu (Nama Konsumen)?",
+      "Selamat sore, mohon waktunya sebentar Pak/Bu"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_1_2",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyebutkan nama petugas penagih",
+    "example_phrases": [
+      "Perkenalkan saya (Nama Petugas)",
+      "Saya (Nama Petugas) yang menghubungi Bapak/Ibu hari ini"
+    ]
+  },
+  {
+    "kb_code": "KB_COL_1_3",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyebutkan nama institusi/PUJK resmi yang diwakili",
+    "example_phrases": [
+      "dari Bank Mega",
+      "mewakili (Nama Vendor Resmi) yang bekerja sama dengan Bank Mega"
+    ],
+    "evaluation_notes": "Sebelum identitas terverifikasi, cukup menyebut nama institusi. Menyebut 'tim penagihan/collection' kepada pihak yang belum terverifikasi dinilai di KB_COL_2_2."
+  },
+  {
+    "kb_code": "KB_COL_1_4",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menyampaikan tujuan telepon terkait kewajiban pembayaran/tagihan secara jelas setelah identitas konsumen terverifikasi",
+    "example_phrases": [
+      "Saya menghubungi terkait kewajiban pembayaran Bapak/Ibu yang sudah jatuh tempo",
+      "Saya ingin menginformasikan status tagihan Bapak/Ibu yang saat ini tertunggak"
+    ],
+    "evaluation_notes": "NA jika pihak yang mengangkat bukan konsumen. Menyampaikan tujuan tagihan sebelum verifikasi atau kepada pihak ketiga dinilai FAIL di KB_COL_2_2, bukan PASS di item ini."
+  },
+  {
+    "kb_code": "KB_COL_1_5",
+    "category": "Pembukaan & Identifikasi Petugas",
+    "requirement": "Agent menginformasikan bahwa percakapan direkam",
+    "example_phrases": [
+      "Untuk peningkatan kualitas layanan, percakapan ini kami rekam",
+      "Mohon izin, pembicaraan ini direkam ya Pak/Bu"
+    ],
+    "evaluation_notes": "NA jika pemberitahuan rekaman sudah disampaikan otomatis oleh sistem/IVR."
+  },
+  {
+    "kb_code": "KB_COL_2_1",
+    "category": "Verifikasi Nasabah",
+    "requirement": "Agent memverifikasi identitas pihak yang mengangkat telepon SEBELUM membahas informasi tunggakan apa pun",
+    "example_phrases": [
+      "Mohon konfirmasi tanggal lahir Bapak/Ibu",
+      "Boleh sebutkan nama ibu kandung untuk verifikasi data",
+      "Apakah benar saya terhubung dengan Bapak/Ibu (Nama Konsumen) sendiri?"
+    ],
+    "evaluation_notes": "FAIL jika informasi tunggakan sudah dibahas sebelum verifikasi selesai. Kecukupan data verifikasi mengikuti SOP verifikasi internal."
+  },
+  {
+    "kb_code": "KB_COL_3_1",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan tanggal jatuh tempo sesuai perjanjian",
+    "example_phrases": [
+      "Tagihan Bapak/Ibu jatuh tempo pada tanggal (tanggal)",
+      "Sesuai perjanjian, jatuh tempo pembayaran setiap tanggal (tanggal)"
+    ],
+    "evaluation_notes": "Jika data akun tersedia, tanggal yang disebut harus sesuai data. Tanggal keliru = FAIL, bukan NA."
+  },
+  {
+    "kb_code": "KB_COL_3_2",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan jumlah hari keterlambatan pembayaran",
+    "example_phrases": [
+      "Saat ini pembayaran Bapak/Ibu sudah terlambat (n) hari",
+      "Keterlambatannya sudah (n) hari sejak jatuh tempo"
+    ],
+    "evaluation_notes": "Jika data akun tersedia, jumlah hari harus sesuai data. Angka keliru = FAIL."
+  },
+  {
+    "kb_code": "KB_COL_3_3",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan outstanding pokok terutang secara akurat",
+    "example_phrases": [
+      "Sisa pokok yang terutang saat ini sebesar Rp(nominal)",
+      "Outstanding pokok Bapak/Ibu Rp(nominal)"
+    ],
+    "evaluation_notes": "Nominal harus sesuai data akun. Nominal keliru = FAIL (item non-tolerable)."
+  },
+  {
+    "kb_code": "KB_COL_3_4",
+    "category": "Penyampaian Informasi Tunggakan",
+    "requirement": "Agent menyampaikan denda dan/atau ganti rugi terutang secara akurat",
+    "example_phrases": [
+      "Denda keterlambatan yang berjalan sebesar Rp(nominal)",
+      "Selain pokok, ada denda sebesar Rp(nominal)"
+    ],
+    "evaluation_notes": "NA jika tidak ada denda/ganti rugi terutang. Nominal keliru atau menyebut denda yang tidak ada = FAIL."
+  },
+  {
+    "kb_code": "KB_COL_7_2",
+    "category": "Penawaran Solusi Penyelesaian",
+    "requirement": "Agent mengonfirmasi komitmen bayar konsumen (tanggal dan nominal) secara eksplisit",
+    "example_phrases": [
+      "Jadi Bapak/Ibu akan melakukan pembayaran sebesar Rp(nominal) pada tanggal (tanggal), betul?",
+      "Baik, saya catat komitmen pembayaran Rp(nominal) di tanggal (tanggal)"
+    ],
+    "evaluation_notes": "PASS hanya jika tanggal DAN nominal dikonfirmasi. NA jika konsumen menyatakan sengketa atau menolak berkomitmen."
+  },
+  {
+    "kb_code": "KB_COL_8_1",
+    "category": "Penutupan",
+    "requirement": "Agent merangkum hasil percakapan/kesepakatan dan menyampaikan salam penutup secara profesional",
+    "example_phrases": [
+      "Baik Pak/Bu, jadi kesepakatan kita hari ini (ringkasan). Terima kasih atas waktunya",
+      "Terima kasih Bapak/Ibu, selamat (pagi/siang/sore)"
+    ],
+    "evaluation_notes": "NA jika panggilan diputus oleh konsumen."
+  },
+  {
+    "kb_code": "KB_COL_2_2",
+    "category": "Kerahasiaan Data",
+    "requirement": "Agent TIDAK menyampaikan informasi tunggakan/data pribadi kepada pihak selain konsumen (HARD STOP)",
+    "forbidden_phrases": [
+      "Ini terkait tunggakan Bapak (Nama Konsumen) sebesar Rp...",
+      "Tolong sampaikan ke (Nama Konsumen) bahwa utangnya sudah menunggak Rp...",
+      "Saya dari bagian penagihan, mau menagih (Nama Konsumen)",
+      "Tolong bantu ingatkan (Nama Konsumen) untuk segera bayar"
+    ],
+    "example_phrases": [
+      "Mohon maaf, informasi ini bersifat rahasia dan hanya dapat kami sampaikan langsung kepada (Nama Konsumen)",
+      "Kira-kira kapan waktu yang tepat untuk menghubungi (Nama Konsumen) kembali?"
+    ],
+    "evaluation_notes": "Kepada pihak ketiga, petugas hanya boleh menyebut nama dan menanyakan waktu yang tepat untuk menghubungi kembali. FAIL jika menyebut tagihan/keterlambatan/unit penagihan, atau meminta pihak ketiga menyampaikan atau membayar tagihan."
+  },
+  {
+    "kb_code": "KB_COL_2_3",
+    "category": "Kerahasiaan Data",
+    "requirement": "Panggilan ditujukan ke nomor pribadi konsumen yang terdaftar, atau nomor lain atas persetujuan konsumen yang tercatat",
+    "method": "metadata",
+    "data_source": ["dialed_number", "customer_contact_master.contact_type", "customer_contact_consent"],
+    "evaluation_notes": "Dinilai dari metadata, bukan transkrip. PASS jika contact_type=PRIBADI atau ada consent tercatat. FAIL jika menghubungi nomor yang konsumen minta tidak dihubungi. Nomor kantor/kontak darurat tanpa consent: sesuai keputusan Compliance. NA jika data nomor tidak tersedia."
+  },
+  {
+    "kb_code": "KB_COL_4_1",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan ancaman, kekerasan, dan/atau tindakan yang mempermalukan konsumen (HARD STOP)",
+    "forbidden_phrases": [
+      "Kalau tidak bayar, saya datangi rumah/kantor Bapak",
+      "Saya akan telepon atasan/keluarga Bapak soal utang ini",
+      "Nanti semua kontak Bapak kami kabari kalau Bapak tidak bayar",
+      "Biar tetangga tahu Bapak punya utang"
+    ],
+    "evaluation_notes": "Termasuk ancaman menghubungi kantor/keluarga/kontak darurat dan ancaman menyebarkan informasi tunggakan. Menyampaikan konsekuensi faktual sesuai perjanjian (mis. denda berjalan) bukan ancaman."
+  },
+  {
+    "kb_code": "KB_COL_4_2",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan tekanan secara verbal (HARD STOP)",
+    "forbidden_phrases": [
+      "Pokoknya hari ini harus bayar, saya tidak mau tahu",
+      "Saya tidak akan tutup telepon sampai Bapak janji bayar",
+      "Bapak jangan banyak alasan"
+    ],
+    "evaluation_notes": "Termasuk memaksa terus setelah konsumen meminta dihubungi di waktu lain, membentak/nada tinggi, dan memotong bicara berulang. Gunakan fitur audio (loudness, overlap bicara) sebagai pendukung."
+  },
+  {
+    "kb_code": "KB_COL_4_3",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan kata kasar, makian, atau bahasa yang merendahkan (HARD STOP)",
+    "forbidden_phrases": [
+      "Makian atau kata kasar dalam bentuk apa pun",
+      "Bapak ini tidak tahu malu ya",
+      "Masa begitu saja tidak bisa bayar"
+    ],
+    "evaluation_notes": "Termasuk sarkasme dan sebutan merendahkan terhadap konsumen."
+  },
+  {
+    "kb_code": "KB_COL_4_4",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK memberikan informasi tidak benar/menyesatkan, termasuk ancaman pidana, penyitaan tanpa dasar, atau mengaku aparat/kuasa hukum (HARD STOP)",
+    "forbidden_phrases": [
+      "Kalau tidak bayar, Bapak bisa dipenjara",
+      "Kasus Bapak sudah kami laporkan ke polisi",
+      "Saya dari kepolisian/kejaksaan/kantor pengacara",
+      "Besok aset Bapak akan disita"
+    ],
+    "evaluation_notes": "Rujukan: UU PPSK Pasal 306. Informasi faktual yang benar (mis. pencatatan kolektibilitas di SLIK) bukan pelanggaran selama tidak dilebih-lebihkan."
+  },
+  {
+    "kb_code": "KB_COL_4_5",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK menggunakan ucapan yang mengandung unsur SARA (HARD STOP)",
+    "forbidden_phrases": [
+      "Komentar yang mengaitkan kemampuan/kemauan bayar dengan suku, agama, ras, atau golongan konsumen",
+      "Orang (suku/agama) memang susah bayar"
+    ],
+    "evaluation_notes": "Rujukan: kewajiban penagihan sesuai norma masyarakat (POJK 22/2023 Pasal 62 ayat 1)."
+  },
+  {
+    "kb_code": "KB_COL_4_6",
+    "category": "Etika & Cara Penagihan",
+    "requirement": "Agent TIDAK meminta pembayaran ke rekening pribadi atau kanal tidak resmi (HARD STOP)",
+    "forbidden_phrases": [
+      "Transfer saja ke rekening saya, nanti saya setorkan",
+      "Bayarnya ke rekening atas nama (nama perorangan) ya",
+      "Bisa titip uangnya ke saya/petugas kami"
+    ],
+    "example_phrases": [
+      "Pembayaran dapat dilakukan melalui virtual account atau rekening resmi atas nama Bank Mega"
+    ],
+    "evaluation_notes": "Rekening/VA harus atas nama Bank Mega atau kanal resmi yang terdaftar."
+  }
+]
