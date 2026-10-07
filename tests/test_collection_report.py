@@ -227,3 +227,114 @@ def test_apply_configured_weights_konfigurasi_tidak_terbaca_tidak_mengubah_apa_p
     for bad in (None, "", "bukan json", '{"a": 1}', '[{"item_code": "A1", "weight": "4"}]'):
         assert apply_configured_weights(raw, bad)["scorecard_result"][0]["weight"] == 9, bad
     assert apply_configured_weights(None, '[{"item_code": "A1", "weight": 4}]') is None
+
+
+# --- Scorecard berkasus v01 (standard_penagihan 30 + etika_penagihan 120) ---------
+
+from pathlib import Path
+
+_V01 = (Path(__file__).resolve().parent.parent
+        / "campaigns" / "collection_v01" / "scorecrad_collections_v01.txt").read_text()
+
+# Verdict model untuk tiket 8ae14916 (7 Okt 2026): pihak ketiga, SC_COL_2_2 bocor.
+_TIKET_8AE = {
+    "SC_COL_1_1": "SESUAI", "SC_COL_1_2": "SESUAI", "SC_COL_1_3": "BELUM_SESUAI",
+    "SC_COL_1_4": "TIDAK_DINILAI", "SC_COL_1_5": "TIDAK_DINILAI", "SC_COL_2_1": "BELUM_SESUAI",
+    "SC_COL_3_1": "TIDAK_DINILAI", "SC_COL_3_2": "TIDAK_DINILAI", "SC_COL_3_3": "TIDAK_DINILAI",
+    "SC_COL_3_4": "TIDAK_DINILAI", "SC_COL_7_2": "TIDAK_DINILAI", "SC_COL_8_1": "TIDAK_DINILAI",
+    "SC_COL_2_2": "BELUM_SESUAI", "SC_COL_2_3": "TIDAK_DINILAI", "SC_COL_4_1": "SESUAI",
+    "SC_COL_4_2": "SESUAI", "SC_COL_4_3": "SESUAI", "SC_COL_4_4": "SESUAI",
+    "SC_COL_4_5": "SESUAI", "SC_COL_4_6": "SESUAI",
+}
+
+
+def _v01_report(verdicts, **overrides):
+    # Model tidak mengirim bobot/kasus yang benar — konfigurasi yang menentukan.
+    raw = {"scorecard_result": [{"item_code": c, "weight": 99, "status": s, "tolerable": "NO"
+                                 if c in ("SC_COL_1_4", "SC_COL_2_1", "SC_COL_3_3") else "YES"}
+                                for c, s in verdicts.items()],
+           "case_summary": [{"case": "etika_penagihan", "case_points": 120}], **overrides}
+    raw = apply_configured_weights(raw, _V01)
+    return normalize_weighted_report(raw, configured_maximum=scorecard_maximum(_V01))
+
+
+def _semua(status):
+    return {c: status for c in _TIKET_8AE}
+
+
+def test_v01_scorecard_maximum_dan_kasus_dari_konfigurasi():
+    assert scorecard_maximum(_V01) == 150
+    raw = apply_configured_weights({"scorecard_result": [{"item_code": "SC_COL_4_1"},
+                                                         {"item_code": "SC_COL_1_5"}]}, _V01)
+    assert raw["scorecard_result"] == [
+        {"item_code": "SC_COL_4_1", "weight": 20, "case": "etika_penagihan", "optional": False},
+        {"item_code": "SC_COL_1_5", "weight": 1, "case": "standard_penagihan", "optional": True},
+    ]
+
+
+def test_v01_semua_sesuai_lulus_dengan_bonus_penuh():
+    r = _v01_report(_semua("SESUAI"))
+    assert r["maximum_score"] == 150
+    assert r["base_maximum_score"] == 122
+    assert r["passing_grade"] == 109.8
+    assert r["ai_score_phase_2"] == 150
+    assert r["ai_status"] == "PASS"
+    assert [(c["case"], c["max_points"], c["mandatory_weight"], c["case_points"], c["case_result"])
+            for c in r["case_summary"]] == [
+        ("standard_penagihan", 30, 11, 30, "PASS"),
+        ("etika_penagihan", 120, 111, 120, "PASS"),
+    ]
+
+
+def test_v01_item_opsional_tidak_dinilai_tidak_mengurangi_skor():
+    verdicts = _semua("SESUAI")
+    for c in ("SC_COL_1_4", "SC_COL_1_5", "SC_COL_3_1", "SC_COL_3_2", "SC_COL_3_3",
+              "SC_COL_3_4", "SC_COL_7_2", "SC_COL_8_1", "SC_COL_2_3"):
+        verdicts[c] = "TIDAK_DINILAI"
+    r = _v01_report(verdicts)
+    assert r["ai_score_phase_2"] == 122
+    assert r["ai_status"] == "PASS"
+    standard, etika = r["case_summary"]
+    assert (standard["mandatory_earned"], standard["optional_earned"], standard["case_points"]) == (11, 0, 11)
+    assert etika["case_points"] == 111
+
+
+def test_v01_gerbang_etika_menolkan_skor_akhir_tiket_8ae14916():
+    r = _v01_report(_TIKET_8AE)
+    standard, etika = r["case_summary"]
+    assert (standard["case_points"], standard["max_points"], standard["case_result"]) == (2, 30, "FAIL")
+    assert (etika["case_points"], etika["max_points"], etika["case_result"]) == (97, 120, "FAIL")
+    assert r["ai_score_phase_2"] == 0
+    assert r["ai_status"] == "FAIL"
+
+
+def test_v01_opsional_salah_sebut_tidak_menggagalkan_standard_tapi_tanpa_bonus():
+    verdicts = _semua("SESUAI")
+    verdicts["SC_COL_3_3"] = "BELUM_SESUAI"   # opsional, non-tolerable
+    standard = _v01_report(verdicts)["case_summary"][0]
+    assert standard["case_result"] == "PASS"
+    assert standard["optional_earned"] == 15
+
+
+def test_v01_dibaca_ulang_tetap_sama():
+    r = _v01_report(_TIKET_8AE)
+    again = normalize_stored_report(r)
+    assert again["case_summary"] == r["case_summary"]
+    assert (again["ai_score_phase_2"], again["passing_grade"]) == (0, 109.8)
+
+
+def test_v01_list_row_memuat_kolom_standard_dan_etika():
+    result = SimpleNamespace(id="r1", campaign="Collection", source_files=["T1_a.pdf"],
+                             status="done", uploaded_at=None, completed_at=None)
+    row = collection_list_row(result, build_collection_result_json(
+        result_id="r1", campaign="Collection", source_files=["T1_a.pdf"],
+        report=_v01_report(_TIKET_8AE), processed_at="x", processing_sec=1))
+    assert (row["standard_score"], row["standard_maximum"], row["standard_status"]) == (2, 30, "FAIL")
+    assert (row["etika_score"], row["etika_maximum"], row["etika_status"]) == (97, 120, "FAIL")
+    assert row["score"] == 0
+
+
+def test_laporan_datar_lama_tanpa_kolom_kasus():
+    r = normalize_weighted_report({"scorecard_result": [_item("A", 10, "SESUAI")]})
+    assert r["case_summary"] == [] and r["base_maximum_score"] is None
+    assert "case" not in r["scorecard_result"][0]
