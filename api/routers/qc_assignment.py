@@ -93,13 +93,9 @@ def list_qc_users(
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
-    """The QC users a ticket can be assigned to (role == qc, active)."""
-    rows = (
-        db.query(User)
-        .filter(User.role == "qc", User.is_active == True)  # noqa: E712
-        .order_by(User.name, User.username)
-        .all()
-    )
+    """The QC users a ticket can be assigned to (role == qc, active, bukan QC
+    Collection — lihat ``qc_auto_assign.active_qc_users``)."""
+    rows = auto.active_qc_users(db)
     return [{"username": u.username, "name": u.name} for u in rows]
 
 
@@ -447,12 +443,7 @@ def auto_assign(
         scope_ticket_ids, pending = _auto_assign_pool(db, current_user)
         requested = list(pending)
 
-    qcs = (
-        db.query(User)
-        .filter(User.role == "qc", User.is_active == True)  # noqa: E712
-        .order_by(User.name, User.username)
-        .all()
-    )
+    qcs = auto.active_qc_users(db)
     if not qcs:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

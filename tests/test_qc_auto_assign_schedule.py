@@ -203,3 +203,25 @@ def test_endpoint_jadwal_mengikuti_saklar(monkeypatch):
     assert out["enabled"] is False
     assert out["slots"] == auto.schedule_labels()
     assert 0 <= out["seconds_until_next"] <= 24 * 3600
+
+
+# --------------------------------------------------------------------------
+# Penerima: QC Collection tidak ikut (12 Oktober 2026)
+# --------------------------------------------------------------------------
+
+def test_qc_yang_cakupannya_hanya_collection_dikecualikan():
+    col = frozenset({"collection", "complaint handling"})
+    assert auto.collection_only(["Collection"], col) is True
+    assert auto.collection_only([" complaint handling ", "COLLECTION"], col) is True
+
+
+def test_qc_tanpa_batas_atau_campuran_tetap_menerima():
+    col = frozenset({"collection"})
+    assert auto.collection_only([], col) is False, "tanpa batas = semua campaign"
+    assert auto.collection_only(None, col) is False
+    assert auto.collection_only(["Collection", "Cashline"], col) is False
+    assert auto.collection_only(["Telemarketing"], col) is False
+
+
+def test_env_collection_kosong_tidak_mengecualikan_siapa_pun():
+    assert auto.collection_only(["Collection"], frozenset()) is False
