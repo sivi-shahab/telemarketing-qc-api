@@ -3,7 +3,7 @@
 One ticket -> one QC (reassignable). Managed by Team Leader QC (and SPQ Head). A QC
 is then scoped to only their assigned tickets for Results / Statistics / appeals.
 """
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -19,7 +19,7 @@ from api.rbac import data_scope_for, effective_campaigns_for
 from api.rbac import require
 import qc_auto_assign as auto
 from db import crud
-from db.models import QcAssignment, User
+from db.models import QcAssignment, QcAssignmentEvent, User
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -198,6 +198,90 @@ def qc_assignment_log(
         "date_start": d_start.isoformat() if d_start else None,
         "date_end": d_end.isoformat() if d_end else None,
         "days": days,
+    }
+
+
+def _wib_day_bounds_utc(d_start, d_end):
+    """``(start, end)`` naive UTC untuk rentang tanggal WIB ``[d_start, d_end]``
+    (``end`` eksklusif = 00:00 WIB hari sesudah ``d_end``). ``None`` = tanpa batas."""
+    def utc(d):
+        return datetime.combine(d, time.min, tzinfo=_WIB).astimezone(timezone.utc).replace(tzinfo=None)
+    return (
+        utc(d_start) if d_start else None,
+        utc(d_end + timedelta(days=1)) if d_end else None,
+    )
+
+
+def _user_names(db, usernames) -> dict:
+    """``{username: name}`` untuk user yang masih ada (yang sudah dihapus tidak ikut)."""
+    names = [u for u in usernames if u]
+    if not names:
+        return {}
+    return {u.username: u.name for u in db.query(User).filter(User.username.in_(names)).all()}
+
+
+_EVENTS_LIMIT = 5000
+
+
+@router.get("/qc_assignment/events")
+def assignment_events(
+    date_start: Optional[str] = Query(None, description="Batas bawah tanggal kejadian (YYYY-MM-DD, WIB)"),
+    date_end: Optional[str] = Query(None, description="Batas atas tanggal kejadian (YYYY-MM-DD, WIB)"),
+    ticket_id: Optional[str] = Query(None, description="Hanya riwayat ticket ini"),
+    db: Session = Depends(get_db),
+    current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
+):
+    """Riwayat LENGKAP assignment (``qc_assignment_events``) untuk tab Log QC,
+    terbaru dulu: setiap assign / pindah / lepas, dari QC mana ke QC mana, oleh
+    siapa, lewat jalur apa. Berbeda dengan ``/qc_assignment/log`` yang hanya
+    menunjukkan pemegang SAAT INI.
+
+    Cakupannya sama dengan ``GET /qc_assignments`` (``_assignment_scope``).
+    Riwayat tercatat sejak migrasi 0065 (12 Oktober 2026); kepemilikan saat itu
+    tercatat sekali dengan ``source='backfill'``.
+    """
+    start, end = _wib_day_bounds_utc(_parse_ymd(date_start), _parse_ymd(date_end))
+    q = db.query(QcAssignmentEvent)
+    if start is not None:
+        q = q.filter(QcAssignmentEvent.created_at >= start)
+    if end is not None:
+        q = q.filter(QcAssignmentEvent.created_at < end)
+    tid = (ticket_id or "").strip()
+    if tid:
+        q = q.filter(QcAssignmentEvent.ticket_id == tid)
+    rows = q.order_by(QcAssignmentEvent.created_at.desc(), QcAssignmentEvent.id.desc()).all()
+
+    allowed = _assignment_scope(db, current_user)
+    if allowed is not None:
+        rows = [e for e in rows if (e.ticket_id or "").strip() in allowed]
+    truncated = len(rows) > _EVENTS_LIMIT
+    rows = rows[:_EVENTS_LIMIT]
+
+    names = _user_names(db, {e.qc_username for e in rows} | {e.previous_qc_username for e in rows})
+
+    def name(u):
+        return (names.get(u) or u) if u else None
+
+    return {
+        "date_start": date_start or None,
+        "date_end": date_end or None,
+        "truncated": truncated,
+        "events": [
+            {
+                "id": e.id,
+                "ticket_id": e.ticket_id,
+                "action": e.action,
+                "qc_username": e.qc_username,
+                "qc_name": name(e.qc_username),
+                "previous_qc_username": e.previous_qc_username,
+                "previous_qc_name": name(e.previous_qc_username),
+                "actor_username": e.actor_username,
+                "source": e.source,
+                # Naive UTC -> ISO dengan "Z" supaya browser merendernya ke WIB.
+                "created_at": e.created_at.isoformat() + "Z" if e.created_at else None,
+            }
+            for e in rows
+        ],
     }
 
 

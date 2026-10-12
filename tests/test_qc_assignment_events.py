@@ -106,3 +106,57 @@ def test_unassign_milik_qc_mencatat_source_user_deleted(db):
 
     assert _events(db)[-1] == ("t1", "unassign", None, "qc_a", "spq", "user_deleted")
     assert [a.ticket_id for a in db.query(QcAssignment).all()] == ["t2"]
+
+
+# --- GET /qc_assignment/events (riwayat di tab Log QC) -------------------------
+
+from datetime import date, datetime
+
+from api.routers import qc_assignment as qa
+
+
+def test_batas_hari_wib_dalam_utc():
+    start, end = qa._wib_day_bounds_utc(date(2026, 10, 12), date(2026, 10, 12))
+    assert start == datetime(2026, 10, 11, 17, 0)
+    assert end == datetime(2026, 10, 12, 17, 0)
+    assert qa._wib_day_bounds_utc(None, None) == (None, None)
+
+
+def _event(db, tid, action, at, qc=None, prev=None, actor="tl", source="manual"):
+    crud.record_assignment_event(
+        db, tid, action, qc_username=qc, previous_qc_username=prev,
+        actor_username=actor, source=source, at=at,
+    )
+
+
+def _list(monkeypatch, db, scope=None, **kw):
+    monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: scope)
+    monkeypatch.setattr(qa, "_user_names", lambda db, names: {"qc_a": "QC A"})
+    params = {"date_start": None, "date_end": None, "ticket_id": None}
+    params.update(kw)
+    return qa.assignment_events(**params, db=db, current_user=object())
+
+
+def test_riwayat_per_tanggal_wib_terbaru_dulu(monkeypatch, db):
+    _event(db, "t1", "assign", datetime(2026, 10, 11, 16, 59), qc="qc_a")       # 11 Okt 23:59 WIB
+    _event(db, "t1", "reassign", datetime(2026, 10, 11, 17, 0), qc="qc_b", prev="qc_a")  # 12 Okt 00:00 WIB
+    _event(db, "t1", "unassign", datetime(2026, 10, 12, 9, 0), prev="qc_b", source="lepas")
+    db.commit()
+
+    out = _list(monkeypatch, db, date_start="2026-10-12", date_end="2026-10-12")
+
+    assert [e["action"] for e in out["events"]] == ["unassign", "reassign"]
+    re = out["events"][1]
+    assert re["previous_qc_username"] == "qc_a" and re["previous_qc_name"] == "QC A"
+    assert re["qc_username"] == "qc_b" and re["qc_name"] == "qc_b"
+    assert re["created_at"].endswith("Z")
+
+
+def test_riwayat_mengikuti_cakupan_dan_filter_tiket(monkeypatch, db):
+    now = datetime(2026, 10, 12, 3, 0)
+    _event(db, "t1", "assign", now, qc="qc_a")
+    _event(db, "t2", "assign", now, qc="qc_a")
+    db.commit()
+
+    assert [e["ticket_id"] for e in _list(monkeypatch, db, scope={"t2"})["events"]] == ["t2"]
+    assert [e["ticket_id"] for e in _list(monkeypatch, db, ticket_id=" t1 ")["events"]] == ["t1"]
