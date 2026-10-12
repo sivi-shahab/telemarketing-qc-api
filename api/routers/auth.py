@@ -21,7 +21,8 @@ from api.schemas.auth import (
     UserCreate,
     UserResponse,
 )
-from db.models import QcAssignment, User
+from db import crud
+from db.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -164,8 +165,8 @@ def delete_user(
     # ini tiketnya tetap tercatat milik QC yang sudah tidak ada: tampil di Assign
     # Ticket, dilewati Auto Assign, dan tidak dikerjakan siapa pun. Riwayat Manual
     # Status-nya tidak ikut terhapus, sama seperti tombol "Lepas".
-    db.query(QcAssignment).filter(QcAssignment.qc_username == username).delete(
-        synchronize_session=False
+    crud.unassign_tickets_of_qc(
+        db, username, actor_username=current_user.username, source="user_deleted"
     )
     db.delete(user)
     db.commit()

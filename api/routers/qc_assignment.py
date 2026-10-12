@@ -145,7 +145,9 @@ def qc_assignment_log(
     re-assign — lihat ``crud.assign_ticket_to_qc``), bukan tabel event. Jadi log ini
     menunjukkan kepemilikan tiket saat ini dikelompokkan menurut hari assign-nya,
     BUKAN riwayat lengkap setiap kali sebuah tiket berpindah tangan — re-assign
-    sebelumnya tertimpa dan tidak lagi punya baris sendiri di sini.
+    sebelumnya tertimpa dan tidak lagi punya baris sendiri di sini. Riwayat lengkap
+    (assign / reassign / unassign, siapa, kapan) ada di ``qc_assignment_events``
+    sejak 12 Oktober 2026 (migrasi 0065).
 
     Cakupannya sama dengan ``GET /qc_assignments`` (``_assignment_scope``).
     """
@@ -384,6 +386,10 @@ def auto_assign(
             assigned_by_username=current_user.username,
             assigned_at=assigned_at,
         ))
+        crud.record_assignment_event(
+            db, tid, "assign", qc_username=qc_username,
+            actor_username=current_user.username, source="auto", at=assigned_at,
+        )
     try:
         db.commit()
     except IntegrityError:
@@ -423,7 +429,7 @@ def remove_assignment(
 ):
     """Unassign a ticket (QC then no longer sees it)."""
     _ensure_ticket_in_scope(db, current_user, ticket_id)
-    removed = crud.unassign_ticket(db, ticket_id)
+    removed = crud.unassign_ticket(db, ticket_id, actor_username=current_user.username)
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment tidak ditemukan")
     return {"ticket_id": ticket_id.strip(), "removed": True}
@@ -463,6 +469,10 @@ def remove_all_assignments(
         # Daftar yang habis teriris TIDAK boleh jatuh ke ``None`` (= semua baris).
         if not wanted:
             return {"removed": 0}
-        return {"removed": crud.bulk_unassign_tickets(db, sorted(wanted))}
-    removed = crud.bulk_unassign_tickets(db, None if allowed is None else list(allowed))
+        return {"removed": crud.bulk_unassign_tickets(
+            db, sorted(wanted), actor_username=current_user.username,
+        )}
+    removed = crud.bulk_unassign_tickets(
+        db, None if allowed is None else list(allowed), actor_username=current_user.username,
+    )
     return {"removed": removed}
