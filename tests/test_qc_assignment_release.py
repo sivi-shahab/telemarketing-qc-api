@@ -38,7 +38,7 @@ def test_lepas_semua_telemarketing_supervisor_melepas_tiket_app_c(monkeypatch):
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: ["resultonly"])
     calls = _capture_bulk_unassign(monkeypatch)
 
-    out = qa.remove_all_assignments(db=object(), current_user=object())
+    out = qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=object())
 
     # Tanpa batas, seperti Admin — bukan hanya tiket yang kebetulan ada di results.
     assert calls == [None]
@@ -52,9 +52,41 @@ def test_lepas_semua_collection_supervisor_tetap_dibatasi(monkeypatch):
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: ["resultonly"])
     calls = _capture_bulk_unassign(monkeypatch)
 
-    qa.remove_all_assignments(db=object(), current_user=object())
+    qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=object())
 
     assert calls == [{"resultonly"}]
+
+
+# --- Lepas Semua per tanggal (ticket_ids dari tabel) ----------------------------
+
+def test_lepas_semua_hanya_tiket_tanggal_yang_dikirim(monkeypatch):
+    """Dashboard mengirim tiket tanggal yang sedang dimuat; hanya itu yang dilepas."""
+    monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: None)
+    calls = _capture_bulk_unassign(monkeypatch)
+
+    qa.remove_all_assignments(ticket_ids=[" t1 ", "t2", "t1", ""], db=object(), current_user=object())
+
+    assert calls == [{"t1", "t2"}]
+
+
+def test_lepas_semua_per_tanggal_tetap_dibatasi_cakupan(monkeypatch):
+    """Daftar dari browser tidak dipercaya: tiket di luar cakupan dibuang."""
+    monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: {"t1"})
+    calls = _capture_bulk_unassign(monkeypatch)
+
+    qa.remove_all_assignments(ticket_ids=["t1", "lain"], db=object(), current_user=object())
+
+    assert calls == [{"t1"}]
+
+
+def test_lepas_semua_per_tanggal_semua_di_luar_cakupan_tidak_melepas_apa_pun(monkeypatch):
+    monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: {"t1"})
+    calls = _capture_bulk_unassign(monkeypatch)
+
+    out = qa.remove_all_assignments(ticket_ids=["lain"], db=object(), current_user=object())
+
+    # Jangan sampai daftar kosong jatuh menjadi None ("lepas semua baris").
+    assert calls == [] and out == {"removed": 0}
 
 
 # --- Angka di tombol "Lepas Semua" ---------------------------------------------

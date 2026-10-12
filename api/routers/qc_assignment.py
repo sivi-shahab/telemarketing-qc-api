@@ -431,6 +431,7 @@ def remove_assignment(
 
 @router.delete("/qc_assignment")
 def remove_all_assignments(
+    ticket_ids: list | None = Form(None),
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
@@ -448,7 +449,20 @@ def remove_all_assignments(
     Hanya menghapus kepemilikan tiket, BUKAN riwayat Manual Status yang sudah
     di-submit QC — sama seperti melepas satu tiket lewat endpoint di atas, hanya
     dikerjakan sekaligus dan dalam satu commit.
+
+    ``ticket_ids`` OPSIONAL (12 Oktober 2026). Dikirim -> hanya tiket itu yang
+    dilepas: dashboard mengirim tiket tanggal yang sedang dimuat, jadi tombolnya
+    mengikuti filter tanggal seperti Assign Otomatis. Daftarnya tetap diiris dengan
+    cakupan pemanggil. Tidak dikirim -> SELURUH assignment dalam cakupan (kontrak lama).
     """
     allowed = _assignment_scope(db, current_user)
+    if ticket_ids:
+        wanted = {(t or "").strip() for t in ticket_ids} - {""}
+        if allowed is not None:
+            wanted &= set(allowed)
+        # Daftar yang habis teriris TIDAK boleh jatuh ke ``None`` (= semua baris).
+        if not wanted:
+            return {"removed": 0}
+        return {"removed": crud.bulk_unassign_tickets(db, sorted(wanted))}
     removed = crud.bulk_unassign_tickets(db, None if allowed is None else list(allowed))
     return {"removed": removed}
