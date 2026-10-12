@@ -21,7 +21,7 @@ from api.schemas.auth import (
     UserCreate,
     UserResponse,
 )
-from db.models import User
+from db.models import QcAssignment, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -159,6 +159,13 @@ def delete_user(
     # Lepas referensi created_by milik user lain agar tidak melanggar FK.
     db.query(User).filter(User.created_by == user_id).update(
         {User.created_by: None}, synchronize_session=False
+    )
+    # Lepas tiket yang di-assign ke user ini (``qc_username`` tidak ber-FK). Tanpa
+    # ini tiketnya tetap tercatat milik QC yang sudah tidak ada: tampil di Assign
+    # Ticket, dilewati Auto Assign, dan tidak dikerjakan siapa pun. Riwayat Manual
+    # Status-nya tidak ikut terhapus, sama seperti tombol "Lepas".
+    db.query(QcAssignment).filter(QcAssignment.qc_username == username).delete(
+        synchronize_session=False
     )
     db.delete(user)
     db.commit()

@@ -287,11 +287,21 @@ def unassigned_summary(
     Bacaan murni; tidak mengubah apa pun.
     """
     ticket_ids, pool = _auto_assign_pool(db, current_user)
+    # ``releasable`` = baris yang akan dihapus "Lepas Semua" (``DELETE
+    # /qc_assignment``), memakai cakupan yang SAMA dengan tombol itu. ``assigned``
+    # tidak bisa dipakai untuk angka tombolnya: ia dihitung dari ``results``, jadi
+    # tiket App C yang di-assign lewat menu ini tidak terhitung.
+    allowed = _assignment_scope(db, current_user)
+    releasable = sum(
+        1 for a in crud.list_qc_assignments(db)
+        if allowed is None or (a.ticket_id or "").strip() in allowed
+    )
     return {
         "unassigned": len(pool),
         "assigned": len(ticket_ids) - len(pool),
         "total": len(ticket_ids),
         "qc_count": len(_active_qc_usernames(db)),
+        "releasable": releasable,
     }
 
 
@@ -427,16 +437,18 @@ def remove_all_assignments(
     """Lepas SEMUA assignment QC sekaligus, dalam cakupan pemanggil (tombol "Lepas
     Semua" di menu Assign Ticket, 25 September 2026).
 
-    Cakupannya SAMA persis dengan ``_ensure_ticket_in_scope``/daftar Results yang
-    tampil di menu ini — ``scoped_customer_ids`` (sudah memasukkan pembatasan
-    CAMPAIGN role), jadi pengawas yang dipersempit ke satu campaign tidak bisa
-    ikut melepas assignment campaign lain lewat tombol ini. ``None`` (tanpa
-    pembatasan role) berarti benar-benar SEMUA baris di tabel.
+    Cakupannya SAMA persis dengan ``_ensure_ticket_in_scope`` — ``_assignment_scope``
+    (sudah memasukkan pembatasan CAMPAIGN role), jadi pengawas yang dipersempit ke
+    satu campaign tidak bisa ikut melepas assignment campaign lain lewat tombol ini.
+    ``None`` (tanpa pembatasan role, atau grup ``Telemarketing``) berarti benar-benar
+    SEMUA baris di tabel. Sampai 12 Oktober 2026 tombol ini memakai
+    ``scoped_customer_ids`` langsung, yang hanya berisi tiket di ``results`` — tiket
+    App C yang tampil di menu ini tidak pernah ikut terlepas.
 
     Hanya menghapus kepemilikan tiket, BUKAN riwayat Manual Status yang sudah
     di-submit QC — sama seperti melepas satu tiket lewat endpoint di atas, hanya
     dikerjakan sekaligus dan dalam satu commit.
     """
-    allowed = scoped_customer_ids(db, current_user)
-    removed = crud.bulk_unassign_tickets(db, allowed)
+    allowed = _assignment_scope(db, current_user)
+    removed = crud.bulk_unassign_tickets(db, None if allowed is None else list(allowed))
     return {"removed": removed}
