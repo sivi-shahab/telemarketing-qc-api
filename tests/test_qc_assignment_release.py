@@ -15,15 +15,17 @@ from types import SimpleNamespace
 from api import permissions as P
 from api.routers import auth
 from api.routers import qc_assignment as qa
-from db.models import QcAssignment
 
 
 # --- Lepas Semua -------------------------------------------------------------
 
+_SPQ = SimpleNamespace(username="spq")
+
 def _capture_bulk_unassign(monkeypatch):
     calls = []
 
-    def fake(db, ticket_ids=None):
+    def fake(db, ticket_ids=None, actor_username=None):
+        assert actor_username == "spq"
         calls.append(None if ticket_ids is None else set(ticket_ids))
         return 3
 
@@ -38,7 +40,7 @@ def test_lepas_semua_telemarketing_supervisor_melepas_tiket_app_c(monkeypatch):
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: ["resultonly"])
     calls = _capture_bulk_unassign(monkeypatch)
 
-    out = qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=object())
+    out = qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=_SPQ)
 
     # Tanpa batas, seperti Admin — bukan hanya tiket yang kebetulan ada di results.
     assert calls == [None]
@@ -52,7 +54,7 @@ def test_lepas_semua_collection_supervisor_tetap_dibatasi(monkeypatch):
     monkeypatch.setattr(qa, "scoped_customer_ids", lambda db, u: ["resultonly"])
     calls = _capture_bulk_unassign(monkeypatch)
 
-    qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=object())
+    qa.remove_all_assignments(ticket_ids=None, db=object(), current_user=_SPQ)
 
     assert calls == [{"resultonly"}]
 
@@ -64,7 +66,7 @@ def test_lepas_semua_hanya_tiket_tanggal_yang_dikirim(monkeypatch):
     monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: None)
     calls = _capture_bulk_unassign(monkeypatch)
 
-    qa.remove_all_assignments(ticket_ids=[" t1 ", "t2", "t1", ""], db=object(), current_user=object())
+    qa.remove_all_assignments(ticket_ids=[" t1 ", "t2", "t1", ""], db=object(), current_user=_SPQ)
 
     assert calls == [{"t1", "t2"}]
 
@@ -74,7 +76,7 @@ def test_lepas_semua_per_tanggal_tetap_dibatasi_cakupan(monkeypatch):
     monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: {"t1"})
     calls = _capture_bulk_unassign(monkeypatch)
 
-    qa.remove_all_assignments(ticket_ids=["t1", "lain"], db=object(), current_user=object())
+    qa.remove_all_assignments(ticket_ids=["t1", "lain"], db=object(), current_user=_SPQ)
 
     assert calls == [{"t1"}]
 
@@ -83,7 +85,7 @@ def test_lepas_semua_per_tanggal_semua_di_luar_cakupan_tidak_melepas_apa_pun(mon
     monkeypatch.setattr(qa, "_assignment_scope", lambda db, u: {"t1"})
     calls = _capture_bulk_unassign(monkeypatch)
 
-    out = qa.remove_all_assignments(ticket_ids=["lain"], db=object(), current_user=object())
+    out = qa.remove_all_assignments(ticket_ids=["lain"], db=object(), current_user=_SPQ)
 
     # Jangan sampai daftar kosong jatuh menjadi None ("lepas semua baris").
     assert calls == [] and out == {"removed": 0}
@@ -124,8 +126,8 @@ def test_angka_lepas_semua_mengikuti_cakupan(monkeypatch):
 # --- Hapus user QC -----------------------------------------------------------
 
 class _Query:
-    def __init__(self, session, model):
-        self.session, self.model = session, model
+    def __init__(self, session):
+        self.session = session
 
     def filter(self, *_a, **_k):
         return self
@@ -136,20 +138,15 @@ class _Query:
     def update(self, *_a, **_k):
         return 0
 
-    def delete(self, synchronize_session=None):
-        self.session.deleted_models.append(self.model)
-        return 2
-
 
 class _Session:
     def __init__(self, user):
         self.user = user
-        self.deleted_models = []
         self.deleted_objs = []
         self.commits = 0
 
-    def query(self, model):
-        return _Query(self, model)
+    def query(self, _model):
+        return _Query(self)
 
     def delete(self, obj):
         self.deleted_objs.append(obj)
@@ -158,13 +155,20 @@ class _Session:
         self.commits += 1
 
 
-def test_hapus_user_qc_melepas_assignment_nya_dalam_satu_commit():
+def test_hapus_user_qc_melepas_assignment_nya_dalam_satu_commit(monkeypatch):
     user = SimpleNamespace(id=7, username="qc7", role="qc")
     db = _Session(user)
+    calls = []
+    monkeypatch.setattr(
+        auth.crud, "unassign_tickets_of_qc",
+        lambda db, username, actor_username=None, source=None: calls.append(
+            (username, actor_username, source)),
+    )
 
-    out = auth.delete_user(7, db=db, current_user=SimpleNamespace(id=1))
+    out = auth.delete_user(7, db=db, current_user=SimpleNamespace(id=1, username="spq"))
 
     assert out["deleted"] is True
-    assert QcAssignment in db.deleted_models
+    # Event-nya (lihat test_qc_assignment_events) ikut commit yang sama.
+    assert calls == [("qc7", "spq", "user_deleted")]
     assert db.deleted_objs == [user]
     assert db.commits == 1

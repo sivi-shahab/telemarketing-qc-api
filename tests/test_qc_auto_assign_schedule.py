@@ -91,7 +91,9 @@ def _wire(monkeypatch, qcs, pool, bulk=None):
     monkeypatch.setattr(auto, "unassigned_pool", lambda db: (list(pool), list(pool)))
     calls = []
 
-    def default_bulk(db, pairs, assigned_by_username=None):
+    def default_bulk(db, pairs, assigned_by_username=None, source=None):
+        # Batch terjadwal dicatat di qc_assignment_events dengan source "scheduler".
+        assert source == "scheduler"
         calls.append((list(pairs), assigned_by_username))
         return len(pairs)
 
@@ -122,7 +124,7 @@ def test_batch_membagi_rata_atas_nama_scheduler(monkeypatch):
 
 
 def test_batch_bentrok_dibatalkan_utuh(monkeypatch):
-    def boom(db, pairs, assigned_by_username=None):
+    def boom(db, pairs, assigned_by_username=None, source=None):
         raise IntegrityError("insert", {}, Exception("duplicate ticket_id"))
 
     _wire(monkeypatch, ["a"], ["t1"], bulk=boom)
