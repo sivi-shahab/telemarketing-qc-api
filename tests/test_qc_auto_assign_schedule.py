@@ -278,6 +278,25 @@ def test_batch_membagi_rata_harian_atas_nama_scheduler(monkeypatch):
     assert sorted(final.values()) == [2, 2, 3]
 
 
+def test_batch_beban_per_campaign_memakai_campaign_tiket_yang_sudah_di_assign(monkeypatch):
+    """Tiket hari ini yang SUDAH punya QC harus terhitung di campaign-nya (dari App C),
+    bukan di kelompok kosong — kalau tidak, rata per campaign mulai dari nol tiap
+    putaran. Total a dan b seri (2-2), jadi hanya hitungan per campaign yang
+    menentukan: kedua tiket PL baru harus ke b."""
+    today = datetime(2026, 10, 13, 1, 0)
+    calls, _f = _wire(
+        monkeypatch, ["a", "b"],
+        {"2026-10-13": [_row("p1", campaign="PL"), _row("p2", campaign="PL"),
+                        _row("m1", campaign="MG"), _row("m2", campaign="MG"),
+                        _row("new1", campaign="PL"), _row("new2", campaign="PL")]},
+        assignments=[_a("p1", "a", today), _a("p2", "a", today),
+                     _a("m1", "b", today), _a("m2", "b", today)],
+    )
+    auto.run_scheduled_batch(_DB(), now=NOW)
+    (pairs, _by), = calls
+    assert sorted(pairs) == [("new1", "b"), ("new2", "b")]
+
+
 def test_batch_bentrok_dibatalkan_utuh(monkeypatch):
     def boom(db, pairs, assigned_by_username=None, source=None):
         raise IntegrityError("insert", {}, Exception("duplicate ticket_id"))
