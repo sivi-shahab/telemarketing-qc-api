@@ -89,6 +89,8 @@ class _DB:
 def _wire(monkeypatch, qcs, pool, bulk=None):
     monkeypatch.setattr(auto, "active_qc_usernames", lambda db: list(qcs))
     monkeypatch.setattr(auto, "unassigned_pool", lambda db: (list(pool), list(pool)))
+    monkeypatch.setattr(auto, "campaign_map",
+                        lambda db, ids: {t: ("A" if i % 2 else "B") for i, t in enumerate(ids)})
     calls = []
 
     def default_bulk(db, pairs, assigned_by_username=None, source=None):
@@ -225,3 +227,36 @@ def test_qc_tanpa_batas_atau_campuran_tetap_menerima():
 
 def test_env_collection_kosong_tidak_mengecualikan_siapa_pun():
     assert auto.collection_only(["Collection"], frozenset()) is False
+
+
+# --------------------------------------------------------------------------
+# campaign_map — campaign App C, jatuh ke Result.campaign
+# --------------------------------------------------------------------------
+
+def test_campaign_map_utamakan_app_c_lalu_result(monkeypatch):
+    monkeypatch.setattr(auto.crud, "campaign_by_ticket_ids",
+                        lambda db, ids: {"t1": "Cashline", "t2": "Cashline", "tx": "Cashline"})
+    seen = {}
+
+    def fake_fetch(**k):
+        seen.update(k)
+        return {"items": [
+            {"id": "t1", "tiket_id": "t1_20261012", "campaign": "Personal Loan"},
+            {"id": "t9", "campaign": "Megapay"},  # bukan bagian antrean
+            {"id": "t2", "campaign": ""},          # kosong -> tetap Result.campaign
+        ]}
+
+    monkeypatch.setattr(auto.tickets_daily, "fetch_all", fake_fetch)
+    got = auto.campaign_map(None, ["t1", "t2", "t3"], " 2026-10-10 ")
+    assert got == {"t1": "Personal Loan", "t2": "Cashline"}
+    assert seen == {"load_date": "2026-10-10"}
+
+
+def test_campaign_map_app_c_mati_tidak_memblokir(monkeypatch):
+    monkeypatch.setattr(auto.crud, "campaign_by_ticket_ids", lambda db, ids: {"t1": "Cashline"})
+
+    def boom(**k):
+        raise auto.tickets_daily.TicketsDailyError("down")
+
+    monkeypatch.setattr(auto.tickets_daily, "fetch_all", boom)
+    assert auto.campaign_map(None, ["t1"]) == {"t1": "Cashline"}

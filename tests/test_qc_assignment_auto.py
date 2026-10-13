@@ -89,6 +89,50 @@ def test_tanpa_tiket_atau_tanpa_qc_tidak_menghasilkan_apa_apa():
     assert distribute_evenly(["t1"], []) == []
 
 
+def _per_campaign(pairs, campaign_of):
+    out = {}
+    for ticket, qc in pairs:
+        c = out.setdefault(campaign_of.get(ticket, ""), {})
+        c[qc] = c.get(qc, 0) + 1
+    return out
+
+
+def test_rata_per_campaign_dan_total_sekaligus():
+    """13 Oktober 2026: selisih antar-QC paling banyak 1 di SETIAP campaign dan di
+    total — bukan hanya total seperti sebelumnya."""
+    qcs = ["a", "b", "c", "d"]
+    sizes = {"CLENTB": 11, "ACT02": 7, "LOC26": 5, "CLENB": 2}
+    for seed in range(50):
+        campaign_of, pool = {}, []
+        for camp, n in sizes.items():
+            for i in range(n):
+                tid = f"{camp}-{i}"
+                campaign_of[tid] = camp
+                pool.append(tid)
+        pairs = distribute_evenly(pool, qcs, rnd=random.Random(seed), campaign_of=campaign_of)
+        assert sorted(t for t, _ in pairs) == sorted(pool)
+        totals = [_counts(pairs).get(q, 0) for q in qcs]
+        assert max(totals) - min(totals) <= 1, (seed, totals)
+        for camp, per in _per_campaign(pairs, campaign_of).items():
+            got = [per.get(q, 0) for q in qcs]
+            assert max(got) - min(got) <= 1, (seed, camp, got)
+
+
+def test_campaign_tak_diketahui_jadi_satu_kelompok():
+    campaign_of = {"t0": "X", "t1": "X"}
+    pairs = distribute_evenly([f"t{i}" for i in range(6)], ["a", "b"],
+                              rnd=random.Random(3), campaign_of=campaign_of)
+    assert sorted(_counts(pairs).values()) == [3, 3]
+    assert sorted(_per_campaign(pairs, campaign_of)["X"].values()) == [1, 1]
+
+
+def test_sisa_tidak_selalu_jatuh_ke_qc_yang_sama():
+    """Urutan QC dikocok: 1 tiket ke 3 QC tidak selalu ke QC pertama abjad."""
+    owners = {distribute_evenly(["t1"], ["a", "b", "c"], rnd=random.Random(s))[0][1]
+              for s in range(30)}
+    assert owners == {"a", "b", "c"}
+
+
 def test_undiannya_deterministik_untuk_seed_yang_sama():
     a = distribute_evenly([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
     b = distribute_evenly([f"t{i}" for i in range(8)], ["x", "y", "z"], rnd=random.Random(42))
