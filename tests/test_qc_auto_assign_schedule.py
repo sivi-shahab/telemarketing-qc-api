@@ -34,37 +34,45 @@ def test_saklar_bisa_dinyalakan(monkeypatch):
         assert auto.schedule_enabled() is False
 
 
-def test_interval_default_5_menit_dan_bisa_diatur(monkeypatch):
-    monkeypatch.delenv("QC_AUTO_ASSIGN_INTERVAL_MIN", raising=False)
-    assert auto.interval_minutes() == 5
-    monkeypatch.setenv("QC_AUTO_ASSIGN_INTERVAL_MIN", "10")
-    assert auto.interval_minutes() == 10
-    for bad in ("0", "-3", "abc", ""):
-        monkeypatch.setenv("QC_AUTO_ASSIGN_INTERVAL_MIN", bad)
-        assert auto.interval_minutes() == 5
+def test_slot_berikutnya_hari_yang_sama():
+    now = datetime(2026, 10, 6, 9, 30, tzinfo=WIB)
+    assert auto.next_run(now) == datetime(2026, 10, 6, 11, 0, tzinfo=WIB)
 
 
-def test_putaran_berikutnya_kelipatan_interval(monkeypatch):
-    monkeypatch.delenv("QC_AUTO_ASSIGN_INTERVAL_MIN", raising=False)
-    now = datetime(2026, 10, 13, 9, 31, 20, tzinfo=WIB)
-    assert auto.next_run(now) == datetime(2026, 10, 13, 9, 35, tzinfo=WIB)
+def test_tepat_di_slot_menunjuk_slot_sesudahnya():
+    now = datetime(2026, 10, 6, 16, 30, tzinfo=WIB)
+    assert auto.next_run(now) == datetime(2026, 10, 7, 8, 0, tzinfo=WIB)
 
 
-def test_tepat_di_putaran_menunjuk_putaran_sesudahnya(monkeypatch):
-    monkeypatch.delenv("QC_AUTO_ASSIGN_INTERVAL_MIN", raising=False)
-    now = datetime(2026, 10, 13, 23, 55, tzinfo=WIB)
-    assert auto.next_run(now) == datetime(2026, 10, 14, 0, 0, tzinfo=WIB)
+def test_input_utc_dibaca_sebagai_wib():
+    # 00:30 UTC = 07:30 WIB -> slot 08:00 WIB hari itu.
+    now = datetime(2026, 10, 6, 0, 30, tzinfo=timezone.utc)
+    assert auto.next_run(now) == datetime(2026, 10, 6, 8, 0, tzinfo=WIB)
 
 
-def test_input_utc_dibaca_sebagai_wib(monkeypatch):
-    monkeypatch.delenv("QC_AUTO_ASSIGN_INTERVAL_MIN", raising=False)
-    now = datetime(2026, 10, 13, 0, 32, tzinfo=timezone.utc)  # 07:32 WIB
-    assert auto.next_run(now) == datetime(2026, 10, 13, 7, 35, tzinfo=WIB)
+def test_label_slot():
+    assert auto.schedule_labels() == ["08:00", "11:00", "13:00", "15:00", "16:30"]
 
 
-def test_label_jadwal(monkeypatch):
-    monkeypatch.delenv("QC_AUTO_ASSIGN_INTERVAL_MIN", raising=False)
-    assert auto.schedule_labels() == ["tiap 5 menit"]
+def test_slot_aktif_dan_slot_sebelumnya():
+    now = datetime(2026, 10, 13, 11, 40, tzinfo=WIB)
+    assert auto.current_slot(now) == (
+        datetime(2026, 10, 13, 11, 0, tzinfo=WIB), datetime(2026, 10, 13, 8, 0, tzinfo=WIB))
+
+
+def test_slot_aktif_tepat_di_jamnya():
+    now = datetime(2026, 10, 13, 8, 0, tzinfo=WIB)
+    assert auto.current_slot(now)[0] == datetime(2026, 10, 13, 8, 0, tzinfo=WIB)
+
+
+def test_slot_aktif_melewati_tengah_malam():
+    # 06:00 WIB: slot aktif masih 16:30 kemarin, sebelumnya 15:00 kemarin.
+    now = datetime(2026, 10, 13, 6, 0, tzinfo=WIB)
+    assert auto.current_slot(now) == (
+        datetime(2026, 10, 12, 16, 30, tzinfo=WIB), datetime(2026, 10, 12, 15, 0, tzinfo=WIB))
+    # Slot 08:00: data barunya sejak 16:30 kemarin.
+    now = datetime(2026, 10, 13, 8, 5, tzinfo=WIB)
+    assert auto.current_slot(now)[1] == datetime(2026, 10, 12, 16, 30, tzinfo=WIB)
 
 
 # --------------------------------------------------------------------------
@@ -95,40 +103,72 @@ def test_antrean_mengecualikan_collection_dan_qc_support(monkeypatch):
 # Antrean siap (App C, 13 Oktober 2026): hanya tiket yang SEMUA rekamannya done
 # --------------------------------------------------------------------------
 
-def _row(tid, campaign="Personal Loan", processed=True, context="PL01", rec=None):
+def _ep(h, m, day=13):
+    """Epoch detik untuk jam WIB (bentuk ``inserted_at`` App C)."""
+    return datetime(2026, 10, day, h, m, tzinfo=WIB).timestamp()
+
+
+SLOT = datetime(2026, 10, 13, 8, 0, tzinfo=WIB)
+PREV = datetime(2026, 10, 12, 16, 30, tzinfo=WIB)
+
+
+def _row(tid, campaign="Personal Loan", processed=True, context="PL01", rec=None, ins=None):
     return {"id": tid, "tiket_id": rec or f"{tid}_1", "campaign": campaign,
-            "context": context, "processed_at": 1791815402 if processed else None}
+            "context": context, "processed_at": 1791815402 if processed else None,
+            "inserted_at": _ep(7, 0) if ins is None else ins}
 
 
-def test_antrean_siap_hanya_tiket_yang_semua_rekamannya_done(monkeypatch):
+def test_data_baru_belum_done_semua_menahan_seluruh_pembagian(monkeypatch):
     monkeypatch.setenv("COLLECTION_CAMPAIGNS", "Collection")
     items = [
         _row("A"),
         _row("B", rec="B_1"), _row("B", rec="B_2", processed=False),  # sebagian belum
-        _row("C", processed=False),
-        _row("D", campaign="CashLine NTB", context="CLENTB"),
     ]
-    pool, campaign_of, waiting = auto.ready_pool(items, assigned_ids=set())
-    assert sorted(pool) == ["A", "D"]
-    assert campaign_of == {"A": "Personal Loan", "D": "CashLine NTB"}
-    assert waiting == 2, "B dan C dicoba lagi di putaran berikutnya"
+    pool, _c, waiting = auto.slot_pool(items, set(), SLOT, PREV)
+    assert waiting == 1
+    assert pool == ["A"], "pool dikembalikan, tapi pemanggil tidak membagi selama waiting"
 
 
-def test_antrean_siap_melewati_yang_sudah_punya_qc_dan_collection(monkeypatch):
+def test_data_baru_done_semua_dibagi_bersama_sisa_lama_yang_sudah_done(monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", "Collection")
+    items = [
+        _row("A"),
+        _row("L1", ins=_ep(14, 0, day=12)),                  # lama, sudah done
+        _row("L2", ins=_ep(14, 0, day=12), processed=False),  # lama, macet: tidak menahan
+    ]
+    pool, campaign_of, waiting = auto.slot_pool(items, set(), SLOT, PREV)
+    assert sorted(pool) == ["A", "L1"] and waiting == 0
+    assert campaign_of["A"] == "Personal Loan"
+
+
+def test_tiket_yang_masuk_setelah_slot_menunggu_slot_berikutnya(monkeypatch):
+    monkeypatch.setenv("COLLECTION_CAMPAIGNS", "Collection")
+    items = [
+        _row("A"),
+        _row("N", ins=_ep(8, 1), processed=False),  # masuk setelah slot: tidak menahan
+        _row("M", ins=_ep(9, 0)),                   # masuk setelah slot: belum dibagi
+        _row("X", rec="X_1"), _row("X", rec="X_2", ins=_ep(8, 30)),  # rekaman baru setelah slot
+    ]
+    pool, _c, waiting = auto.slot_pool(items, set(), SLOT, PREV)
+    assert pool == ["A"] and waiting == 0
+
+
+def test_slot_pool_melewati_yang_sudah_punya_qc_dan_collection(monkeypatch):
     monkeypatch.setenv("COLLECTION_CAMPAIGNS", "Collection")
     monkeypatch.delenv("CAMPAIGN_CONTEXT_MAP", raising=False)
     items = [
         _row("A"),
-        _row("B"),
-        _row("K", campaign="Collection", context="ACT02"),   # nama Collection
-        _row("L", campaign="Kartu", context="collection"),   # context Collection
+        _row("B", processed=False),                                 # sudah punya QC
+        _row("K", campaign="Collection", context="ACT02", processed=False),
+        _row("L", campaign="Kartu", context="collection", processed=False),
     ]
-    pool, _c, waiting = auto.ready_pool(items, assigned_ids={"B"})
+    pool, _c, waiting = auto.slot_pool(items, assigned_ids={"B"}, slot_start=SLOT, prev_start=PREV)
     assert pool == ["A"] and waiting == 0
 
 
-def test_antrean_siap_tanpa_id_dibuang():
-    pool, _c, _w = auto.ready_pool([{"id": None, "tiket_id": None, "processed_at": 1}], set())
+def test_slot_pool_tanpa_id_dibuang():
+    pool, _c, _w = auto.slot_pool([{"id": None, "tiket_id": None, "processed_at": 1}],
+                                  set(), SLOT, PREV)
     assert pool == []
 
 
@@ -236,10 +276,18 @@ def test_batch_skip_tanpa_qc_aktif(monkeypatch):
     assert calls == [] and fetched == []
 
 
-def test_batch_skip_bila_belum_ada_yang_done(monkeypatch):
-    calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [_row("t1", processed=False)]})
+def test_batch_menunggu_bila_data_baru_belum_done_semua(monkeypatch):
+    calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [
+        _row("t1"), _row("t2", processed=False)]})
     out = auto.run_scheduled_batch(_DB(), now=NOW)
-    assert out == {"assigned": 0, "skipped": "no_ready_tickets", "waiting": 1}
+    assert out == {"assigned": 0, "skipped": "waiting_not_done", "waiting": 1, "slot": "08:00"}
+    assert calls == []
+
+
+def test_batch_skip_bila_tidak_ada_yang_siap(monkeypatch):
+    calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [_row("t1", ins=_ep(9, 0))]})
+    out = auto.run_scheduled_batch(_DB(), now=NOW)
+    assert out == {"assigned": 0, "skipped": "no_ready_tickets", "slot": "08:00"}
     assert calls == []
 
 
@@ -269,7 +317,7 @@ def test_batch_membagi_rata_harian_atas_nama_scheduler(monkeypatch):
     )
     out = auto.run_scheduled_batch(_DB(), now=NOW)
     assert out["assigned"] == 4 and out["pool"] == 4 and out["qc_count"] == 3
-    assert out["waiting"] == 0
+    assert out["slot"] == "08:00"
     (pairs, by), = calls
     assert by == auto.SCHEDULER_USERNAME
     final = {"a": 2, "b": 1, "c": 0}
