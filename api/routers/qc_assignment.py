@@ -410,10 +410,12 @@ def auto_assign_schedule(current_user=Depends(require(QC_ASSIGNMENT_WRITE))):
 @router.post("/qc_assignment/auto")
 def auto_assign(
     ticket_ids: list | None = Form(None),
+    load_date: str | None = Form(None),
     db: Session = Depends(get_db),
     current_user=Depends(require(QC_ASSIGNMENT_WRITE)),
 ):
-    """Bagikan ticket yang BELUM punya QC ke seluruh QC aktif, acak dan merata.
+    """Bagikan ticket yang BELUM punya QC ke seluruh QC aktif, acak dan merata —
+    total maupun per campaign (13 Oktober 2026).
 
     Merata per MOMEN tombol ditekan, di antara QC yang aktif saat itu (2 Oktober
     2026, mengganti aturan "merata atas total beban" 4 September) — lihat
@@ -452,7 +454,12 @@ def auto_assign(
 
     # Rata di antara QC aktif SAAT INI; beban lama tidak dihitung (2 Oktober 2026).
     usernames = [u.username for u in qcs]
-    pairs = auto.distribute_evenly(pending, usernames)
+    # Rata per campaign juga (13 Oktober 2026), bukan hanya total. ``load_date`` =
+    # tanggal tickets-daily yang dimuat layar (kosong = H-1), supaya campaign App C
+    # tiket-tiketnya terbaca dari permintaan yang sama.
+    pairs = auto.distribute_evenly(
+        pending, usernames, campaign_of=auto.campaign_map(db, pending, load_date),
+    )
     assigned_at = datetime.utcnow()
     for tid, qc_username in pairs:
         db.add(QcAssignment(
