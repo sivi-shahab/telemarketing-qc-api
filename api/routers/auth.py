@@ -10,8 +10,8 @@ from api.auth import (
     verify_password,
 )
 from api.dependencies import get_current_user, get_db
-from api.permissions import ADMIN_USER_WRITE
-from api.rbac import require
+from api.permissions import ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE
+from api.rbac import require, require_any
 from api.schemas.auth import (
     AccessTokenResponse,
     MeResponse,
@@ -113,12 +113,36 @@ def create_user(
     return UserResponse.model_validate(user)
 
 
+def _can_manage_all_users(db: Session, user) -> bool:
+    """Pemegang ADMIN_USER_WRITE (Admin) mengelola semua user. Tanpanya — Team
+    Leader QC lewat QC_USER_ACTIVE_WRITE — hanya QC Telemarketing yang terjangkau."""
+    from api.rbac import has_perm
+
+    return has_perm(db, user, ADMIN_USER_WRITE)
+
+
+def _is_telemarketing_qc(db: Session, user, campaigns=None) -> bool:
+    """Role ``qc`` yang campaign efektifnya bukan Collection-only — definisi yang
+    sama dengan penyesuaian menu Collection (``rbac.is_collection_only``)."""
+    from api.rbac import collection_campaigns_from_env, effective_campaigns_for, is_collection_only
+
+    if (getattr(user, "role", None) or "") != "qc":
+        return False
+    if campaigns is None:
+        campaigns = effective_campaigns_for(db, user)
+    return not is_collection_only(campaigns, collection_campaigns_from_env())
+
+
 @router.get("/users", response_model=list[UserListItem])
 def list_users(
     db: Session = Depends(get_db),
-    current_user=Depends(require(ADMIN_USER_WRITE)),
+    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE)),
 ):
-    """List all users (SPQ Head only), newest first, plus campaign efektif tiap user.
+    """List users, newest first, plus campaign efektif tiap user.
+
+    Admin melihat semua user. Pemegang QC_USER_ACTIVE_WRITE saja (Team Leader QC,
+    menu Kelola QC) hanya melihat QC Telemarketing — yang memang bisa ia
+    aktifkan/nonaktifkan.
 
     Campaign dihitung per user lewat ``effective_campaigns_for``; untuk sisi sales itu
     berarti sekali pencarian ke peta roster, yang sudah di-cache per berkas aktif —
@@ -127,12 +151,19 @@ def list_users(
     from api import permissions as P
     from api.rbac import data_scope_for, effective_campaigns_for, role_label_for
 
-    users = db.query(User).order_by(User.id.desc()).all()
+    manage_all = _can_manage_all_users(db, current_user)
+    query = db.query(User)
+    if not manage_all:
+        query = query.filter(User.role == "qc")
+    users = query.order_by(User.id.desc()).all()
     out = []
     for u in users:
+        campaigns = effective_campaigns_for(db, u)
+        if not manage_all and not _is_telemarketing_qc(db, u, campaigns):
+            continue
         item = UserListItem.model_validate(u)
         item.role_label = role_label_for(db, u)
-        item.campaigns = effective_campaigns_for(db, u) or []
+        item.campaigns = campaigns or []
         item.campaign_from_roster = P.is_sales_scope(data_scope_for(db, u))
         out.append(item)
     return out
@@ -178,20 +209,26 @@ def set_user_active(
     user_id: int,
     is_active: bool,
     db: Session = Depends(get_db),
-    current_user=Depends(require(ADMIN_USER_WRITE)),
+    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE)),
 ):
-    """Aktifkan/nonaktifkan user (SPQ Head only) — dipakai tombol "Nonaktifkan"
-    QC di menu Manage User supaya pembagian tiket otomatis
-    (``api/routers/qc_assignment.py``, filter ``User.is_active``) cuma
+    """Aktifkan/nonaktifkan user — dipakai tombol "Nonaktifkan" QC di menu
+    Manage User (Admin) dan Kelola QC (Team Leader QC) supaya pembagian tiket
+    otomatis (``api/routers/qc_assignment.py``, filter ``User.is_active``) cuma
     menyasar QC yang aktif. User nonaktif juga otomatis ter-logout (lihat
-    pengecekan ``is_active`` di ``login``/``refresh``/``get_current_user``)."""
+    pengecekan ``is_active`` di ``login``/``refresh``/``get_current_user``).
+
+    Tanpa ADMIN_USER_WRITE sasarannya hanya QC Telemarketing; user lain dijawab
+    404 seperti user yang tidak ada, supaya endpoint ini tidak bisa dipakai
+    menebak akun di luar cakupannya."""
     if user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tidak dapat menonaktifkan akun sendiri",
         )
     user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
+    if user is None or (
+        not _can_manage_all_users(db, current_user) and not _is_telemarketing_qc(db, user)
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User tidak ditemukan",

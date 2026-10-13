@@ -131,6 +131,16 @@ def ocr_image_granted(campaigns, ocr_campaigns) -> bool:
     return any(str(c or "").strip().casefold() in ocr_campaigns for c in campaigns)
 
 
+def is_collection_only(campaigns, collection_campaigns) -> bool:
+    """Apakah ``campaigns`` (hasil :func:`effective_campaigns_for`) TIDAK kosong dan
+    seluruhnya campaign collection. ``None`` (tidak dibatasi), list kosong, dan
+    campuran Collection + Telemarketing semuanya ``False`` — lihat
+    :func:`collection_adjusted_permissions`."""
+    if not collection_campaigns or not campaigns:
+        return False
+    return all(is_collection(name, collection_campaigns) for name in campaigns)
+
+
 def collection_adjusted_permissions(permissions, campaigns, collection_campaigns) -> set:
     """Capability setelah disesuaikan untuk login yang HANYA memegang collection.
 
@@ -149,9 +159,7 @@ def collection_adjusted_permissions(permissions, campaigns, collection_campaigns
     dan dipakai bersama seluruh user ber-role sama — mengubahnya di tempat akan
     menular ke semua orang sampai cache-nya kedaluwarsa.
     """
-    if not collection_campaigns or not campaigns:
-        return set(permissions)
-    if not all(is_collection(name, collection_campaigns) for name in campaigns):
+    if not is_collection_only(campaigns, collection_campaigns):
         return set(permissions)
     return (set(permissions) - perms.COLLECTION_REMOVED_PERMISSIONS) | set(
         perms.COLLECTION_ADDED_PERMISSIONS
