@@ -156,6 +156,14 @@ ADMIN_TICKET_REPROCESS = "admin.ticket.reprocess"
 # membuka Results, karena PENDING/FAIL yang mereka lihat bergantung padanya.
 ADMIN_DOC_SLA_WRITE = "admin.doc_sla.write"
 QC_ASSIGNMENT_WRITE = "qc.assignment.write"
+# Aktifkan/nonaktifkan akun QC TELEMARKETING (13 Oktober 2026) — untuk Team Leader
+# QC, yang mengatur siapa yang masuk pool pembagian tiket tanpa menunggu Admin.
+# Sengaja TERPISAH dari ADMIN_USER_WRITE: tidak bisa membuat, menghapus, atau
+# mengubah role user, dan sasarannya dibatasi ke role ``qc`` yang campaign
+# efektifnya bukan Collection-only (``api.routers.auth._is_telemarketing_qc``).
+# Sekaligus menu (route Kelola QC) dan gate endpoint-nya, seperti
+# STATS_EXPORT_ERROR_RATE_PPT.
+QC_USER_ACTIVE_WRITE = "qc.user.active.write"
 TRANSCRIPT_UPLOAD = "transcript.upload"
 AUDIO_UPLOAD = "audio.upload"
 
@@ -193,7 +201,7 @@ ALL_PERMISSIONS = [
     ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
     ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_DELETE,
     ADMIN_TICKET_REPROCESS, ADMIN_DOC_SLA_WRITE,
-    QC_ASSIGNMENT_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+    QC_ASSIGNMENT_WRITE, QC_USER_ACTIVE_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
 ]
 
 # Capability yang HANYA boleh dimiliki role ``admin`` (permintaan 14 Agustus 2026).
@@ -270,6 +278,9 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     # Generate PPT Error Rate Update (29 September 2026) juga fitur telemarketing:
     # capability ini sekaligus menu dan gate ``/stats/export_error_rate_pptx``.
     STATS_EXPORT_ERROR_RATE_PPT,
+    # Kelola QC (13 Oktober 2026) khusus campaign Telemarketing: TL QC Collection
+    # tidak mengurus pool QC telemarketing.
+    QC_USER_ACTIVE_WRITE,
 })
 
 # Upload Audio/Transcript tidak lagi admin-only sejak 23 September 2026 (lihat
@@ -365,6 +376,7 @@ PERMISSION_GROUPS = [
         (ADMIN_TICKET_REPROCESS, "Reproses tiket (satu tiket / satu campaign)"),
         (ADMIN_DOC_SLA_WRITE, "Ubah kebijakan SLA H+2 dokumen pendukung"),
         (QC_ASSIGNMENT_WRITE, "Assign ticket QC"),
+        (QC_USER_ACTIVE_WRITE, "Kelola QC — aktifkan / nonaktifkan QC Telemarketing (tanpa buat user)"),
         (TRANSCRIPT_UPLOAD, "Upload transcript"),
         (AUDIO_UPLOAD, "Upload audio"),
     ]),
@@ -541,6 +553,9 @@ DEFAULT_ROLES = {
             # Generate PPT Error Rate Update (28 September 2026, migrasi 0062) —
             # menyusul SPQ Head, TL QC juga bisa generate deck ini.
             STATS_EXPORT_ERROR_RATE_PPT,
+            # Kelola QC: aktifkan/nonaktifkan QC Telemarketing, tanpa buat/hapus
+            # user (13 Oktober 2026, migrasi 0066).
+            QC_USER_ACTIVE_WRITE,
         ],
     },
     # RESULTS_CATEGORY_SCORE sengaja TIDAK diberikan: QC menilai lolos/tidaknya
