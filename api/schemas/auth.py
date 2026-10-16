@@ -56,6 +56,8 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+    # UTC naive: nonaktif sementara dari Kelola QC sampai 00.00 WIB ini.
+    inactive_until: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
