@@ -122,7 +122,12 @@ def upload_transcript(
     customer_id = _customer_id_from_files(source_files)
     # Reuse hanya dicari bila mode reuse aktif; mode "proses ulang" (reuse=False)
     # selalu memproses via LLM walau hasil lama ada.
-    source = crud.pick_reusable_done_result(db, customer_id) if (reuse and customer_id) else None
+    # Hanya hasil yang sudah menilai SEMUA file upload ini yang di-clone — ada
+    # recording baru untuk ID yang sama -> proses ulang lewat LLM.
+    source = (
+        crud.pick_reusable_done_result(db, customer_id, source_files)
+        if (reuse and customer_id) else None
+    )
 
     # Setiap upload = row Result baru (supaya muncul sebagai baris tersendiri di
     # tabel Results dengan Transcript Upload = waktu upload sekarang).
