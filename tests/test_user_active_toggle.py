@@ -172,3 +172,50 @@ def test_daftar_user_tl_qc_hanya_qc_telemarketing(tl_qc, monkeypatch):
     out = auth_router.list_users(db=SimpleNamespace(query=lambda _m: q), current_user=SimpleNamespace(id=9))
     assert q.filtered  # role == "qc" disaring di SQL
     assert [u.id for u in out] == [1]
+
+
+# --------------------------------------------------------------------------
+# Nonaktif oleh TL QC hanya sampai 00.00 WIB (16 Oktober 2026)
+# --------------------------------------------------------------------------
+from datetime import datetime
+
+from db import crud
+
+
+@pytest.mark.parametrize("now_utc, expected_utc", [
+    # 16 Okt 10.00 WIB -> 17 Okt 00.00 WIB = 16 Okt 17.00 UTC
+    (datetime(2026, 10, 16, 3, 0), datetime(2026, 10, 16, 17, 0)),
+    # 16 Okt 23.59 WIB (16.59 UTC) -> masih malam yang sama
+    (datetime(2026, 10, 16, 16, 59), datetime(2026, 10, 16, 17, 0)),
+    # 17 Okt 00.00 WIB tepat -> malam berikutnya
+    (datetime(2026, 10, 16, 17, 0), datetime(2026, 10, 17, 17, 0)),
+    # 17 Okt 06.00 WIB (16 Okt 23.00 UTC) -> 18 Okt 00.00 WIB
+    (datetime(2026, 10, 16, 23, 0), datetime(2026, 10, 17, 17, 0)),
+])
+def test_batas_nonaktif_tengah_malam_wib(now_utc, expected_utc):
+    assert crud.next_midnight_wib_utc(now_utc) == expected_utc
+
+
+def test_tl_qc_nonaktif_sampai_tengah_malam_wib(tl_qc, monkeypatch):
+    monkeypatch.setattr(crud, "next_midnight_wib_utc", lambda now=None: datetime(2026, 10, 16, 17, 0))
+    db = _Session(_user(7))
+    out = set_user_active(7, False, db=db, current_user=SimpleNamespace(id=1))
+    assert out.is_active is False
+    assert db.user.inactive_until == datetime(2026, 10, 16, 17, 0)
+    assert out.inactive_until == datetime(2026, 10, 16, 17, 0)
+
+
+def test_admin_nonaktif_permanen():
+    u = _user(7)
+    u.inactive_until = datetime(2026, 10, 16, 17, 0)
+    db = _Session(u)
+    set_user_active(7, False, db=db, current_user=SimpleNamespace(id=1))
+    assert db.user.inactive_until is None
+
+
+def test_aktifkan_menghapus_batas(tl_qc):
+    u = _user(7, active=False)
+    u.inactive_until = datetime(2026, 10, 16, 17, 0)
+    db = _Session(u)
+    set_user_active(7, True, db=db, current_user=SimpleNamespace(id=1))
+    assert db.user.is_active is True and db.user.inactive_until is None

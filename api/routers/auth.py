@@ -33,6 +33,11 @@ def login(
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.username == form_data.username).first()
+    if user is not None and not user.is_active and user.inactive_until is not None:
+        # Nonaktif sementara dari Kelola QC yang sudah lewat 00.00 WIB — jangan
+        # tunggu putaran beat berikutnya.
+        crud.reactivate_expired_qc_users(db)
+        db.refresh(user)
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -219,7 +224,12 @@ def set_user_active(
 
     Tanpa ADMIN_USER_WRITE sasarannya hanya QC Telemarketing; user lain dijawab
     404 seperti user yang tidak ada, supaya endpoint ini tidak bisa dipakai
-    menebak akun di luar cakupannya."""
+    menebak akun di luar cakupannya.
+
+    Nonaktif dari Kelola QC bersifat sementara: ``inactive_until`` = 00.00 WIB
+    berikutnya, lalu ``crud.reactivate_expired_qc_users`` (beat worker + login)
+    mengaktifkannya kembali. Nonaktif dari Admin permanen (``inactive_until``
+    NULL)."""
     if user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -234,6 +244,12 @@ def set_user_active(
             detail="User tidak ditemukan",
         )
     user.is_active = is_active
+    # Nonaktif oleh Team Leader QC (Kelola QC) hanya sampai 00.00 WIB berikutnya;
+    # oleh Admin permanen sampai diaktifkan lagi (16 Oktober 2026).
+    if is_active or _can_manage_all_users(db, current_user):
+        user.inactive_until = None
+    else:
+        user.inactive_until = crud.next_midnight_wib_utc()
     db.commit()
     db.refresh(user)
     return UserResponse.model_validate(user)
