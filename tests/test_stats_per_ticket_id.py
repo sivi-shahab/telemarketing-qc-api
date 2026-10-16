@@ -48,6 +48,13 @@ def test_return_bila_salah_satu_recording_return(monkeypatch):
     assert sa.one_result_per_ticket(None, [old_fail, new_pass]) == [old_fail]
 
 
+def test_baris_usang_yang_tercakup_tidak_memvonis(monkeypatch):
+    old = _row("A", hours=0, files=["A_1.pdf"])
+    full = _row("A", hours=3, files=["A_1.pdf", "A_2.pdf"])
+    _stub_ai(monkeypatch, {old.id: "FAIL", full.id: "PASS"})
+    assert sa.one_result_per_ticket(None, [old, full]) == [full]
+
+
 def test_tanpa_done_ambil_baris_terbaru(monkeypatch):
     p1, p2 = _row("A", "failed", hours=0), _row("A", "pending", hours=1)
     _stub_ai(monkeypatch, {})
