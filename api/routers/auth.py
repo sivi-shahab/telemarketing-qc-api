@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -243,6 +245,13 @@ def set_user_active(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User tidak ditemukan",
         )
+    # Waktu nonaktif dicatat saat pindah aktif -> nonaktif (bukan saat dinonaktifkan
+    # ulang), supaya batch auto assign membagi ulang tiket hari ini milik QC ini di
+    # slot berikutnya (19 Oktober 2026, ``qc_auto_assign.reassign_from_inactive``).
+    if is_active:
+        user.deactivated_at = None
+    elif user.is_active or user.deactivated_at is None:
+        user.deactivated_at = datetime.utcnow()
     user.is_active = is_active
     # Nonaktif oleh Team Leader QC (Kelola QC) hanya sampai 00.00 WIB berikutnya;
     # oleh Admin permanen sampai diaktifkan lagi (16 Oktober 2026).
