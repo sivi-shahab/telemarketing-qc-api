@@ -121,10 +121,20 @@ def test_filter_campaign_di_luar_cakupan_role_menghasilkan_kosong(db, admin_user
 # --------------------------------------------------------------------------
 
 def _existing_ticket_ids(db, n=3):
+    from sqlalchemy import func
+
+    from api.rbac import collection_campaigns_from_env
     from db.models import Result
 
+    # Tiket Collection tidak tampil di Results (dan karena itu tidak ikut filter
+    # Delete/Reprocess All); nama filenya juga diawali nama orang, bukan ticket id.
+    # Tanpa saringan ini tes gagal begitu row Collection kebetulan terbaca duluan.
+    collection = sorted(collection_campaigns_from_env())  # sudah huruf kecil
     seen = []
-    for row in db.query(Result).limit(50).all():
+    query = db.query(Result).filter(
+        func.lower(func.coalesce(Result.campaign, "")).notin_(collection)
+    )
+    for row in query.limit(50).all():
         tid = stats._customer_id_from_files(row.source_files)
         if tid and tid not in seen:
             seen.append(tid)
