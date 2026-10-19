@@ -261,6 +261,8 @@ def _wire(monkeypatch, qcs, items_by_date, assignments=(), bulk=None):
         return len(pairs)
 
     monkeypatch.setattr(auto.crud, "bulk_assign_tickets_to_qc", bulk or default_bulk)
+    # Tanpa QC nonaktif hari ini, kecuali test-nya mengganti (lihat _wire_reassign).
+    monkeypatch.setattr(auto.crud, "qc_reassign_candidates", lambda db, since, slot_start: [])
     return calls, fetched
 
 
@@ -353,6 +355,86 @@ def test_batch_bentrok_dibatalkan_utuh(monkeypatch):
     db = _DB()
     assert auto.run_scheduled_batch(db, now=NOW) == {"assigned": 0, "skipped": "conflict"}
     assert db.rolled_back
+
+
+# --------------------------------------------------------------------------
+# Bagi ulang tiket QC nonaktif (19 Oktober 2026)
+# --------------------------------------------------------------------------
+
+def _wire_reassign(monkeypatch, moving, result_campaign=None):
+    asked, moved = [], []
+
+    def candidates(db, since, slot_start):
+        asked.append((since, slot_start))
+        return list(moving)
+
+    def reassign(db, pairs, assigned_by_username=None, source=None):
+        moved.append((sorted(pairs), assigned_by_username, source))
+        return len(pairs)
+
+    monkeypatch.setattr(auto.crud, "qc_reassign_candidates", candidates)
+    monkeypatch.setattr(auto.crud, "reassign_tickets_to_qc", reassign)
+    monkeypatch.setattr(auto.crud, "campaign_by_ticket_ids",
+                        lambda db, ids: dict(result_campaign or {}))
+    return asked, moved
+
+
+def test_reassign_memakai_batas_hari_ini_dan_slot_aktif(monkeypatch):
+    _wire(monkeypatch, ["a"], {})
+    asked, _m = _wire_reassign(monkeypatch, [])
+    auto.run_scheduled_batch(_DB(), now=NOW)  # 10.00 WIB -> slot 08.00
+    (since, slot_start), = asked
+    assert since == datetime(2026, 10, 12, 17, 0)  # 00.00 WIB 13 Okt, UTC naive
+    assert slot_start == datetime(2026, 10, 13, 1, 0)  # 08.00 WIB
+
+
+def test_tiket_qc_nonaktif_dibagi_rata_ke_qc_aktif(monkeypatch):
+    today = datetime(2026, 10, 13, 1, 30)
+    olds = [_a(f"x{i}", "z", today) for i in range(4)]
+    calls, _f = _wire(monkeypatch, ["a", "b"], {}, assignments=olds)
+    _asked, moved = _wire_reassign(monkeypatch, [(f"x{i}", "z") for i in range(4)])
+
+    out = auto.run_scheduled_batch(_DB(), now=NOW)
+
+    (pairs, by, source), = moved
+    assert by == auto.SCHEDULER_USERNAME and source == "qc_nonaktif"
+    assert sorted(t for t, _q in pairs) == ["x0", "x1", "x2", "x3"]
+    assert sorted(q for _t, q in pairs).count("a") == 2  # rata: 2-2
+    assert out["reassigned"] == 4 and out["reassigned_per_qc"] == {"a": 2, "b": 2}
+    assert calls == []  # tidak ada tiket baru
+
+
+def test_reassign_tidak_tertahan_gerbang_data_baru(monkeypatch):
+    """Data baru slot ini belum done -> tiket baru menunggu, tetapi tiket QC
+    nonaktif (sudah done, tinggal dikerjakan) tetap dibagi ulang."""
+    calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [_row("t1", processed=False)]})
+    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z")])
+
+    out = auto.run_scheduled_batch(_DB(), now=NOW)
+
+    assert out["skipped"] == "waiting_not_done" and out["reassigned"] == 1
+    assert moved[0][0] == [("x1", "a")]
+    assert calls == []
+
+
+def test_reassign_rata_per_campaign_dengan_beban_hari_ini(monkeypatch):
+    """Beban hari ini dihitung TANPA tiket yang dipindah: b sudah memegang 1 PL hari
+    ini, jadi tiket PL dari QC nonaktif jatuh ke a."""
+    today = datetime(2026, 10, 13, 1, 30)
+    calls, _f = _wire(monkeypatch, ["a", "b"], {"2026-10-13": [_row("p0", campaign="PL")]},
+                      assignments=[_a("p0", "b", today), _a("x1", "z", today)])
+    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z")], result_campaign={"x1": "PL"})
+
+    auto.run_scheduled_batch(_DB(), now=NOW)
+
+    assert moved[0][0] == [("x1", "a")]
+
+
+def test_tanpa_tiket_qc_nonaktif_hasil_batch_tidak_berubah(monkeypatch):
+    calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [_row("t1")]})
+    _asked, moved = _wire_reassign(monkeypatch, [])
+    out = auto.run_scheduled_batch(_DB(), now=NOW)
+    assert moved == [] and "reassigned" not in out and out["assigned"] == 1
 
 
 # --------------------------------------------------------------------------
