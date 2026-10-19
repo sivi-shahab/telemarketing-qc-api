@@ -75,13 +75,39 @@ def test_yang_dinilai_hanya_row_terbaru(db):
     assert tid not in _plan(db)
 
 
-def test_pengajuan_manual_status_dan_reproses_aktif_dilewati(db):
-    from db import crud
+def _request(db, r, tl, approval="pending"):
     from db.models import QcStatusRequest
 
-    diajukan, r = _ticket(db)
-    db.add(QcStatusRequest(result_id=r.id, requested_status="PASS", reason="cek"))
+    db.add(QcStatusRequest(result_id=r.id, requested_status="PASS", reason="cek",
+                           tl_qc_status=tl, approval_status=approval))
     db.flush()
+
+
+def test_hanya_vonis_manual_yang_sudah_final_yang_menahan_retry(db):
+    """130309XxVf (19 Okt 2026): QC mengajukan PASS untuk tiket yang belum pernah
+    dinilai; pengajuan yang belum disetujui tidak boleh menahan retry."""
+    pending, r1 = _ticket(db)
+    _request(db, r1, "pending")
+    ditolak, r2 = _ticket(db)
+    _request(db, r2, "rejected")
+    eskalasi, r3 = _ticket(db)
+    _request(db, r3, "escalated")
+    final_tl, r4 = _ticket(db)
+    _request(db, r4, "approved")
+    final_spq, r5 = _ticket(db)
+    _request(db, r5, "escalated", "approved")
+
+    plan = _plan(db)
+
+    for tid in (pending, ditolak, eskalasi):
+        assert tid in plan
+    for tid in (final_tl, final_spq):
+        assert tid not in plan
+
+
+def test_reproses_aktif_dilewati(db):
+    from db import crud
+
     jalan, _ = _ticket(db)
     biasa, _ = _ticket(db)
     crud.create_reprocess_job(db, ["Cashline"], [crud.reprocess_plan_for_ticket(db, jalan)],
@@ -89,7 +115,6 @@ def test_pengajuan_manual_status_dan_reproses_aktif_dilewati(db):
 
     plan = _plan(db)
 
-    assert diajukan not in plan
     assert jalan not in plan
     assert biasa in plan
 

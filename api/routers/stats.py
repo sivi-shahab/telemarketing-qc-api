@@ -1095,7 +1095,9 @@ def list_results(
         # adanya ketimbang memilih salah satu dan menyembunyikan sisanya.
         pending_reason = " · ".join(pending_reasons) or None
         reference_retry_note = None
-        if ai_status == "PENDING" and show_full_reason and r.status == "done" and qc_req is None:
+        # Hanya vonis Manual Status yang sudah final yang menghentikan retry — sama
+        # dengan crud.reference_gap_retry_plan.
+        if ai_status == "PENDING" and show_full_reason and r.status == "done" and manual_status_of(qc_req) is None:
             reference_retry_note = _reference_retry_note(data_gap, r.uploaded_at, _retry_last, _now_utc)
         items.append(
             ResultListItem(
