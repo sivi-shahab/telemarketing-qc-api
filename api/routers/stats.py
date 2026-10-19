@@ -2,7 +2,7 @@ import calendar
 import hashlib
 import io
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -116,6 +116,8 @@ from compliance.scoring import (
 )
 from compliance.stats_aggregate import (
     data_gap_map,
+    DATA_GAP_ASCEND,
+    DATA_GAP_TMS,
     pending_data_gap,
     data_gap_reasons,
     doc_sla_enabled,
@@ -157,6 +159,38 @@ _DOC_TYPE_ORDER = ["ktp", "npwp", "kk", "cover_buku_tabungan"]
 
 def _doc_label(doc_type: str) -> str:
     return DOCUMENT_TYPES.get(doc_type, {}).get("label", doc_type.upper())
+
+
+_WIB = timedelta(hours=7)
+
+
+def _fmt_wib(utc_naive: datetime, with_date: bool) -> str:
+    t = utc_naive + _WIB
+    return t.strftime("%d/%m %H.%M WIB" if with_date else "%H.%M WIB")
+
+
+def _reference_retry_note(data_gap, uploaded_at, last_run, now_utc) -> Optional[str]:
+    """Keterangan retry otomatis data acuan untuk tiket PENDING "Data TMS/Ascend
+    Kosong" (worker ``tasks/reference_retry.py``, 19 Oktober 2026).
+
+    ``uploaded_at`` & ``now_utc`` UTC naive; ``last_run`` = isi
+    ``crud.get_reference_retry_last_run``. None bila tiketnya tidak punya gap
+    TMS/Ascend (agent tidak terpetakan tidak dicari ulang).
+    """
+    if not ({DATA_GAP_TMS, DATA_GAP_ASCEND} & set(data_gap or ())) or uploaded_at is None:
+        return None
+    until = uploaded_at + crud.REFERENCE_RETRY_MAX_AGE
+    if now_utc >= until:
+        return f"Cek ulang otomatis berhenti (lewat {crud.REFERENCE_RETRY_MAX_AGE.days} hari)"
+    interval = (last_run or {}).get("interval_min") or 30
+    note = f"Dicek ulang otomatis tiap {interval} menit s/d {_fmt_wib(until, True)}"
+    try:
+        last = datetime.fromisoformat(str((last_run or {}).get("last_run_at")))
+    except ValueError:
+        return note
+    last = last.replace(tzinfo=None)
+    other_day = (last + _WIB).date() != (now_utc + _WIB).date()
+    return f"{note} · terakhir {_fmt_wib(last, other_day)}"
 
 
 def _document_requirements(flags: dict, raw_result_json, bands_apply: bool, npwp_by_limit: bool) -> list[dict]:
@@ -797,6 +831,8 @@ def list_results(
         types_by_rid=doc_types_map, ocr_by_rid=doc_ocr_map, agent_index=agent_index,
     )
     _now_status = crud.now_wib()  # basis tenggat H+2 untuk status PENDING
+    _retry_last = crud.get_reference_retry_last_run(db) if show_full_reason else None
+    _now_utc = datetime.utcnow()
     items = []
     for r in results:
         ai_score = None
@@ -1058,6 +1094,9 @@ def list_results(
         # Sebuah tiket bisa PENDING karena DUA hal sekaligus; keduanya ditulis apa
         # adanya ketimbang memilih salah satu dan menyembunyikan sisanya.
         pending_reason = " · ".join(pending_reasons) or None
+        reference_retry_note = None
+        if ai_status == "PENDING" and show_full_reason and r.status == "done" and qc_req is None:
+            reference_retry_note = _reference_retry_note(data_gap, r.uploaded_at, _retry_last, _now_utc)
         items.append(
             ResultListItem(
                 result_id=str(r.id),
@@ -1102,6 +1141,7 @@ def list_results(
                 manual_status_by_human=manual_by_human,
                 missing_documents=missing_docs,
                 pending_reason=pending_reason,
+                reference_retry_note=reference_retry_note,
                 fail_reason=fail_reason,
                 manual_status_history_count=len(ms_events_map.get(str(r.id), [])),
                 appeal_summary=_appeal_summary(appeal_map.get(str(r.id), [])),

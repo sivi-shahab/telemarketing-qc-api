@@ -207,6 +207,11 @@ class ResultListItem(BaseModel):
     # Keterangan singkat kenapa AI Status = PENDING, mis. "Menunggu dokumen NPWP
     # (SLA H+2)". None bila statusnya bukan PENDING atau PENDING-nya datang dari LLM.
     pending_reason: Optional[str] = None
+    # Tiket PENDING "Data TMS/Ascend Kosong": jadwal cek ulang DWH otomatis (tiap 30
+    # menit, maks 7 hari — worker tasks/reference_retry.py), mis. "Dicek ulang otomatis
+    # tiap 30 menit s/d 26/10 09.15 WIB · terakhir 10.30 WIB". Hanya untuk divisi QC +
+    # Admin, sama seperti alasan data acuan di pending_reason.
+    reference_retry_note: Optional[str] = None
     # Kenapa AI Status-nya Not Qualified, untuk sebab yang TIDAK terbaca dari skor —
     # sejak 21 Agustus 2026 hanya badword. None = tidak ada sebab khusus; kegagalan
     # biasa cukup dibaca dari skor & error code, dan kegagalan konsistensi verifikasi
