@@ -23,14 +23,25 @@ def _row(tid, status="done", hours=0, files=None):
     )
 
 
-def _stub_ai(monkeypatch, verdicts):
+def _stub_ai(monkeypatch, verdicts, human=None):
+    """``verdicts`` = AI Status per baris; ``human`` = ``{result.id: (status,
+    tl_qc_status)}`` — Manual Status yang diajukan untuk baris itu."""
     calls = []
 
     def fake(db, rows):
         calls.append(list(rows))
         return {str(r.id): verdicts.get(r.id) for r in rows}
 
+    def fake_qc(db, ids):
+        out = {}
+        for rid, (status, tl) in (human or {}).items():
+            if str(rid) in ids:
+                out[str(rid)] = SimpleNamespace(
+                    requested_status=status, tl_qc_status=tl, approval_status="pending")
+        return out
+
     monkeypatch.setattr(sa, "ai_status_map", fake)
+    monkeypatch.setattr(crud, "qc_status_requests_for", fake_qc)
     return calls
 
 
@@ -52,6 +63,41 @@ def test_baris_usang_yang_tercakup_tidak_memvonis(monkeypatch):
     old = _row("A", hours=0, files=["A_1.pdf"])
     full = _row("A", hours=3, files=["A_1.pdf", "A_2.pdf"])
     _stub_ai(monkeypatch, {old.id: "FAIL", full.id: "PASS"})
+    assert sa.one_result_per_ticket(None, [old, full]) == [full]
+
+
+def test_vonis_human_final_menang_atas_return_baris_lain(monkeypatch):
+    """Tiket 0803425lkJ (19 Oktober 2026): TL QC menyetujui PASS di baris 16 Okt,
+    enam clone JOB-3 sesudahnya tetap FAIL tanpa vonis — Statistics memilih clone FAIL
+    terbaru sehingga Qualified tidak pernah tampil. Vonis human berlaku untuk TIKETNYA."""
+    voted = _row("A", hours=0)
+    clones = [_row("A", hours=h) for h in (2, 4, 6)]
+    _stub_ai(monkeypatch, {voted.id: "PASS", **{c.id: "FAIL" for c in clones}},
+             human={voted.id: ("PASS", "approved")})
+    assert sa.one_result_per_ticket(None, [voted, *clones]) == [voted]
+
+
+def test_vonis_human_terbaru_bila_lebih_dari_satu(monkeypatch):
+    old, new, fail = _row("A", hours=0), _row("A", hours=2), _row("A", hours=4)
+    _stub_ai(monkeypatch, {old.id: "FAIL", new.id: "PASS", fail.id: "FAIL"},
+             human={old.id: ("FAIL", "approved"), new.id: ("PASS", "approved")})
+    assert sa.one_result_per_ticket(None, [old, new, fail]) == [new]
+
+
+def test_usulan_belum_final_tidak_mengalahkan_return(monkeypatch):
+    voted, fail = _row("A", hours=0), _row("A", hours=2)
+    _stub_ai(monkeypatch, {voted.id: "PASS", fail.id: "FAIL"},
+             human={voted.id: ("PASS", "pending")})
+    assert sa.one_result_per_ticket(None, [voted, fail]) == [fail]
+
+
+def test_vonis_di_baris_usang_tidak_berlaku(monkeypatch):
+    """Recording baru sudah dinilai di baris lain -> vonis atas evaluasi lama gugur
+    seperti evaluasinya sendiri."""
+    old = _row("A", hours=0, files=["A_1.pdf"])
+    full = _row("A", hours=3, files=["A_1.pdf", "A_2.pdf"])
+    _stub_ai(monkeypatch, {old.id: "PASS", full.id: "FAIL"},
+             human={old.id: ("PASS", "approved")})
     assert sa.one_result_per_ticket(None, [old, full]) == [full]
 
 
