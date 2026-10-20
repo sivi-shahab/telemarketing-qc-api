@@ -37,6 +37,14 @@ def db():
         pytest.skip(f"database tidak terjangkau: {exc}")
 
     trans = conn.begin()
+    # Tabel ``ticket_load_dates`` (migrasi 0069, 20 Oktober 2026) dibuat DI DALAM
+    # transaksi ini untuk SETIAP test: DB yang dipakai test adalah DB prod yang belum
+    # menjalankan 0069, sementara Results & Statistics kini membacanya di hampir
+    # semua jalur. DDL Postgres transaksional, jadi tabelnya ikut hilang saat
+    # rollback di bawah; ``checkfirst`` membuatnya tetap aman setelah 0069 diterapkan.
+    from db.models import TicketLoadDate
+
+    TicketLoadDate.__table__.create(bind=conn, checkfirst=True)
     # `join_transaction_mode="create_savepoint"` WAJIB: kode yang diuji memanggil
     # db.commit() sendiri (mis. crud.create_reprocess_job). Tanpa ini commit itu
     # menembus sampai ke transaksi luar dan baris test tertinggal di DB sungguhan;
@@ -72,14 +80,9 @@ def admin_user(db):
 
 @pytest.fixture()
 def ticket_load_dates_table(db):
-    """Membuat tabel ``ticket_load_dates`` DI DALAM transaksi test (20 Oktober 2026).
-
-    Migrasi 0069 belum dijalankan di DB sungguhan saat test ini ditulis, dan test
-    memakai DB prod. DDL Postgres transaksional, jadi tabel ini ikut hilang saat
-    ``db`` di-rollback — tidak ada yang tertinggal. ``checkfirst`` membuatnya tetap
-    jalan setelah migrasi benar-benar diterapkan.
-    """
+    """Alias tipis: tabel ``ticket_load_dates`` kini dibuat oleh fixture ``db``
+    sendiri (20 Oktober 2026). Dipertahankan supaya test yang memakainya tetap jalan
+    dan bisa men-query model lewat nilai baliknya."""
     from db.models import TicketLoadDate
 
-    TicketLoadDate.__table__.create(bind=db.connection(), checkfirst=True)
     return TicketLoadDate

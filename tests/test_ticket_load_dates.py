@@ -36,9 +36,9 @@ def test_tanpa_baris_tidak_muncul(db, ticket_load_dates_table):
     assert crud.load_dates_by_ticket(db, ["ZZLD-TIDAK-ADA"]) == {}
 
 
-def test_input_kosong_tanpa_query(db):
-    # Tanpa fixture tabel: kalau ada query, akan error karena tabel belum ada di DB.
-    assert crud.load_dates_by_ticket(db, []) == {}
+def test_input_kosong_tanpa_query():
+    # Tanpa sesi DB: kalau fungsi ini sampai membuat query, ``None.query`` akan error.
+    assert crud.load_dates_by_ticket(None, []) == {}
 
 
 def test_duplikat_dalam_satu_batch(db, ticket_load_dates_table):
