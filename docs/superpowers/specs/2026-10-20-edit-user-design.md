@@ -156,7 +156,8 @@ sumber di `reassign_from_inactive`, atau cukup satu source bila builder menilai
 pemisahan tidak sepadan — catat keputusannya).
 
 **Tabel baru `user_change_events`** (riwayat):
-`id, user_id (FK users, ON DELETE SET NULL), target_username (NIP saat perubahan,
+`id, user_id (integer TANPA FK — pola `qc_assignment_events`: riwayat user yang
+dihapus tetap terbaca), target_username (NIP saat perubahan,
 sesudah perubahan), field (username|name|email|role|password), old_value, new_value,
 actor_user_id, actor_username, actor_role, created_at`.
 Untuk `password`: `old_value`/`new_value` = NULL — hanya fakta "password diubah".
@@ -173,11 +174,10 @@ Skema `dashboard` (bukan `public`).
 - Sinkron salinan `core/` (model, crud).
 - `qc_auto_assign.reassign_from_inactive` ikut menangkap QC yang ganti role (lewat
   `qc_reassign_candidates` yang diperluas). Docstring/log disesuaikan.
-- `stats_aggregate.compute_qc_performance`: hapus hard-code `_REAL_TLQC = "21060814"`
-  / nama "DHEA KUMARING TYAS". TL QC diambil dari tabel user (role `team_leader_qc`,
-  aktif; akun uji `bella`/`doutzen` → `behati` boleh tetap). Kalau ada lebih dari satu
-  TL QC aktif riil, builder menentukan aturan deterministik (mis. yang id terkecil) dan
-  mencatatnya. Perubahan bentuk data stats → **bump versi snapshot** (aturan memori).
+- (Koreksi 20 Okt: hard-code `_REAL_TLQC = "21060814"` ada di
+  `stats_aggregate.compute_qc_performance` yang tidak dipanggil di mana pun — Performa QC
+  memakai `crud.qc_performance_rows`, tanpa hard-code. Tidak diubah; tidak perlu bump
+  versi snapshot.)
 - Kube worker (10.158.3.13) memakai DB prod yang sama dan tidak ikut di-update: aturan
   reassign yang lama di sana tidak mengenal `left_qc_at` — tidak merusak, hanya tidak
   membagi ulang. Catat di catatan deploy.
@@ -203,7 +203,7 @@ Skema `dashboard` (bukan `public`).
 
 - **Urutan:** dibangun di atas `main` lokal yang sudah berisi filter load_date (0069,
   snapshot v31). load_date dideploy **lebih dulu**; Edit User menyusul sebagai deploy
-  sendiri (0070, snapshot v32 bila Performa QC berubah bentuk/isi). Rollback Edit User
+  sendiri (0070, tanpa bump snapshot). Rollback Edit User
   = image `pre-edit-user` + downgrade ke 0069, tidak menyentuh load_date.
 
 - Prod dibangun dari folder kerja; ikuti alur deploy: build kandidat → diff freeze →
@@ -224,7 +224,6 @@ Skema `dashboard` (bukan `public`).
 - Pembagian ulang karena ganti role mengikuti aturan nonaktif: hanya tiket yang
   di-assign hari ini dan belum dikerjakan; tiket hari sebelumnya tetap atas namanya.
 - Riwayat disimpan per field; password hanya dicatat "diubah".
-- Hard-code TL QC di Performa QC diganti pembacaan dari tabel user.
 - Daftar & menu Kelola QC juga terbuka untuk `qc.user.edit`.
 - Edit User dideploy sesudah load_date, di atas `main` yang sudah memuatnya.
 
