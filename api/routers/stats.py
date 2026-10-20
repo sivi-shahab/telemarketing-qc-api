@@ -133,6 +133,7 @@ from compliance.stats_aggregate import (
     _parse_ymd,
     ai_status_for_result,
     ai_status_map,
+    ticket_qc_requests,
     compute_ai_status_timeseries,
     compute_stats_snapshot,
 )
@@ -585,8 +586,8 @@ def _resolve_filtered_results(
         rows = [r for r in rows if r.status == "done"]
         if not rows:
             return rows
-        ids = [str(r.id) for r in rows]
-        qcs = crud.qc_status_requests_for(db, ids)
+        # Vonis TIKET (clone JOB-3 ikut vonis final baris lain) — sama dengan kolomnya.
+        qcs = ticket_qc_requests(db, rows)
         # Vonis dihitung helper KANONIK berkelompok — bahan yang sama persis dengan
         # kolom AI Status di tabelnya, ``doc_status`` termasuk. Menyusun bahannya
         # sendiri di sini pernah membuat filter melewatkan status dokumen, sehingga
@@ -780,8 +781,10 @@ def list_results(
     # result_data (~0,2 detik) — dua kali per halaman sebelum 21 September 2026.
     doc_types_map = crud.document_types_by_result(db, rid_list)
     agent_index = crud.cashline_agent_index(db)
-    # QC-proposed AI-status changes for this page (single grouped query, no N+1).
-    qc_map = crud.qc_status_requests_for(db, rid_list)
+    # Manual Status per baris = vonis final TIKET-nya (19 Oktober 2026): clone JOB-3
+    # ikut menampilkan vonis yang disetujui di baris lain milik tiket yang sama, lihat
+    # ``ticket_qc_requests``. Grouped queries, no N+1.
+    qc_map = ticket_qc_requests(db, results)
     # Error Code appeals for this page (single grouped query, no N+1). Approved
     # appeals lift the score by flipping the linked scorecard item to SESUAI.
     appeal_map = crud.error_code_appeals_for_results(db, [str(r.id) for r in results])
@@ -2507,7 +2510,7 @@ def export_tickets_xlsx(
     manual_filter = manual_status.strip().upper() if isinstance(manual_status, str) else None
     if ai_filter in ("PASS", "FAIL", "PENDING") or manual_filter in ("PASS", "FAIL", "PENDING"):
         rows_done = [r for r in results if r.status == "done"]
-        qcs = crud.qc_status_requests_for(db, [str(r.id) for r in rows_done])
+        qcs = ticket_qc_requests(db, rows_done)
         # Helper kanonik yang sama dipakai filter /list_results — lihat catatan di sana.
         ai_map = ai_status_map(db, rows_done)
         kept = []
