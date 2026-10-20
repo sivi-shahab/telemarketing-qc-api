@@ -2,6 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from api.auth import (
@@ -12,19 +13,20 @@ from api.auth import (
     verify_password,
 )
 from api.dependencies import get_current_user, get_db
-from api.permissions import ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE
+from api.permissions import ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE, QC_USER_EDIT
 from api.rbac import require, require_any
 from api.schemas.auth import (
     AccessTokenResponse,
     MeResponse,
     UserListItem,
+    UserUpdate,
     RefreshRequest,
     TokenResponse,
     UserCreate,
     UserResponse,
 )
 from db import crud
-from db.models import User
+from db.models import User, UserChangeEvent
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -140,10 +142,26 @@ def _is_telemarketing_qc(db: Session, user, campaigns=None) -> bool:
     return not is_collection_only(campaigns, collection_campaigns_from_env())
 
 
+def _user_list_item(db: Session, u, campaigns=None) -> UserListItem:
+    """Satu baris daftar user (role_label, campaign efektif, asal campaign) — dipakai
+    ``list_users`` dan ``update_user``. ``campaigns`` boleh diberikan bila sudah
+    dihitung pemanggil."""
+    from api import permissions as P
+    from api.rbac import data_scope_for, effective_campaigns_for, role_label_for
+
+    if campaigns is None:
+        campaigns = effective_campaigns_for(db, u)
+    item = UserListItem.model_validate(u)
+    item.role_label = role_label_for(db, u)
+    item.campaigns = campaigns or []
+    item.campaign_from_roster = P.is_sales_scope(data_scope_for(db, u))
+    return item
+
+
 @router.get("/users", response_model=list[UserListItem])
 def list_users(
     db: Session = Depends(get_db),
-    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE)),
+    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_ACTIVE_WRITE, QC_USER_EDIT)),
 ):
     """List users, newest first, plus campaign efektif tiap user.
 
@@ -155,8 +173,7 @@ def list_users(
     berarti sekali pencarian ke peta roster, yang sudah di-cache per berkas aktif —
     jadi ratusan user tidak berarti ratusan pembacaan XLSX.
     """
-    from api import permissions as P
-    from api.rbac import data_scope_for, effective_campaigns_for, role_label_for
+    from api.rbac import effective_campaigns_for
 
     manage_all = _can_manage_all_users(db, current_user)
     query = db.query(User)
@@ -168,11 +185,7 @@ def list_users(
         campaigns = effective_campaigns_for(db, u)
         if not manage_all and not _is_telemarketing_qc(db, u, campaigns):
             continue
-        item = UserListItem.model_validate(u)
-        item.role_label = role_label_for(db, u)
-        item.campaigns = campaigns or []
-        item.campaign_from_roster = P.is_sales_scope(data_scope_for(db, u))
-        out.append(item)
+        out.append(_user_list_item(db, u, campaigns))
     return out
 
 
@@ -209,6 +222,125 @@ def delete_user(
     db.delete(user)
     db.commit()
     return {"deleted": True, "id": user_id, "username": username}
+
+
+@router.patch("/users/{user_id}", response_model=UserListItem)
+def update_user(
+    user_id: int,
+    body: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_EDIT)),
+):
+    """Edit User: NIP (username), nama, email, password, dan role (hanya Admin).
+
+    Tanpa ADMIN_USER_WRITE (Team Leader QC lewat QC_USER_EDIT) sasarannya hanya QC
+    Telemarketing — user lain dijawab 404 — dan role tidak boleh berubah (mengirim
+    role yang sama dengan sekarang tetap diterima, form mengirim semua field).
+
+    Ganti NIP ikut menulis ulang seluruh kolom username teks di tabel lain
+    (``crud.rename_username``). Semua perubahan, riwayat per field
+    (``user_change_events``, password tanpa nilai), dan penulisan ulang NIP berada
+    dalam SATU transaksi: gagal di tengah = rollback, tidak ada setengah jalan."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or (
+        not _can_manage_all_users(db, current_user) and not _is_telemarketing_qc(db, user)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
+
+    new_username = body.username.strip() if body.username is not None else None
+    new_email = body.email.strip() if body.email is not None else None
+    new_name = body.name.strip() if body.name is not None else None
+    if (new_username is not None and not new_username) or (new_email is not None and not new_email):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Username dan email tidak boleh kosong",
+        )
+    new_password = body.password or None
+
+    role_changed = body.role is not None and body.role != user.role
+    if role_changed:
+        from db.models import Role
+
+        if not _can_manage_all_users(db, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Hanya Admin yang dapat mengubah role",
+            )
+        if user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tidak dapat mengubah role akun sendiri",
+            )
+        if db.query(Role).filter(Role.key == body.role).first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Role '{body.role}' tidak dikenal",
+            )
+
+    # Bentrok dengan user LAIN, tanpa membedakan huruf besar/kecil. User ini sendiri
+    # dikecualikan, jadi mengganti kapitalisasi NIP-nya sendiri bukan bentrok.
+    for value, column in ((new_username, User.username), (new_email, User.email)):
+        if value is None:
+            continue
+        clash = db.query(User).filter(User.id != user_id, func.lower(column) == value.lower()).first()
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username atau email sudah digunakan",
+            )
+
+    # Field yang berubah; nama kosong dan None sama-sama berarti "tanpa nama".
+    changes = []  # (field, lama, baru)
+    if new_username is not None and new_username != user.username:
+        changes.append(("username", user.username, new_username))
+    if new_name is not None and (new_name or None) != (user.name or None):
+        changes.append(("name", user.name, new_name or None))
+    if new_email is not None and new_email != user.email:
+        changes.append(("email", user.email, new_email))
+    if role_changed:
+        changes.append(("role", user.role, body.role))
+    if new_password is not None:
+        changes.append(("password", None, None))
+    if not changes:
+        return _user_list_item(db, user)
+
+    actor_id = current_user.id if current_user.id != 0 else None
+    try:
+        old_username = user.username
+        if new_username is not None and new_username != old_username:
+            crud.rename_username(db, old_username, new_username)
+            user.username = new_username
+        for field, _old, new in changes:
+            if field == "name":
+                user.name = new
+            elif field == "email":
+                user.email = new
+            elif field == "role":
+                # Keluar dari QC = catat waktunya; kembali jadi QC = hapus catatannya.
+                if user.role == "qc":
+                    user.left_qc_at = datetime.utcnow()
+                elif new == "qc":
+                    user.left_qc_at = None
+                user.role = new
+            elif field == "password":
+                user.hashed_password = hash_password(new_password)
+        for field, old, new in changes:
+            db.add(UserChangeEvent(
+                user_id=user.id,
+                target_username=user.username,
+                field=field,
+                old_value=old,
+                new_value=new,
+                actor_user_id=actor_id,
+                actor_username=getattr(current_user, "username", None),
+                actor_role=getattr(current_user, "role", None),
+            ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(user)
+    return _user_list_item(db, user)
 
 
 @router.patch("/users/{user_id}/active", response_model=UserResponse)
