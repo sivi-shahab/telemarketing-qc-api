@@ -1178,16 +1178,23 @@ def upsert_ticket_load_dates(db: Session, rows: Iterable[tuple]) -> int:
 
     Idempoten: baris yang sama hanya menyegarkan ``synced_at`` dan ``campaign``.
     ``ticket_id`` di-strip dan baris dengan ticket_id kosong dibuang. Mengembalikan
-    jumlah baris yang dikirim ke DB. TIDAK commit — pemanggil yang commit.
+    jumlah baris UNIK ``(ticket_id, load_date)`` yang dikirim ke DB (sesudah dedup).
+    TIDAK commit — pemanggil yang commit.
+
+    Duplikat ``(ticket_id, load_date)`` dalam satu batch digabung, baris TERAKHIR
+    menang: /tickets-daily App C pernah mengembalikan baris dobel antar halaman, dan
+    ``ON CONFLICT DO UPDATE`` menolak menyentuh baris yang sama dua kali dalam satu
+    statement (CardinalityViolation).
     """
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    values = []
+    dedup: dict = {}
     for ticket_id, load_date, campaign in rows:
         tid = (ticket_id or "").strip()
         if not tid:
             continue
-        values.append({"ticket_id": tid, "load_date": load_date, "campaign": campaign})
+        dedup[(tid, load_date)] = {"ticket_id": tid, "load_date": load_date, "campaign": campaign}
+    values = list(dedup.values())
     if not values:
         return 0
     stmt = pg_insert(TicketLoadDate).values(values)

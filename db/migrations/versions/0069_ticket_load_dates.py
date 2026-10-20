@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column("ticket_id", sa.String(100), nullable=False),
         sa.Column("load_date", sa.Date, nullable=False),
         sa.Column("campaign", sa.String(100), nullable=True),
-        sa.Column("synced_at", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("synced_at", sa.DateTime, server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("ticket_id", "load_date"),
     )
     op.create_index("ix_ticket_load_dates_load_date", "ticket_load_dates", ["load_date"])

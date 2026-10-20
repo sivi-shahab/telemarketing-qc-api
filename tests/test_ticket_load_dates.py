@@ -39,3 +39,13 @@ def test_tanpa_baris_tidak_muncul(db, ticket_load_dates_table):
 def test_input_kosong_tanpa_query(db):
     # Tanpa fixture tabel: kalau ada query, akan error karena tabel belum ada di DB.
     assert crud.load_dates_by_ticket(db, []) == {}
+
+
+def test_duplikat_dalam_satu_batch(db, ticket_load_dates_table):
+    n = crud.upsert_ticket_load_dates(
+        db,
+        [("ZZLD3", date(2026, 10, 10), "A"), (" ZZLD3", date(2026, 10, 10), "B")],
+    )
+    assert n == 1
+    got = db.query(ticket_load_dates_table).filter_by(ticket_id="ZZLD3").all()
+    assert len(got) == 1 and got[0].campaign == "B"

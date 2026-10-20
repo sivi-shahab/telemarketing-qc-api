@@ -613,7 +613,7 @@ class TicketLoadDate(Base):
     ticket_id = Column(String(100), primary_key=True)
     load_date = Column(Date, primary_key=True, index=True)
     campaign = Column(String(100), nullable=True)
-    synced_at = Column(DateTime, server_default=func.now())
+    synced_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
 class QcStatusEvent(Base):
