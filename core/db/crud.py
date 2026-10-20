@@ -1456,7 +1456,12 @@ def _stats_signature(db: Session) -> str:
     # v30: baris wakil per ID mendahulukan baris ber-Manual Status final (19 Okt
     #      2026, tiket 0803425lkJ) — vonis yang sudah ada kini memilih baris lain
     #      tanpa ada data baru; sidik jari juga ikut Manual Status + keputusan TL QC.
-    version = "v30"
+    # v31: tanggal tiket di filter & grafik Statistics (Failure Reason, Hierarki,
+    #      Failure Rate, AI Status per waktu, QC Productivity) pindah dari Tanggal
+    #      Agree ke ``load_date`` App C TERAKHIR (20 Okt 2026), sama dengan Results;
+    #      tiket tanpa baris App C tetap aturan lama. Snapshot bertanggal lama HARUS
+    #      gugur. Tenggat H+2 tetap Tanggal Agree.
+    version = "v31"
     sla = "1" if get_doc_sla_enabled(db) else "0"
     # Sidik jari daftar tersembunyi. WAJIB ikut: tanpa ini snapshot yang sudah
     # ter-cache akan terus menyajikan angka tiket yang baru disembunyikan sampai ada
@@ -3348,8 +3353,9 @@ def qc_performance_rows(db: Session, campaign: str = None,
     tiket ke jendela tanggal yang sama dengan filter di panel "AI Status — per
     waktu" — dipasang di tab Failure Rate supaya tabel ini ikut dinamis mengikuti
     filter tanggal, bukan cuma pohon Hierarki-nya. Tanggal tiap tiket memakai
-    aturan "chart date" yang sama dengan grafik itu (TMS submit_time, jatuh balik
-    ke tanggal transkrip) lewat ``stats_aggregate.ticket_chart_dates``.
+    aturan "chart date" yang sama dengan grafik itu (sejak 20 Oktober 2026
+    ``load_date`` App C TERAKHIR; tanpa baris App C jatuh ke TMS submit_time, lalu
+    tanggal transkrip) lewat ``stats_aggregate.ticket_date_windows``.
     """
     # Filter campaign (tab Hierarki Failure Rate): daftar ticket id milik campaign itu.
     # ``QcAssignment`` menyimpan ticket_id, bukan campaign, jadi dipetakan lewat
@@ -3388,16 +3394,15 @@ def qc_performance_rows(db: Session, campaign: str = None,
         # crud.error_code_appeals_for_results dkk.), jadi impor timbal balik di
         # level atas akan membentuk lingkaran — pola yang sama dipakai
         # ``get_or_build_stats_snapshot`` di bawah.
-        from compliance.stats_aggregate import ticket_chart_dates
+        from compliance.stats_aggregate import ticket_date_windows
 
         all_ticket_ids = {t for s in assigned.values() for t in s}
-        chart_dates = ticket_chart_dates(db, all_ticket_ids)
+        windows = ticket_date_windows(db, all_ticket_ids)
         for u in list(assigned):
             assigned[u] = {
                 t for t in assigned[u]
-                if (d := chart_dates.get(t)) is not None
-                and (date_start is None or d >= date_start)
-                and (date_end is None or d <= date_end)
+                if (td := windows.get(t)) is not None
+                and td.in_window(date_start, date_end)
             }
 
     checks = db.query(QcManualCheck).all()
