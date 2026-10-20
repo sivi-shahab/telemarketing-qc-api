@@ -37,6 +37,7 @@ from db.models import (
     ResultData,
     SalesDatabase,
     StatsSnapshot,
+    TicketLoadDate,
     User,
 )
 # Reference data (CASHLINE / CARD HOLDER) sekarang dari DWH API (Aplikasi A),
@@ -1170,6 +1171,52 @@ def _cashline_ids_from_dwh(cids: list) -> dict:
                 with _CASHLINE_ID_MEMO_LOCK:
                     _CASHLINE_ID_MEMO[cid] = entry
     return out
+
+
+def upsert_ticket_load_dates(db: Session, rows: Iterable[tuple]) -> int:
+    """Simpan ``(ticket_id, load_date, campaign)`` dari App C ke ``ticket_load_dates``.
+
+    Idempoten: baris yang sama hanya menyegarkan ``synced_at`` dan ``campaign``.
+    ``ticket_id`` di-strip dan baris dengan ticket_id kosong dibuang. Mengembalikan
+    jumlah baris yang dikirim ke DB. TIDAK commit — pemanggil yang commit.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    values = []
+    for ticket_id, load_date, campaign in rows:
+        tid = (ticket_id or "").strip()
+        if not tid:
+            continue
+        values.append({"ticket_id": tid, "load_date": load_date, "campaign": campaign})
+    if not values:
+        return 0
+    stmt = pg_insert(TicketLoadDate).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticket_id", "load_date"],
+        set_={"synced_at": func.now(), "campaign": stmt.excluded.campaign},
+    )
+    db.execute(stmt)
+    return len(values)
+
+
+def load_dates_by_ticket(db: Session, ticket_ids: Iterable[str]) -> dict:
+    """``{ticket_id: [load_date, ...]}`` urut naik; tiket tanpa baris tidak muncul.
+
+    ``ticket_id`` di-strip. Input kosong -> ``{}`` tanpa query.
+    """
+    ids = {(t or "").strip() for t in ticket_ids}
+    ids.discard("")
+    if not ids:
+        return {}
+    out: dict = defaultdict(list)
+    q = (
+        db.query(TicketLoadDate.ticket_id, TicketLoadDate.load_date)
+        .filter(TicketLoadDate.ticket_id.in_(ids))
+        .order_by(TicketLoadDate.ticket_id, TicketLoadDate.load_date)
+    )
+    for tid, ld in q:
+        out[tid].append(ld)
+    return dict(out)
 
 
 def cashline_agent_index(db: Session) -> dict:

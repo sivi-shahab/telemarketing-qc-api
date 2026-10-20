@@ -68,3 +68,18 @@ def admin_user(db):
     if user is None:
         pytest.skip("tidak ada user role admin di database")
     return user
+
+
+@pytest.fixture()
+def ticket_load_dates_table(db):
+    """Membuat tabel ``ticket_load_dates`` DI DALAM transaksi test (20 Oktober 2026).
+
+    Migrasi 0069 belum dijalankan di DB sungguhan saat test ini ditulis, dan test
+    memakai DB prod. DDL Postgres transaksional, jadi tabel ini ikut hilang saat
+    ``db`` di-rollback — tidak ada yang tertinggal. ``checkfirst`` membuatnya tetap
+    jalan setelah migrasi benar-benar diterapkan.
+    """
+    from db.models import TicketLoadDate
+
+    TicketLoadDate.__table__.create(bind=db.connection(), checkfirst=True)
+    return TicketLoadDate
