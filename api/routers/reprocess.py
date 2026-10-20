@@ -128,6 +128,9 @@ def _plan_for_filtered(db: Session, current_user, filters: dict):
        yang kalah cepat mencoba menghapus row yang sudah tidak ada. Itu bisa
        dicegah dengan tepat sasaran, tanpa memblokir tiket lain yang tidak
        bersinggungan sama sekali.
+    3. **Filter tanggal = load_date App C TERAKHIR tiket** (20 Oktober 2026), sama
+       dengan tampilan Results; tiket yang load terakhirnya di luar rentang tidak
+       ikut diproses ulang walau load lamanya ada di dalam rentang.
 
     Dipanggil ULANG oleh endpoint POST, bukan mempercayai angka dari preview: ada
     jeda antara Admin membaca modal dan menekan tombolnya, dan job baru bisa
