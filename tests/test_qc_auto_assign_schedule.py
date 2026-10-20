@@ -392,7 +392,7 @@ def test_tiket_qc_nonaktif_dibagi_rata_ke_qc_aktif(monkeypatch):
     today = datetime(2026, 10, 13, 1, 30)
     olds = [_a(f"x{i}", "z", today) for i in range(4)]
     calls, _f = _wire(monkeypatch, ["a", "b"], {}, assignments=olds)
-    _asked, moved = _wire_reassign(monkeypatch, [(f"x{i}", "z") for i in range(4)])
+    _asked, moved = _wire_reassign(monkeypatch, [(f"x{i}", "z", "qc_nonaktif") for i in range(4)])
 
     out = auto.run_scheduled_batch(_DB(), now=NOW)
 
@@ -408,7 +408,7 @@ def test_reassign_tidak_tertahan_gerbang_data_baru(monkeypatch):
     """Data baru slot ini belum done -> tiket baru menunggu, tetapi tiket QC
     nonaktif (sudah done, tinggal dikerjakan) tetap dibagi ulang."""
     calls, _f = _wire(monkeypatch, ["a"], {"2026-10-13": [_row("t1", processed=False)]})
-    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z")])
+    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z", "qc_nonaktif")])
 
     out = auto.run_scheduled_batch(_DB(), now=NOW)
 
@@ -423,11 +423,30 @@ def test_reassign_rata_per_campaign_dengan_beban_hari_ini(monkeypatch):
     today = datetime(2026, 10, 13, 1, 30)
     calls, _f = _wire(monkeypatch, ["a", "b"], {"2026-10-13": [_row("p0", campaign="PL")]},
                       assignments=[_a("p0", "b", today), _a("x1", "z", today)])
-    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z")], result_campaign={"x1": "PL"})
+    _asked, moved = _wire_reassign(monkeypatch, [("x1", "z", "qc_nonaktif")], result_campaign={"x1": "PL"})
 
     auto.run_scheduled_batch(_DB(), now=NOW)
 
     assert moved[0][0] == [("x1", "a")]
+
+
+def test_kandidat_campuran_dipanggil_per_source(monkeypatch):
+    """QC nonaktif dan QC ganti role dibagi dalam satu putaran, tetapi dicatat
+    dengan source masing-masing (dua panggilan reassign_tickets_to_qc)."""
+    today = datetime(2026, 10, 13, 1, 30)
+    olds = [_a("x1", "z", today), _a("x2", "y", today), _a("x3", "y", today)]
+    calls, _f = _wire(monkeypatch, ["a", "b"], {}, assignments=olds)
+    _asked, moved = _wire_reassign(monkeypatch, [
+        ("x1", "z", "qc_nonaktif"), ("x2", "y", "qc_ganti_role"), ("x3", "y", "qc_ganti_role"),
+    ])
+
+    out = auto.run_scheduled_batch(_DB(), now=NOW)
+
+    by_source = {src: sorted(t for t, _q in pairs) for pairs, _by, src in moved}
+    assert len(moved) == 2
+    assert by_source == {"qc_nonaktif": ["x1"], "qc_ganti_role": ["x2", "x3"]}
+    assert all(by == auto.SCHEDULER_USERNAME for _p, by, _s in moved)
+    assert out["reassigned"] == 3 and sum(out["reassigned_per_qc"].values()) == 3
 
 
 def test_tanpa_tiket_qc_nonaktif_hasil_batch_tidak_berubah(monkeypatch):

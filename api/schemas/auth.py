@@ -49,6 +49,22 @@ class UserCreate(BaseModel):
         return v
 
 
+class UserUpdate(BaseModel):
+    """Edit User (``PATCH /auth/users/{id}``). Field yang tidak dikirim (None) tidak
+    diubah; password kosong juga berarti tidak diubah."""
+    username: Optional[str] = None  # NIP
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None  # tidak di-strip: spasi bisa bagian dari sandi
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+        # Normalisasi saja, keabsahan dicek ke tabel ``roles`` di endpoint.
+        return v.lower() if v is not None else None
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
@@ -76,6 +92,23 @@ class UserListItem(UserResponse):
     # True bila cakupan datanya sisi sales — hanya untuk role itulah "campaign kosong"
     # berarti bermasalah; role lain memang tidak dibatasi campaign.
     campaign_from_roster: bool = False
+
+
+class UserChangeEventItem(BaseModel):
+    """Satu baris riwayat perubahan user (Edit User). ``target_name`` = nama user
+    SAAT INI bila masih ada. Password tidak pernah membawa nilai (old/new = None)."""
+    id: int
+    user_id: Optional[int] = None
+    target_username: str
+    target_name: Optional[str] = None
+    field: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    actor_username: Optional[str] = None
+    actor_role: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
 
 
 class MeResponse(UserResponse):

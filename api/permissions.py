@@ -164,6 +164,10 @@ QC_ASSIGNMENT_WRITE = "qc.assignment.write"
 # Sekaligus menu (route Kelola QC) dan gate endpoint-nya, seperti
 # STATS_EXPORT_ERROR_RATE_PPT.
 QC_USER_ACTIVE_WRITE = "qc.user.active.write"
+# Edit User (20 Oktober 2026): ubah NIP, nama, email, password (dan role, hanya Admin)
+# lewat ``PATCH /auth/users/{id}``. Team Leader QC memegangnya untuk QC Telemarketing
+# saja, tanpa hak mengubah role — gate role-nya tetap ADMIN_USER_WRITE di endpoint.
+QC_USER_EDIT = "qc.user.edit"
 TRANSCRIPT_UPLOAD = "transcript.upload"
 AUDIO_UPLOAD = "audio.upload"
 
@@ -201,7 +205,7 @@ ALL_PERMISSIONS = [
     ADMIN_USER_WRITE, ADMIN_ROLE_WRITE, ADMIN_CAMPAIGN_WRITE,
     ADMIN_SALES_DATABASE_WRITE, ADMIN_QC_DATABASE_WRITE, ADMIN_TICKET_DELETE,
     ADMIN_TICKET_REPROCESS, ADMIN_DOC_SLA_WRITE,
-    QC_ASSIGNMENT_WRITE, QC_USER_ACTIVE_WRITE, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
+    QC_ASSIGNMENT_WRITE, QC_USER_ACTIVE_WRITE, QC_USER_EDIT, TRANSCRIPT_UPLOAD, AUDIO_UPLOAD,
 ]
 
 # Capability yang HANYA boleh dimiliki role ``admin`` (permintaan 14 Agustus 2026).
@@ -281,6 +285,8 @@ COLLECTION_REMOVED_PERMISSIONS = frozenset({
     # Kelola QC (13 Oktober 2026) khusus campaign Telemarketing: TL QC Collection
     # tidak mengurus pool QC telemarketing.
     QC_USER_ACTIVE_WRITE,
+    # Edit User (20 Oktober 2026): sama alasannya dengan Kelola QC.
+    QC_USER_EDIT,
 })
 
 # Upload Audio/Transcript tidak lagi admin-only sejak 23 September 2026 (lihat
@@ -377,6 +383,7 @@ PERMISSION_GROUPS = [
         (ADMIN_DOC_SLA_WRITE, "Ubah kebijakan SLA H+2 dokumen pendukung"),
         (QC_ASSIGNMENT_WRITE, "Assign ticket QC"),
         (QC_USER_ACTIVE_WRITE, "Kelola QC — aktifkan / nonaktifkan QC Telemarketing (tanpa buat user)"),
+        (QC_USER_EDIT, "Kelola QC — edit data QC Telemarketing (tanpa ubah role)"),
         (TRANSCRIPT_UPLOAD, "Upload transcript"),
         (AUDIO_UPLOAD, "Upload audio"),
     ]),
@@ -556,6 +563,9 @@ DEFAULT_ROLES = {
             # Kelola QC: aktifkan/nonaktifkan QC Telemarketing, tanpa buat/hapus
             # user (13 Oktober 2026, migrasi 0066).
             QC_USER_ACTIVE_WRITE,
+            # Edit User: ubah NIP/nama/email/password QC Telemarketing, tanpa
+            # ubah role (20 Oktober 2026, migrasi 0070).
+            QC_USER_EDIT,
         ],
     },
     # RESULTS_CATEGORY_SCORE sengaja TIDAK diberikan: QC menilai lolos/tidaknya
