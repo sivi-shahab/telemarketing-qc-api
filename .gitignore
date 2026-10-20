@@ -40,3 +40,7 @@ core/*.egg-info/
 core/.pytest_cache/
 core/.coverage
 core/compliance/*.xlsx
+
+# Env per-lingkungan (mis. .env.prod) berisi kredensial produksi
+.env.*
+!.env.example

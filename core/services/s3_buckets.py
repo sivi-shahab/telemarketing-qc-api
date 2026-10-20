@@ -160,7 +160,17 @@ class MultiBucketS3Client:
         params = {"Bucket": bucket_name, "Key": object_name, "Body": body}
         if content_type:
             params["ContentType"] = content_type
-        return self._client_for(bucket_name).put_object(**params)
+        try:
+            return self._client_for(bucket_name).put_object(**params)
+        
+        except ClientError as exc:
+            err = exc.response.get("Error", {})
+            logger.error("[s3] PutObject gagal — bucket=%s key=%s code=%s msg=%s",
+                     bucket_name, object_name,
+                     err.get("Code"), err.get("Message"))
+            raise
+        
+        
 
     def copy_object(self, bucket_name, object_name, source, **kwargs):
         src = {"Bucket": getattr(source, "bucket_name", bucket_name),
