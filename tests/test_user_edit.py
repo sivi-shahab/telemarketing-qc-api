@@ -259,3 +259,60 @@ def test_tl_qc_collection_kehilangan_edit_user():
     out = rbac.collection_adjusted_permissions(
         set(P.DEFAULT_ROLES["team_leader_qc"]["permissions"]), ["Telemarketing", "Cashline"], COLLECTION)
     assert P.QC_USER_EDIT in out
+
+
+# --- Perbaikan review akhir (20 Okt) ---
+
+def test_create_user_bentrok_beda_kapital_409():
+    """create_user membandingkan tanpa membedakan huruf besar/kecil (seperti
+    update_user), jadi `abc` di samping `ABC` ditolak 409."""
+    from api.routers.auth import create_user
+    from api.schemas.auth import UserCreate
+
+    class _Q:
+        def __init__(self):
+            self.criteria = []
+
+        def filter(self, *c):
+            self.criteria.extend(c)
+            return self
+
+        def first(self):
+            sql = " ".join(str(c) for c in self.criteria).lower()
+            # DB case-insensitive hanya bila kedua kolom dibandingkan lewat lower().
+            return object() if "lower(users.username)" in sql and "lower(users.email)" in sql else None
+
+    class _DB:
+        def __init__(self):
+            self.added = []
+
+        def query(self, model):
+            return _Q() if model is User else SimpleNamespace(
+                filter=lambda *a: SimpleNamespace(first=lambda: object()))
+
+        def add(self, o):
+            self.added.append(o)
+
+    db = _DB()
+    body = UserCreate(username="abc", email="ABC@x", password="p", role="qc")
+    with pytest.raises(HTTPException) as ei:
+        create_user(body, db=db, current_user=ACTOR)
+    assert ei.value.status_code == 409 and not db.added
+
+
+def test_update_user_balapan_integrity_error_409_dan_rollback():
+    """Dua edit yang lolos cek bentrok bersamaan: commit melempar IntegrityError
+    -> 409 (bukan 500) dan transaksi di-rollback."""
+    from sqlalchemy.exc import IntegrityError
+
+    db = _Session(_user())
+
+    def boom():
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    db.commit = boom
+    with pytest.raises(HTTPException) as ei:
+        _patch(db, name="Budi")
+    assert ei.value.status_code == 409
+    assert ei.value.detail == "Username atau email sudah digunakan"
+    assert db.rollbacks == 1

@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.auth import (
@@ -100,8 +101,11 @@ def create_user(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Role '{body.role}' tidak dikenal",
         )
+    # Tanpa membedakan huruf besar/kecil, sama dengan update_user dan
+    # crud.rename_username (kalau tidak, `abc` bisa dibuat di samping `ABC`).
     existing = db.query(User).filter(
-        (User.username == body.username) | (User.email == body.email)
+        (func.lower(User.username) == body.username.lower())
+        | (func.lower(User.email) == body.email.lower())
     ).first()
     if existing:
         raise HTTPException(
@@ -377,6 +381,13 @@ def update_user(
                 actor_role=getattr(current_user, "role", None),
             ))
         db.commit()
+    except IntegrityError:
+        # Dua edit lolos cek bentrok bersamaan; unique constraint DB yang menolak.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username atau email sudah digunakan",
+        )
     except Exception:
         db.rollback()
         raise
