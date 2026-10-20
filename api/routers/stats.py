@@ -741,8 +741,8 @@ def list_results(
     qc_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets assigned to this QC (NIP)"),
     qc_support_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets uploaded by this QC Support (NIP)"),
     ticket_ids: Optional[str] = Query(None, description="Ticket id dipisah koma — batasi ke ticket TERTENTU (menu Assign Ticket). Kosong = tidak ada id yang diminta, BUKAN tanpa batas"),
-    date_start: Optional[str] = Query(None, description="Transcript-date lower bound (YYYY-MM-DD, WIB)"),
-    date_end: Optional[str] = Query(None, description="Transcript-date upper bound (YYYY-MM-DD, WIB)"),
+    date_start: Optional[str] = Query(None, description="Tanggal load App C (load terakhir tiket), batas bawah YYYY-MM-DD, inklusif"),
+    date_end: Optional[str] = Query(None, description="Tanggal load App C (load terakhir tiket), batas atas YYYY-MM-DD, inklusif"),
     banding_pending: bool = Query(False, description="Keep only tickets with an appeal awaiting the caller's review tier"),
     manual_status_pending: bool = Query(False, description="Pending Check menu: keep only tickets with a Manual Status request awaiting the caller's review tier (TL QC / SPQ Head)"),
     page: int = Query(1, ge=1),
@@ -2635,6 +2635,12 @@ def _tickets_for_filtered_delete(db, current_user, filters: dict):
        worker akan mencoba menghapus row yang sudah tidak ada saat hasil barunya
        selesai — dan hasil baru itu bertahan sebagai satu-satunya entry, persis
        kebalikan dari yang diminta Admin.
+
+    3. **Filter tanggal = load_date App C TERAKHIR tiket** (20 Oktober 2026), aturan
+       yang sama dengan tampilan Results (``crud._ticket_date_expr``). Tiket yang
+       pernah dimuat di dalam rentang tetapi load terakhirnya di luar rentang
+       TIDAK ikut terhapus: penghapusan permanen tidak boleh mengambil tiket yang
+       masih aktif dimuat di luar rentang yang dilihat Admin.
 
     Dipanggil ULANG oleh endpoint POST, bukan mempercayai angka preview: ada jeda
     antara Admin membaca modal dan menekan tombolnya.

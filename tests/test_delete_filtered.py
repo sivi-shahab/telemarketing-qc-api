@@ -240,3 +240,45 @@ def test_crud_menghitung_baris_untuk_banyak_tiket(db):
     tids = _existing_ticket_ids(db, 2)
     assert crud.results_count_by_ticket_ids(db, tids) == sum(_rows_for(db, t) for t in tids)
     assert crud.results_count_by_ticket_ids(db, []) == 0
+
+
+# --------------------------------------------------------------------------
+# Aturan tanggal: load_date App C TERAKHIR (20 Oktober 2026)
+# --------------------------------------------------------------------------
+
+_LD_CAMPAIGN = "ZZ-TEST-LOAD-DATE"
+
+
+def _mk_load_date_tickets(db):
+    """Tiket A dimuat 14/16/19 Okt (terakhir 19), tiket B dimuat 15 Okt.
+    ``generated_at`` sengaja jauh dari semuanya supaya yang terbaca load_date."""
+    from datetime import date, datetime
+
+    from db import crud
+    from db.models import Result
+
+    for tid in ("ZZLD-A", "ZZLD-B"):
+        db.add(Result(
+            id=uuid.uuid4(), campaign=_LD_CAMPAIGN,
+            source_files=[f"{tid}_20260101120000.pdf"], status="done",
+            generated_at=datetime(2026, 9, 1, 8, 0),
+            uploaded_at=datetime(2020, 1, 1, 0, 0, 0),
+        ))
+    crud.upsert_ticket_load_dates(
+        db,
+        [("ZZLD-A", date(2026, 10, d), "X") for d in (14, 16, 19)]
+        + [("ZZLD-B", date(2026, 10, 15), "X")],
+    )
+    db.flush()
+
+
+def test_delete_all_rentang_tidak_ambil_tiket_load_terakhir_di_luar(db, admin_user):
+    """Penghapusan permanen tidak boleh menyentuh tiket yang load terakhirnya
+    (19 Okt) di luar rentang, walau load lamanya (14/16 Okt) ada di dalam."""
+    _clear_running_jobs(db)
+    _mk_load_date_tickets(db)
+    tids, _skipped, _camps = stats._tickets_for_filtered_delete(
+        db, admin_user,
+        {"campaign": _LD_CAMPAIGN, "date_start": "2026-10-12", "date_end": "2026-10-17"},
+    )
+    assert tids == ["ZZLD-B"]
