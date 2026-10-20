@@ -54,6 +54,20 @@ def _mk(db, index, ticket, submit=None, loads=(), status="done",
     return r
 
 
+def _spy_scanned(monkeypatch):
+    """Tangkap result id yang dipindai — batch lookup appeal dipanggil tepat sesudah
+    penyaringan tanggal di setiap jalur Statistics."""
+    seen = []
+    real = crud.error_code_appeals_for_results
+
+    def spy(db_, ids):
+        seen.append(set(ids))
+        return real(db_, ids)
+
+    monkeypatch.setattr(crud, "error_code_appeals_for_results", spy)
+    return seen
+
+
 def test_ticketdates_single_dan_window():
     td = sa.TicketDates((d(10), d(15)), d(1))
     assert td.single() == d(15)
@@ -70,15 +84,22 @@ def test_ticketdates_single_dan_window():
 def test_failure_reasons_filter_load_terakhir(db, index, monkeypatch):
     # Semua tiket "evaluable" supaya ``total_submissions`` = jumlah tiket di jendela.
     monkeypatch.setattr(sa, "_adjusted_evaluation", lambda *a, **k: {})
-    _mk(db, index, "ZZSLD1", submit="2026-10-10 09:00:00", loads=(15,))   # masuk
-    _mk(db, index, "ZZSLD2", submit="2026-10-15 09:00:00")                # masuk (aturan lama)
-    _mk(db, index, "ZZSLD3", submit="2026-10-14 09:00:00", loads=(10,))   # keluar
-    _mk(db, index, "ZZSLD4", submit="2026-10-14 09:00:00", loads=(14, 19))  # keluar
+    seen = _spy_scanned(monkeypatch)
+    a = _mk(db, index, "ZZSLD1", submit="2026-10-10 09:00:00", loads=(15,))  # masuk
+    b = _mk(db, index, "ZZSLD2", submit="2026-10-15 09:00:00")               # masuk (aturan lama)
+    _mk(db, index, "ZZSLD3", submit="2026-10-14 09:00:00", loads=(10,))      # keluar
+    c = _mk(db, index, "ZZSLD4", submit="2026-10-14 09:00:00", loads=(14, 19))  # keluar
     out = sa.compute_failure_reasons(db, campaign=CAMPAIGN, date_start=d(12), date_end=d(17))
     assert out["total_submissions"] == 2
-    hier = sa.compute_failure_reasons_hierarchy(
+    assert seen[-1] == {str(a.id), str(b.id)}
+    # Sub-tab Hierarki Based: jendela yang sama memilih tiket yang sama.
+    sa.compute_failure_reasons_hierarchy(
+        db, campaign=CAMPAIGN, date_start=d(12), date_end=d(17))
+    assert seen[-1] == {str(a.id), str(b.id)}
+    # Load terakhir 19 Okt -> hanya ZZSLD4 di jendela 18-19.
+    sa.compute_failure_reasons_hierarchy(
         db, campaign=CAMPAIGN, date_start=d(18), date_end=d(19))
-    assert hier is not None  # jalur filter yang sama tidak error
+    assert seen[-1] == {str(c.id)}
 
 
 def test_timeseries_bucket_load_terakhir(db, index):
@@ -129,14 +150,7 @@ def test_qc_productivity_filter_load_terakhir(db, index):
 def test_stats_snapshot_filter_load_terakhir(db, index, monkeypatch):
     """Tab Failure Rate (pohon Hierarki) memakai jendela yang sama — tiket yang
     dipindai ditangkap dari batch lookup appeal tepat setelah penyaringan."""
-    seen = []
-    real = crud.error_code_appeals_for_results
-
-    def spy(db_, ids):
-        seen.append(set(ids))
-        return real(db_, ids)
-
-    monkeypatch.setattr(crud, "error_code_appeals_for_results", spy)
+    seen = _spy_scanned(monkeypatch)
     a = _mk(db, index, "ZZSLDD", submit="2026-10-10 09:00:00", loads=(15,))
     _mk(db, index, "ZZSLDE", submit="2026-10-14 09:00:00", loads=(14, 19))
     b = _mk(db, index, "ZZSLDF", submit="2026-10-14 09:00:00")
@@ -144,3 +158,17 @@ def test_stats_snapshot_filter_load_terakhir(db, index, monkeypatch):
         db, customer_ids=["ZZSLDD", "ZZSLDE", "ZZSLDF"], roster_uids=set(),
         date_start=d(12), date_end=d(17))
     assert seen[0] == {str(a.id), str(b.id)}
+
+
+def test_signature_ikut_ticket_load_dates(db):
+    """Load_date baru menggeser tanggal tiket -> snapshot harus gugur. Upsert ulang
+    baris yang sama (hanya synced_at berubah) TIDAK boleh menggugurkannya."""
+    crud.upsert_ticket_load_dates(db, [("ZZSLDG", d(15), "X")])
+    db.flush()
+    before = crud._stats_signature(db)
+    crud.upsert_ticket_load_dates(db, [("ZZSLDG", d(15), "X")])
+    db.flush()
+    assert crud._stats_signature(db) == before
+    crud.upsert_ticket_load_dates(db, [("ZZSLDG", d(16), "X")])
+    db.flush()
+    assert crud._stats_signature(db) != before

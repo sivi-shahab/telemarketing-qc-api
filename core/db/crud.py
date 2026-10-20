@@ -1341,7 +1341,8 @@ def _stats_signature(db: Session) -> str:
     count + latest time, appeal count + latest review time (approved appeals change
     error counts), Manual Status count + latest request/review time (an approved
     human verdict locks the AI Status and picks the ticket's representative row),
-    and the active sales-database file (drives agent name / TL / AM).
+    and the active sales-database file (drives agent name / TL / AM), plus
+    ``ticket_load_dates`` count + latest load_date (drives each ticket's date).
 
     Review time = BOTH tiers: Team Leader QC finalizes on its own and only writes
     ``tl_qc_reviewed_at`` — with ``reviewed_at`` (SPQ Head) alone a TL QC decision
@@ -1364,6 +1365,14 @@ def _stats_signature(db: Session) -> str:
         func.count(QcStatusRequest.id), func.max(QcStatusRequest.requested_at),
         func.max(QcStatusRequest.tl_qc_reviewed_at), func.max(QcStatusRequest.reviewed_at),
     ).one()
+    # ``ticket_load_dates`` (20 Oktober 2026): tanggal tiket Statistics = load_date
+    # App C terakhir, jadi baris baru dari sync menggeser tiket ke hari lain tanpa
+    # ada perubahan result. Sengaja count + max(load_date), BUKAN max(synced_at):
+    # upsert 30 menitan menaikkan synced_at setiap kali jalan walau isinya sama,
+    # sehingga snapshot akan gugur terus-menerus.
+    ld_count, ld_max = db.query(
+        func.count(), func.max(TicketLoadDate.load_date)
+    ).select_from(TicketLoadDate).one()
     sales = get_active_sales_database(db)
     sales_key = sales.object_path if sales else ""
     # Bump when the snapshot PAYLOAD SHAPE or COMPUTED VALUES change so old cached
@@ -1460,7 +1469,9 @@ def _stats_signature(db: Session) -> str:
     #      Failure Rate, AI Status per waktu, QC Productivity) pindah dari Tanggal
     #      Agree ke ``load_date`` App C TERAKHIR (20 Okt 2026), sama dengan Results;
     #      tiket tanpa baris App C tetap aturan lama. Snapshot bertanggal lama HARUS
-    #      gugur. Tenggat H+2 tetap Tanggal Agree.
+    #      gugur. Tenggat H+2 tetap Tanggal Agree. Sidik jari juga ikut
+    #      ``ticket_load_dates`` (count + max load_date) supaya load_date baru dari
+    #      sync langsung menggugurkan snapshot, sama cepatnya dengan Results.
     version = "v31"
     sla = "1" if get_doc_sla_enabled(db) else "0"
     # Sidik jari daftar tersembunyi. WAJIB ikut: tanpa ini snapshot yang sudah
@@ -1476,6 +1487,7 @@ def _stats_signature(db: Session) -> str:
         f"{version}|{res_count}|{res_up}|{res_done}|{rd_count}|{rd_max}"
         f"|{ap_count}|{ap_rev}|{ap_tl}|qs{qs_count}|{qs_req}|{qs_tl}|{qs_rev}"
         f"|{sales_key}|sla{sla}|hid{hidden_key}|col{collection_key}"
+        f"|ld{ld_count}|{ld_max}"
     )
 
 
