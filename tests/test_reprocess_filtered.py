@@ -102,7 +102,7 @@ def test_filter_manual_status_helper_sepakat_dengan_list_results(db, admin_user,
     assert _tickets_from_rows(rows) == _tickets_from_response(expected)
 
 
-def test_filter_tanggal_helper_sepakat_dengan_list_results(db, admin_user):
+def test_filter_tanggal_helper_sepakat_dengan_list_results(db, admin_user, ticket_load_dates_table):
     rows, _ = stats._resolve_filtered_results(
         db, admin_user, date_start="2026-08-01", date_end="2026-08-31", page=1, limit=100)
     expected = _call_list_results(db, admin_user, date_start="2026-08-01", date_end="2026-08-31")

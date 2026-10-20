@@ -19,6 +19,12 @@ from db.models import Result
 CAMPAIGN = "ZZ-TEST-LATEST-DATE"
 
 
+@pytest.fixture(autouse=True)
+def _tabel_load_date(db, ticket_load_dates_table):
+    """Ekspresi tanggal kini membaca ``ticket_load_dates`` (20 Okt 2026); tabelnya
+    belum ada di DB prod, jadi dibuat di dalam transaksi test."""
+
+
 def _mk(db, ticket: str, generated_at: datetime) -> Result:
     r = Result(
         id=uuid.uuid4(),

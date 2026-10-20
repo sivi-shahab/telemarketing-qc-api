@@ -476,6 +476,30 @@ def _series_date_expr(db: Session):
     )
 
 
+def _ticket_date_expr(db: Session):
+    """Tanggal tiket untuk filter Results = ``load_date`` App C TERAKHIR (20 Okt 2026).
+
+    Sebelumnya filter memakai Tanggal Agree (``_series_date_expr``), sehingga tiket
+    yang di-load App C tanggal 13 tapi Agree-nya lebih awal tidak muncul di rentang
+    load_date yang dipakai operator. Satu tiket bisa punya beberapa load_date
+    (``ticket_load_dates``); yang dipakai hanya yang TERBARU, jadi tiket masuk
+    rentang bila load terakhirnya ada di rentang.
+
+    Tiket tanpa baris di ``ticket_load_dates`` jatuh ke ``_series_date_expr``
+    (aturan lama) persis. ``ticket_id`` = prefix sebelum ``_`` pada file sumber
+    pertama, sama dengan ``customer_ids``. Subquery berkorelasi memakai PK
+    ``(ticket_id, load_date)``, jadi tetap satu index lookup per baris.
+    """
+    cid = func.split_part(Result.source_files[0].astext, "_", 1)
+    load_subq = (
+        db.query(func.max(TicketLoadDate.load_date))
+        .filter(TicketLoadDate.ticket_id == cid)
+        .correlate(Result)
+        .scalar_subquery()
+    )
+    return func.coalesce(load_subq, _series_date_expr(db))
+
+
 def latest_result_date(
     db: Session,
     campaigns: Optional[list[str]] = None,
@@ -499,7 +523,7 @@ def latest_result_date(
         return None
     if campaigns is not None and not campaigns:
         return None
-    q = hidden_ticket_filter(db.query(func.max(_series_date_expr(db))))
+    q = hidden_ticket_filter(db.query(func.max(_ticket_date_expr(db))))
     q = _apply_result_scope_filters(
         q,
         campaigns=campaigns,
@@ -619,18 +643,19 @@ def list_results(
             func.split_part(Result.source_files[0].astext, "_", 1).in_(customer_ids)
         )
     if date_start is not None or date_end is not None:
-        # Filter by the ticket's ``submit_time`` date (disbursement submission), same
-        # basis as the Statistics stacked chart.
+        # Filter by the ticket's date. Sejak 20 Oktober 2026 sumbernya ``load_date``
+        # App C TERAKHIR (``ticket_load_dates``); tiket tanpa baris di sana memakai
+        # aturan lama (Tanggal Agree = ``submit_time``, lalu generated_at/uploaded_at).
         #
-        # [FIX] Sumbernya SEKARANG snapshot ``reference_data.cashline.submit_time``
+        # [FIX lama] Sumbernya SEKARANG snapshot ``reference_data.cashline.submit_time``
         # di ``result_data.result_json``, BUKAN tabel ``tms_cashline`` yang sudah
         # tidak diisi lagi sejak reference data pindah ke DWH API. Subquery lama
         # tidak pernah error (hanya selalu NULL), jadi filter tanggal diam-diam
         # jatuh ke generated_at/uploaded_at dan tidak sejalan dengan grafik.
         #
         # Ekspresinya dibagi dengan ``latest_result_date`` — lihat
-        # ``_series_date_expr``.
-        series_date = _series_date_expr(db)
+        # ``_ticket_date_expr``.
+        series_date = _ticket_date_expr(db)
         if date_start is not None:
             q = q.filter(series_date >= date_start)
         if date_end is not None:

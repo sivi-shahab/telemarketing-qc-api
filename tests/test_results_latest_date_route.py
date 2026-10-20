@@ -21,7 +21,7 @@ CAMPAIGN = "ZZ-TEST-LATEST-ROUTE"
 
 
 @pytest.fixture()
-def seeded(db):
+def seeded(db, ticket_load_dates_table):
     for ticket, gen in (("ZZROUTEA", datetime(2026, 9, 10, 8, 0)),
                         ("ZZROUTEB", datetime(2026, 9, 17, 8, 0))):
         db.add(Result(
