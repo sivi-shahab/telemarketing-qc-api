@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Filter tanggal dan grafik per hari di Results & Stats memakai `load_date` App C (filter = salah satu load_date di rentang; tanggal tunggal = load_date terakhir), dengan aturan lama sebagai cadangan.
+**Goal:** Filter tanggal dan grafik per hari di Results & Stats memakai `load_date` App C (revisi 20 Okt: satu tiket = satu tanggal = `load_date` terakhir, dipakai untuk filter, grafik, tanggal default, Delete All, Reprocess), dengan aturan lama sebagai cadangan.
 
 **Architecture:** Tabel per-tiket baru `ticket_load_dates` diisi task beat worker dari App C `/tickets-daily` (+ backfill sekali jalan). `crud` (SQL, Results) dan `stats_aggregate` (Python, Stats) membaca tabel itu lewat helper bersama; tiket tanpa baris App C jatuh ke aturan lama. Batas H+2/Risk Base tetap Tanggal Agree.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Branch: `feat/filter-load-date` di api (sudah ada), worker, core — **dibuat dari `fix/results-vonis-per-tiket`** (sudah ter-deploy, belum merge ke main); dashboard dari `main`. PR feature baru dibuka setelah PR fix itu merge.
+- Branch: `feat/filter-load-date` di api (sudah ada; merge `main` dulu), worker, core, dashboard — dibuat dari `main`. PR `fix/results-vonis-per-tiket` (core #37, api #59, worker #42) sudah merge 20 Okt.
 - Core vendored: setiap perubahan `core/` di api disalin identik ke `telemarketing-qc-worker/core/` dan ke `telemarketing-qc-core/src/qc_core/` (impor disesuaikan bila beda).
 - Jangan sentuh `telemarketing-qc-system` (monolit beku) dan `/data/app_scheduler`.
 - Migration baru: `db/migrations/versions/0069_ticket_load_dates.py`, `down_revision = "0068"`.
@@ -66,24 +66,19 @@
 - Consumes: `TicketLoadDate` (Task 1).
 - Produces:
   - `crud._ticket_date_expr(db)` — SQL: `coalesce((SELECT max(load_date) FROM ticket_load_dates WHERE ticket_id = <cid>), _series_date_expr(db))`, `<cid>` = `func.split_part(Result.source_files[0].astext, "_", 1)` (sama dengan yang dipakai `customer_ids`).
-  - `crud._ticket_date_window(db, date_start, date_end, rule: str = "any")` → klausa boolean SQLAlchemy:
-    - `rule="any"`: `EXISTS(tld WHERE ticket_id=cid AND load_date ≥ start AND load_date ≤ end)` **OR** (`NOT EXISTS(tld WHERE ticket_id=cid)` AND `_series_date_expr` dalam rentang).
-    - `rule="latest"`: `_ticket_date_expr(db)` dalam rentang.
-    - Batas `None` = tak dibatasi di sisi itu.
-  - `list_results(..., date_rule: str = "any")` — blok `if date_start is not None or date_end is not None` memakai `_ticket_date_window(db, date_start, date_end, date_rule)`; nilai lain selain `"any"/"latest"` → `ValueError`.
+  - `list_results(...)` (signature tetap) — blok `if date_start is not None or date_end is not None` menyaring `_ticket_date_expr(db)` dalam rentang (batas `None` = tak dibatasi di sisi itu). `load_date` lama yang ada di rentang diabaikan bila `load_date` terakhir di luar.
   - `latest_result_date` memakai `func.max(_ticket_date_expr(db))`.
   - `collection_results_query` **tidak** diubah.
 
 - [ ] **Step 1: Write failing tests** (pakai pola `_mk` dari `test_latest_result_date.py`, campaign `ZZ-TEST-LOAD-DATE`, Result dengan `generated_at` jauh dari load_date):
   - `test_satu_load_date_dalam_rentang` — load 2026-10-13, generated 2026-09-01 → lolos filter 12–17.
-  - `test_multi_load_any_lolos` — load 10 & 15 Okt → lolos 12–17 (rule any).
-  - `test_multi_load_latest_di_luar` — load 14, 16, 19 Okt → lolos rule any 12–17, **tidak** lolos rule latest 12–17.
+  - `test_multi_load_terakhir_di_rentang_lolos` — load 10 & 15 Okt → lolos 12–17.
+  - `test_multi_load_terakhir_di_luar_tidak_lolos` — load 14, 16, 19 Okt → **tidak** lolos 12–17, lolos 18–19.
   - `test_tanpa_app_c_pakai_aturan_lama` — tanpa baris tld, generated 2026-10-14 → lolos 12–17; generated 2026-10-10 → tidak.
   - `test_batas_inklusif_dan_satu_sisi` — load 12 Okt lolos `[12,17]`, `[12,None]`, `[None,12]`.
   - `test_latest_result_date_pakai_load_terakhir` — load 10 & 18 Okt, generated 2026-10-05 → `date(2026,10,18)`.
-  - `test_date_rule_tidak_dikenal` — `pytest.raises(ValueError)`.
 - [ ] **Step 2: Run RUN-API both files** — Expected: FAIL.
-- [ ] **Step 3: Implement** `_ticket_date_expr`, `_ticket_date_window`, parameter `date_rule`, perubahan `latest_result_date`. Perbarui komentar blok filter (sumber kini load_date App C, cadangan aturan lama).
+- [ ] **Step 3: Implement** `_ticket_date_expr`, filter `list_results`, perubahan `latest_result_date`. Perbarui komentar blok filter (sumber kini load_date App C, cadangan aturan lama).
 - [ ] **Step 4: Run RUN-API both files + `tests/test_list_results_ticket_ids.py tests/test_list_results_no_n_plus_one.py`** — Expected: PASS.
 - [ ] **Step 5: Commit** — `feat(results): filter tanggal pakai load_date App C`
 
@@ -97,39 +92,38 @@
 **Interfaces:**
 - Consumes: `crud.load_dates_by_ticket` (Task 1).
 - Produces:
-  - `TicketDates = NamedTuple("TicketDates", [("loads", tuple[date, ...]), ("fallback", date | None)])` dengan method `single() -> date | None` (= `max(loads)` bila ada, else `fallback`) dan `in_window(start: date | None, end: date | None) -> bool` (ada load di rentang bila `loads` tak kosong; else `fallback` di rentang; `None` → False).
+  - `TicketDates = NamedTuple("TicketDates", [("loads", tuple[date, ...]), ("fallback", date | None)])` dengan method `single() -> date | None` (= `max(loads)` bila ada, else `fallback`) dan `in_window(start: date | None, end: date | None) -> bool` (= `single()` di rentang; `None` → False).
   - `_ticket_dates_map(db, results) -> dict[Result.id, TicketDates]` — `loads` dari `crud.load_dates_by_ticket` via `_customer_id(r.source_files)`; `fallback` = `_submit_date_map(...).get(r.id) or _series_date(r)`.
   - `ticket_date_windows(db, ticket_ids) -> dict[str, TicketDates]` — versi per ticket id (cadangan sama seperti `ticket_chart_dates` lama).
   - `ticket_chart_dates(db, ticket_ids) -> dict[str, date]` — signature tetap, nilainya kini `TicketDates.single()`.
 - Aturan pemakaian: semua blok `_in_window` → `td.in_window(date_start, date_end)`; `_chart_date` di timeseries (anchor & bucket) → `td.single()`; QC Productivity menyaring dengan `ticket_date_windows(...)[t].in_window(...)`.
 
 - [ ] **Step 1: Write failing tests:**
-  - `test_ticketdates_single_dan_window` — unit murni: `TicketDates((d10, d15), d01).single() == d15`; `.in_window(d12, d17)` True; `TicketDates((), d14).in_window(d12, d17)` True; `TicketDates((d14, d16, d19), None).single() == d19` dan `.in_window(d12, d17)` True.
-  - `test_failure_reasons_filter_any_load` — tiket done dengan load 15 Okt & submit 10 Okt masuk `compute_failure_reasons(date_start=12 Okt, date_end=17 Okt)`; tiket submit 15 Okt tanpa tld tetap masuk; tiket load 10 Okt saja tidak.
+  - `test_ticketdates_single_dan_window` — unit murni: `TicketDates((d10, d15), d01).single() == d15`; `.in_window(d12, d17)` True; `TicketDates((), d14).in_window(d12, d17)` True; `TicketDates((d14, d16, d19), None).single() == d19` dan `.in_window(d12, d17)` **False**.
+  - `test_failure_reasons_filter_load_terakhir` — tiket done dengan load 15 Okt & submit 10 Okt masuk `compute_failure_reasons(date_start=12 Okt, date_end=17 Okt)`; tiket submit 15 Okt tanpa tld tetap masuk; tiket load 10 Okt saja tidak; tiket load 14 & 19 Okt tidak.
   - `test_timeseries_bucket_load_terakhir` — tiket load 14 & 16 Okt muncul di bucket harian 16 Okt.
   - `test_submit_time_map_tidak_berubah` — tiket punya tld 15 Okt dan submit_time `2026-10-10 11:52:32` → `_submit_time_map` tetap `"2026-10-10 11:52:32"` (H+2 tetap Agree).
-  - `test_qc_productivity_filter_any_load` — tiket ter-assign dengan load 10 & 15 Okt dihitung di filter 12–17.
+  - `test_qc_productivity_filter_load_terakhir` — tiket ter-assign dengan load 10 & 15 Okt dihitung di filter 12–17; load 14 & 19 Okt tidak.
 - [ ] **Step 2: Run RUN-API** — Expected: FAIL.
 - [ ] **Step 3: Implement** helper & ganti pemakai; perbarui docstring yang menyebut "TMS submit_time" sebagai basis tanggal; naikkan versi snapshot ke `v31` dengan entri komentar.
 - [ ] **Step 4: Run RUN-API `tests/test_stats_load_date.py tests/test_hierarchy_failure_rate.py tests/test_stats_snapshot*.py`** (yang ada) — Expected: PASS.
 - [ ] **Step 5: Commit** — `feat(stats): tanggal filter & grafik pakai load_date App C (snapshot v31)`
 
-### Task 4: Delete All & Reprocess-by-filter pakai load_date terakhir
+### Task 4: Delete All & Reprocess-by-filter — pin aturan load_date terakhir
 
 **Files:**
-- Modify: `api/routers/stats.py` — `_resolve_filtered_results` (parameter baru diteruskan ke `crud.list_results`), `_tickets_for_filtered_delete`
-- Modify: `api/routers/reprocess.py` — `_plan_for_filtered`
+- Modify: `api/routers/stats.py` — hanya teks `description` Query dan docstring (logika diwarisi dari `crud.list_results`, Task 2)
+- Modify: `api/routers/reprocess.py` — docstring `_plan_for_filtered` saja
 - Test: `tests/test_delete_filtered.py` (tambah test)
 
 **Interfaces:**
-- Consumes: `crud.list_results(..., date_rule=...)` (Task 2).
-- Produces: `_resolve_filtered_results(..., date_rule: str = "any")`; `/list_results` tetap default `"any"`; `_tickets_for_filtered_delete` dan `_plan_for_filtered` memanggil dengan `date_rule="latest"`.
+- Consumes: `crud.list_results` (Task 2). Tidak ada parameter baru: tampilan, Delete All, dan Reprocess memakai aturan yang sama.
 
 - [ ] **Step 1: Write failing test** `test_delete_all_rentang_tidak_ambil_tiket_load_terakhir_di_luar` — tiket A load 14/16/19 Okt, tiket B load 15 Okt; preview Delete All filter 12–17 → hanya B. Tambah kembarannya untuk plan reproses (`test_reprocess_filter_pakai_load_terakhir`) di file test reproses yang sudah ada bila ada, kalau tidak di file yang sama.
-- [ ] **Step 2: Run RUN-API** — Expected: FAIL (A ikut).
-- [ ] **Step 3: Implement** parameter & dua pemanggil; perbarui teks `description` Query `date_start`/`date_end` di `api/routers/stats.py` menjadi "Tanggal load App C …"; tulis alasan di docstring masing-masing (penghapusan permanen tidak boleh mengambil tiket yang masih aktif dimuat di luar rentang).
+- [ ] **Step 2: Run RUN-API** — Expected: PASS bila Task 2 benar (test ini pin, bukan pemicu perubahan). Bila FAIL, perbaiki di Task 2, bukan di router.
+- [ ] **Step 3: Implement** perbarui teks `description` Query `date_start`/`date_end` di `api/routers/stats.py` menjadi "Tanggal load App C …"; tulis alasan di docstring masing-masing (penghapusan permanen tidak boleh mengambil tiket yang masih aktif dimuat di luar rentang).
 - [ ] **Step 4: Run RUN-API `tests/test_delete_filtered.py`** — Expected: PASS.
-- [ ] **Step 5: Commit** — `fix(delete,reprocess): filter tanggal pakai load_date terakhir`
+- [ ] **Step 5: Commit** — `test(delete,reprocess): pin filter tanggal load_date terakhir`
 
 ### Task 5: Sinkronisasi App C → `ticket_load_dates` (core + task worker + backfill)
 
@@ -165,7 +159,7 @@
 - Modify: `telemarketing-qc-worker/core/db/models.py`, `core/db/crud.py`, `core/compliance/stats_aggregate.py`, `core/services/load_date_sync.py` — identik dengan api.
 - Modify: `telemarketing-qc-core/src/qc_core/...` padanannya (+ test yang relevan dari Task 1–3, 5 disalin ke `telemarketing-qc-core/tests/`).
 
-- [ ] **Step 1:** `diff -r` api/core vs worker/core untuk file di atas → hanya perbedaan yang sudah ada sebelum branch ini (bandingkan dengan `git diff fix/results-vonis-per-tiket` di kedua repo).
+- [ ] **Step 1:** `diff -r` api/core vs worker/core untuk file di atas → hanya perbedaan yang sudah ada sebelum branch ini (bandingkan dengan `git diff main` di kedua repo).
 - [ ] **Step 2:** Run suite penuh: RUN-API (`tests/`), RUN-WORKER (`tests/`), core (`pip install ".[test]" && python -m pytest -q`) — Expected: semua PASS (catat test yang sudah gagal sebelum branch, buktikan dengan run di branch dasar).
 - [ ] **Step 3: Commit** di worker & core — `chore(core): sinkron filter load_date dari api`
 
@@ -185,6 +179,6 @@
 
 - [ ] **Step 1:** Di DB test terisolasi (bukan prod): `alembic upgrade head` → 0069; jalankan backfill `--from 2026-10-01`.
 - [ ] **Step 2:** E2E: rebuild bundle dashboard, lalu `./jalankan.sh` di `telemarketing-qc-api/e2e` — Expected: lulus.
-- [ ] **Step 3:** Verifikasi angka (setelah deploy ke prod oleh user, lewat endpoint HTTP — bukan script): ticket ID unik Results campaign CashLine 12–17 Okt = **330**, berisi 296 tiket daftar; 5 tiket `071114mH7F 070401utlJ 090803wMdP 100137zGl5 101257aSoz` tidak ada; Stats Failure Rate/hierarki & QC Productivity 12–17 konsisten dengan himpunan itu; total grafik harian ≤ 330. Bandingkan vonis per tiket (AI/Manual status) sebelum vs sesudah → identik.
+- [ ] **Step 3:** Verifikasi angka (setelah deploy ke prod oleh user, lewat endpoint HTTP — bukan script): ticket ID unik Results campaign CashLine 12–17 Okt ≤ **330** (330 = aturan lama "salah satu"; catat angka persisnya), berisi 295 tiket daftar; `141248zgZn` (muncul di 19 Okt) dan 5 tiket `071114mH7F 070401utlJ 090803wMdP 100137zGl5 101257aSoz` tidak ada; Stats Failure Rate/hierarki & QC Productivity 12–17 konsisten dengan himpunan itu; total grafik harian = jumlah ticket ID unik tabel (satu tiket satu tanggal). Bandingkan vonis per tiket (AI/Manual status) sebelum vs sesudah → identik.
 - [ ] **Step 4:** Tulis catatan deploy di PR: urutan migration 0069 → backfill → image api/worker/dashboard; tag `pre-filter-load-date`; **kube worker 10.158.3.13 harus di-update bersamaan atau task snapshot-nya dimatikan — tanyakan user sebelum deploy**; ikuti memori "Deploy: build cand, diff freeze, smoke, retag" dan cek `git status` sebelum build.
-- [ ] **Step 5:** Buka PR (api, worker, core, dashboard) setelah PR `fix/results-vonis-per-tiket` merge. Deploy **tidak** dilakukan tanpa persetujuan eksplisit user.
+- [ ] **Step 5:** Buka PR (api, worker, core, dashboard). Deploy **tidak** dilakukan tanpa persetujuan eksplisit user.

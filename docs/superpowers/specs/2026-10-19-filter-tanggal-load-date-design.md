@@ -1,6 +1,6 @@
 # Filter Tanggal Results & Stats pakai `load_date` App C — Design
 
-Tanggal: 2026-10-19 · Status: disetujui user 2026-10-19
+Tanggal: 2026-10-19 · Status: disetujui user 2026-10-19 · revisi 2026-10-20 (load_date terakhir)
 
 ## 1. Tujuan
 
@@ -13,11 +13,12 @@ Kasus pemicu (laporan 19 Okt): daftar lead 12–17 Okt berisi 301 tiket; Stats
 12–17 menunjukkan 297. Selisih itu bukan tiket hilang: 30 tiket Agree-nya
 1–10 Okt tapi dimuat App C di 12–17, dan 26 tiket Agree 17 Okt belum ada di
 daftar. Dengan acuan `load_date` App C, 296 dari 301 cocok (5 sisanya dimuat
-App C 10 Okt — data di luar periode, diterima user).
+App C 10 Okt — data di luar periode, diterima user). Dengan aturan revisi
+20 Okt (`load_date` terakhir) menjadi 295: `141248zgZn` (load 14/16/19 Okt) pindah ke 19 Okt.
 
 Setelah perubahan ini, filter 12–17 Okt di Results **dan** Stats memberi
 himpunan tiket yang sama dengan report `Report_Lead_301_12-17Okt2026.xlsx`
-(296 tiket CashLine dari daftar + tiket App C lain yang dimuat di periode itu).
+(295 tiket CashLine dari daftar + tiket App C lain yang `load_date` terakhirnya di periode itu).
 
 ### Keputusan user (2026-10-19)
 
@@ -25,14 +26,13 @@ himpunan tiket yang sama dengan report `Report_Lead_301_12-17Okt2026.xlsx`
 |---|---|
 | Acuan tanggal | `load_date` App C, menggantikan Tanggal Agree |
 | Cakupan | Results **dan** Stats (keduanya harus tetap sama angkanya) |
-| Tiket dimuat lebih dari sekali | **Filter:** tiket masuk bila **salah satu** `load_date`-nya ada di rentang (sama dengan report, 296) |
-| Tanggal tunggal tiket (grafik per hari, tanggal default menu Results) | `load_date` **terakhir** |
-| Delete All & Reprocess berdasarkan filter | Pakai `load_date` **terakhir** saja (bukan "salah satu"), supaya tiket yang dimuat ulang di luar rentang tidak ikut terhapus/diproses |
+| Tiket dimuat lebih dari sekali | **Revisi 2026-10-20:** bila tiket punya beberapa `load_date` berbeda, yang dipakai **hanya `load_date` terakhir** — untuk filter, grafik per hari, tanggal default Results, Delete All, dan Reprocess. (Keputusan 19 Okt "salah satu `load_date` di rentang" untuk filter dibatalkan.) |
 
-Konsekuensi yang sudah dijelaskan ke user dan diterima: tiket yang dimuat ulang
-di luar rentang (contoh `141248zgZn`, load 14/16/19 Okt) ikut di filter 12–17,
-tapi tercatat di tanggal 19 Okt pada grafik per hari — total grafik untuk
-rentang bisa sedikit lebih kecil dari jumlah baris tabel. Saat ini 91 dari
+Konsekuensi: satu tiket selalu punya tepat satu tanggal, jadi filter, tabel,
+grafik per hari, Delete All, dan Reprocess selalu konsisten. Tiket yang dimuat
+ulang setelah rentang (contoh `141248zgZn`, load 14/16/19 Okt) **tidak** masuk
+filter 12–17; ia pindah ke 19 Okt. Dari daftar 301, 24 tiket dimuat lebih dari
+sekali dan hanya `141248zgZn` yang bergeser (296 → 295). Saat ini 91 dari
 5.164 tiket App C pernah dimuat lebih dari sekali.
 
 ## 2. Di luar cakupan
@@ -56,9 +56,10 @@ Untuk satu tiket (`ticket_id` = prefix sebelum `_` dari source file pertama,
 sama dengan `_customer_id()` / `QcAssignment.ticket_id`):
 
 - `load_dates(t)` = himpunan `load_date` semua baris App C dengan `id == t`.
-- **Masuk filter `[start, end]`** bila ada `d ∈ load_dates(t)` dengan
-  `start ≤ d ≤ end` (batas inklusif, salah satu boleh kosong).
-- **Tanggal tunggal** = `max(load_dates(t))`.
+- **Tanggal tiket** = `max(load_dates(t))` (`load_date` terakhir).
+- **Masuk filter `[start, end]`** bila `start ≤ max(load_dates(t)) ≤ end`
+  (batas inklusif, salah satu boleh kosong). `load_date` yang lebih awal
+  diabaikan sepenuhnya.
 - **Cadangan** bila `load_dates(t)` kosong (upload manual, Megapay PDF lama,
   campaign di luar App C, tiket yang belum tersinkron): pakai aturan lama
   persis — Tanggal Agree → `generated_at` → tanggal WIB `uploaded_at`
@@ -108,23 +109,21 @@ salinan dan ke `qc_core`.
 
 - **Results** — `crud.list_results` (+ varian di sekitarnya yang memakai
   `_series_date_expr`, baris ±565–780) dan `crud.latest_result_date`:
-  - filter: `EXISTS (ticket_load_dates WHERE ticket_id = cid AND load_date
-    BETWEEN …)` **ATAU** (tiket tanpa baris `ticket_load_dates` DAN ekspresi
-    cadangan lama di rentang).
-  - `latest_result_date`: maksimum dari tanggal tunggal baru (max load_date,
-    cadangan bila kosong) — tanggal default menu Results.
+  - filter: `coalesce((SELECT max(load_date) FROM ticket_load_dates WHERE
+    ticket_id = cid), <ekspresi cadangan lama>) BETWEEN …`.
+  - `latest_result_date`: maksimum dari tanggal tiket yang sama — tanggal
+    default menu Results.
 - **Stats** — semua tempat yang menaruh tiket di tanggal atau menyaring per
   tanggal: `_submit_date_map`, `_submit_time_map` (bagian tanggal),
   `ticket_chart_dates`, dan pemanggil `chart_dates.get(r.id) or _series_date(r)`
   (baris ±1467, ±1819, ±2548, ±2746, ±3401). Aturannya:
-  - filter rentang = aturan "salah satu load_date" §3;
-  - posisi di grafik per hari = tanggal tunggal (max load_date) §3.
+  - filter rentang dan posisi di grafik per hari memakai tanggal tiket yang
+    sama (max load_date) §3.
 - **Delete All & Reprocess-by-filter** (`_tickets_for_filtered_delete` di
   `api/routers/stats.py`, `reprocess._plan_for_filtered`): saat ini lewat
-  `_resolve_filtered_results` → `crud.list_results`. Keduanya harus memakai
-  aturan **max(load_date) di rentang** (cadangan lama untuk tiket tanpa App C),
-  bukan aturan "salah satu". Butuh parameter/mode eksplisit di `list_results`
-  (default = aturan "salah satu" untuk tampilan) — jangan diwarisi diam-diam.
+  `_resolve_filtered_results` → `crud.list_results`. Karena aturannya kini
+  sama dengan tampilan (max load_date), keduanya cukup mewarisi filter
+  `list_results` — tidak perlu parameter/mode terpisah.
 - **Snapshot Stats**: tanda tangan/versi snapshot dinaikkan (perubahan in-place
   harus bump versi supaya snapshot lama tidak dipakai).
 - QC Productivity (`crud` ±3253–3320, via `ticket_chart_dates`) otomatis ikut.
@@ -148,14 +147,16 @@ salinan dan ke `qc_core`.
 
 ## 6. Verifikasi
 
-- Unit test aturan §3: tiket satu load, multi-load (filter any, tanggal max),
+- Unit test aturan §3: tiket satu load, multi-load (filter dan tanggal = max; load lama di rentang tapi load terakhir di luar → tidak masuk),
   tiket tanpa App C (cadangan), batas inklusif, rentang terbuka satu sisi.
 - Uji vonis: snapshot vonis (AI/Manual status per tiket) sebelum dan sesudah
   harus identik — perubahan ini hanya memindahkan tanggal.
 - Uji terhadap data nyata setelah backfill, dihitung sebagai **ticket ID unik**
   (Results menghitung baris result; salinan JOB-3 membuat baris > tiket):
   jalur filter Stats (Failure Rate/hierarki, QC Productivity, export per tiket)
-  dan ticket ID unik Results untuk 12–17 Okt, campaign CashLine → **330 tiket**, termasuk 296 dari daftar 301; 5 tiket
+  dan ticket ID unik Results untuk 12–17 Okt, campaign CashLine → **≤ 330 tiket** (330 = hitungan aturan lama "salah satu"; angka
+  persis dihitung ulang setelah backfill), termasuk 295 dari daftar 301; `141248zgZn`
+  dan 5 tiket
   load 10 Okt (`071114mH7F`, `070401utlJ`, `090803wMdP`, `100137zGl5`,
   `101257aSoz`) tidak masuk. Angka Results = Stats untuk rentang yang sama.
 - Verifikasi angka Stats lewat endpoint HTTP, bukan script (sakelar SLA H+2
