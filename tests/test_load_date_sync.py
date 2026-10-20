@@ -80,3 +80,21 @@ def test_truncated_diberi_peringatan(db, monkeypatch, caplog):
 def test_recent_dates():
     assert load_date_sync.recent_dates(date(2026, 10, 19), 3) == [
         date(2026, 10, 16), date(2026, 10, 17), date(2026, 10, 18), date(2026, 10, 19)]
+
+
+def test_satu_tanggal_rusak_tidak_menghentikan_yang_lain(db, monkeypatch):
+    ok1, ok2 = _tid(), _tid()
+    d1, d2, d3 = date(2026, 10, 17), date(2026, 10, 18), date(2026, 10, 19)
+
+    def fake(**kw):
+        if kw["load_date"] == "2026-10-17":  # tanggal tertua: load_date rusak
+            return _page([{"id": _tid(), "load_date": "bukan-tanggal"}])
+        return _page([{"id": ok1 if kw["load_date"] == "2026-10-18" else ok2,
+                       "load_date": kw["load_date"]}])
+
+    monkeypatch.setattr(tickets_daily, "fetch_all", fake)
+    result = load_date_sync.sync_dates(db, [d1, d2, d3])
+    assert result == {d2: 1, d3: 1}
+    assert d1 not in result
+    assert list(result) == [d3, d2]  # terbaru dulu
+    assert crud.load_dates_by_ticket(db, [ok1, ok2]) == {ok1: [d2], ok2: [d3]}
