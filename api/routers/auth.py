@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -18,6 +19,7 @@ from api.rbac import require, require_any
 from api.schemas.auth import (
     AccessTokenResponse,
     MeResponse,
+    UserChangeEventItem,
     UserListItem,
     UserUpdate,
     RefreshRequest,
@@ -124,7 +126,7 @@ def create_user(
 
 def _can_manage_all_users(db: Session, user) -> bool:
     """Pemegang ADMIN_USER_WRITE (Admin) mengelola semua user. Tanpanya — Team
-    Leader QC lewat QC_USER_ACTIVE_WRITE — hanya QC Telemarketing yang terjangkau."""
+    Leader QC lewat QC_USER_ACTIVE_WRITE / QC_USER_EDIT — hanya QC Telemarketing yang terjangkau."""
     from api.rbac import has_perm
 
     return has_perm(db, user, ADMIN_USER_WRITE)
@@ -165,9 +167,9 @@ def list_users(
 ):
     """List users, newest first, plus campaign efektif tiap user.
 
-    Admin melihat semua user. Pemegang QC_USER_ACTIVE_WRITE saja (Team Leader QC,
-    menu Kelola QC) hanya melihat QC Telemarketing — yang memang bisa ia
-    aktifkan/nonaktifkan.
+    Admin melihat semua user. Pemegang QC_USER_ACTIVE_WRITE / QC_USER_EDIT tanpa
+    ADMIN_USER_WRITE (Team Leader QC, menu Kelola QC) hanya melihat QC Telemarketing
+    — yang memang bisa ia aktifkan/nonaktifkan dan edit.
 
     Campaign dihitung per user lewat ``effective_campaigns_for``; untuk sisi sales itu
     berarti sekali pencarian ke peta roster, yang sudah di-cache per berkas aktif —
@@ -186,6 +188,45 @@ def list_users(
         if not manage_all and not _is_telemarketing_qc(db, u, campaigns):
             continue
         out.append(_user_list_item(db, u, campaigns))
+    return out
+
+
+@router.get("/users/history", response_model=list[UserChangeEventItem])
+def user_change_history(
+    user_id: Optional[int] = None,
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_any(ADMIN_USER_WRITE, QC_USER_EDIT)),
+):
+    """Riwayat perubahan user (Edit User), terbaru dulu.
+
+    Admin melihat semuanya. Tanpa ADMIN_USER_WRITE (Team Leader QC) hanya event
+    milik user yang SAAT INI QC Telemarketing; cakupan disaring sebelum ``limit``
+    supaya TL QC tetap mendapat sampai ``limit`` baris yang terjangkau.
+    ``user_id`` menyaring ke satu user. Harus dideklarasikan sebelum route
+    ber-``{user_id}``.
+    """
+    query = db.query(UserChangeEvent)
+    if user_id is not None:
+        query = query.filter(UserChangeEvent.user_id == user_id)
+    if not _can_manage_all_users(db, current_user):
+        qcs = db.query(User).filter(User.role == "qc").all()
+        allowed = [u.id for u in qcs if _is_telemarketing_qc(db, u)]
+        query = query.filter(UserChangeEvent.user_id.in_(allowed))
+    events = (
+        query.order_by(UserChangeEvent.created_at.desc(), UserChangeEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    ids = {e.user_id for e in events if e.user_id is not None}
+    names = {}
+    if ids:
+        names = {u.id: u.name for u in db.query(User).filter(User.id.in_(ids)).all()}
+    out = []
+    for e in events:
+        item = UserChangeEventItem.model_validate(e)
+        item.target_name = names.get(e.user_id)
+        out.append(item)
     return out
 
 

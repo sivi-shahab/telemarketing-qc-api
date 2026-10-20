@@ -250,3 +250,12 @@ def test_permission_qc_user_edit_di_default_tl_qc():
     assert P.QC_USER_EDIT not in P.DEFAULT_ROLES["qc"]["permissions"]
     assert P.QC_USER_EDIT in P.ALL_PERMISSIONS
     assert P.QC_USER_EDIT not in P.ADMIN_ONLY_PERMISSIONS
+
+
+def test_tl_qc_collection_kehilangan_edit_user():
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES["team_leader_qc"]["permissions"]), ["Collection"], COLLECTION)
+    assert P.QC_USER_EDIT not in out
+    out = rbac.collection_adjusted_permissions(
+        set(P.DEFAULT_ROLES["team_leader_qc"]["permissions"]), ["Telemarketing", "Cashline"], COLLECTION)
+    assert P.QC_USER_EDIT in out

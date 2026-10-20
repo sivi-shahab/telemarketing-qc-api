@@ -94,6 +94,23 @@ class UserListItem(UserResponse):
     campaign_from_roster: bool = False
 
 
+class UserChangeEventItem(BaseModel):
+    """Satu baris riwayat perubahan user (Edit User). ``target_name`` = nama user
+    SAAT INI bila masih ada. Password tidak pernah membawa nilai (old/new = None)."""
+    id: int
+    user_id: Optional[int] = None
+    target_username: str
+    target_name: Optional[str] = None
+    field: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    actor_username: Optional[str] = None
+    actor_role: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class MeResponse(UserResponse):
     """``/auth/me`` — profil PLUS hak akses yang menggerakkan menu di dashboard.
 
