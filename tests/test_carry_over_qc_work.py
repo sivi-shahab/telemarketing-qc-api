@@ -1,9 +1,13 @@
-"""Reproses retry data acuan membawa pekerjaan QC ke row baru (19 Oktober 2026).
+"""Reproses membawa pekerjaan QC ke row baru (19 Oktober 2026; banding sejak 21 Oktober).
 
 Kasus 130309XxVf: tiket yang belum pernah dinilai LLM punya pengajuan Manual Status
 PASS di 3 dari 7 row duplikat JOB-3. Retry mereproses tiketnya, row lama dihapus, dan
 pengajuan itu ikut hilang lewat ON DELETE CASCADE. ``crud.carry_over_qc_work`` kini
 memindahkannya lebih dulu.
+
+21 Oktober 2026: SEMUA reproses (retry, tombol Reprocess, Reprocess All Ticket)
+hanya mengganti hasil AI — banding error code ikut dibawa, termasuk yang error
+code-nya tidak muncul lagi di evaluasi baru (tetap tersimpan, tanpa efek skor).
 
 Baris test memakai tahun 2000 dan id acak; transaksi selalu di-rollback.
 """
@@ -25,7 +29,8 @@ def _row(db, tid):
 
 def _setup(db):
     """3 row lama (salinan JOB-3) dengan pekerjaan QC kembar + 1 row baru."""
-    from db.models import Document, QcManualCheck, QcStatusEvent, QcStatusRequest
+    from db.models import (Document, ErrorCodeAppeal, QcManualCheck, QcStatusEvent,
+                           QcStatusRequest)
 
     tid = uuid.uuid4().hex[:10]
     olds = [_row(db, tid) for _ in range(3)]
@@ -38,19 +43,29 @@ def _setup(db):
                              requested_status="PASS", created_at=T0))
         db.add(QcManualCheck(result_id=r.id, checked_by_username="qc1", created_at=T0))
         db.add(Document(result_id=r.id, doc_type="ktp", object_path="docs/ktp.jpg"))
+        # Banding yang sama tersalin ke tiap row duplikat (clone_result_from).
+        db.add(ErrorCodeAppeal(result_id=r.id, error_code="B02", item_code="SC_CL_01",
+                               qc_reason="sudah disebut", requested_by_username="qc1",
+                               requested_at=T0))
+    # Banding kedua hanya ada di row lama pertama.
+    db.add(ErrorCodeAppeal(result_id=olds[0].id, error_code="B17", item_code="SC_CL_09",
+                           qc_reason="nama sesuai", requested_by_username="qc1",
+                           requested_at=T0 + timedelta(minutes=5)))
     db.flush()
     return olds, new
 
 
 def test_pekerjaan_qc_dibawa_tanpa_berlipat(db):
     from db import crud
-    from db.models import Document, QcManualCheck, QcStatusEvent, QcStatusRequest
+    from db.models import (Document, ErrorCodeAppeal, QcManualCheck, QcStatusEvent,
+                           QcStatusRequest)
 
     olds, new = _setup(db)
 
     moved = crud.carry_over_qc_work(db, [str(r.id) for r in olds + [new]], str(new.id))
 
-    assert moved == {"status_request": 1, "status_events": 1, "manual_checks": 1, "documents": 1}
+    assert moved == {"status_request": 1, "status_events": 1, "manual_checks": 1,
+                     "documents": 1, "appeals": 2}
     req = db.query(QcStatusRequest).filter(QcStatusRequest.result_id == new.id).one()
     assert (req.requested_status, req.reason) == ("PASS", "alasan 2")  # yang terbaru
     for model in (QcStatusEvent, QcManualCheck, Document):
@@ -60,6 +75,9 @@ def test_pekerjaan_qc_dibawa_tanpa_berlipat(db):
     crud.delete_results_by_ids(db, [str(r.id) for r in olds])
     assert db.query(QcStatusRequest).filter(QcStatusRequest.result_id == new.id).count() == 1
     assert db.query(QcStatusEvent).filter(QcStatusEvent.result_id == new.id).count() == 1
+    codes = sorted(a.error_code for a in
+                   db.query(ErrorCodeAppeal).filter(ErrorCodeAppeal.result_id == new.id))
+    assert codes == ["B02", "B17"]
 
 
 def test_pengajuan_row_baru_tidak_ditimpa(db):
@@ -82,4 +100,5 @@ def test_tanpa_row_lama_tidak_ada_yang_dipindah(db):
 
     _olds, new = _setup(db)
     assert crud.carry_over_qc_work(db, [], str(new.id)) == {
-        "status_request": 0, "status_events": 0, "manual_checks": 0, "documents": 0}
+        "status_request": 0, "status_events": 0, "manual_checks": 0, "documents": 0,
+        "appeals": 0}
