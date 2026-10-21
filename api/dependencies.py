@@ -201,6 +201,9 @@ def new_session() -> Session:
     if _engine is None:
         _engine = _make_engine(get_settings())
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+        # Commit yang mengubah vonis/dokumen memicu hitung ulang Statistics segera.
+        from api import stats_refresh
+        stats_refresh.install()
     return _SessionLocal()
 
 
