@@ -66,3 +66,25 @@ def test_signature_berubah_saat_tl_qc_memutus_banding(db):
     ap.tl_qc_reviewed_at = _later()
     db.flush()
     assert crud._stats_signature(db) != before
+
+
+def test_signature_berubah_saat_dokumen_diunggah_dan_selesai_diproses(db):
+    """21 Oktober 2026: dokumen pendukung menentukan PENDING "Menunggu dokumen" vs
+    status akhirnya, tetapi tidak ikut sidik jari — unggahan dokumen tidak
+    menggeser Statistics sampai kebetulan ada data lain yang berubah."""
+    from db.models import Document
+
+    r = _result(db)
+    before = crud._stats_signature(db)
+
+    doc = Document(result_id=r.id, doc_type="ktp", object_path=f"docs/{r.id}/ktp.jpg",
+                   created_at=_later())
+    db.add(doc)
+    db.flush()
+    diunggah = crud._stats_signature(db)
+    assert diunggah != before
+
+    doc.status = "done"
+    doc.completed_at = _later() + timedelta(hours=1)
+    db.flush()
+    assert crud._stats_signature(db) != diunggah
