@@ -19,7 +19,7 @@ from typing import Dict, Optional
 import boto3
 import botocore.httpsession as _httpsession
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,20 @@ class MultiBucketS3Client:
         params = {"Bucket": bucket_name, "Key": object_name, "Body": body}
         if content_type:
             params["ContentType"] = content_type
-        return self._client_for(bucket_name).put_object(**params)
+        try:
+            return self._client_for(bucket_name).put_object(**params)
+        except ClientError as exc:
+            # Ditolak server S3 (AccessDenied, NoSuchBucket, kredensial salah, ...).
+            err = exc.response.get("Error", {})
+            logger.error("[s3] PutObject gagal — bucket=%s key=%s code=%s msg=%s",
+                         bucket_name, object_name,
+                         err.get("Code"), err.get("Message"))
+            raise
+        except BotoCoreError as exc:
+            # Gagal sebelum ada respons server: koneksi, timeout, SSLError, dst.
+            logger.error("[s3] PutObject gagal — bucket=%s key=%s error=%s: %s",
+                         bucket_name, object_name, type(exc).__name__, exc)
+            raise
 
     def copy_object(self, bucket_name, object_name, source, **kwargs):
         src = {"Bucket": getattr(source, "bucket_name", bucket_name),
