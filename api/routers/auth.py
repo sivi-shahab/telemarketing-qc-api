@@ -429,6 +429,14 @@ def set_user_active(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User tidak ditemukan",
         )
+    # Sejak 22 Oktober 2026 Admin bisa menonaktifkan semua role dari Manage User,
+    # kecuali role admin — supaya selalu ada akun yang bisa mengaktifkan kembali.
+    # Admin yang terlanjur nonaktif tetap boleh diaktifkan.
+    if not is_active and user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Akun Admin tidak dapat dinonaktifkan",
+        )
     # Waktu nonaktif dicatat saat pindah aktif -> nonaktif (bukan saat dinonaktifkan
     # ulang), supaya batch auto assign membagi ulang tiket hari ini milik QC ini di
     # slot berikutnya (19 Oktober 2026, ``qc_auto_assign.reassign_from_inactive``).

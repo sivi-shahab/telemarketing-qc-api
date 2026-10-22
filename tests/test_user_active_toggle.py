@@ -219,3 +219,27 @@ def test_aktifkan_menghapus_batas(tl_qc):
     db = _Session(u)
     set_user_active(7, True, db=db, current_user=SimpleNamespace(id=1))
     assert db.user.is_active is True and db.user.inactive_until is None
+
+
+# --------------------------------------------------------------------------
+# Semua role bisa dinonaktifkan Admin, kecuali role admin (22 Oktober 2026)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("role", ["spq_head", "team_leader_qc", "sales", "demo"])
+def test_admin_bisa_nonaktifkan_role_selain_qc(role):
+    db = _Session(_user(7, role=role))
+    out = set_user_active(7, False, db=db, current_user=SimpleNamespace(id=1))
+    assert out.is_active is False and db.commits == 1
+
+
+def test_role_admin_tidak_bisa_dinonaktifkan():
+    db = _Session(_user(7, role="admin"))
+    with pytest.raises(HTTPException) as exc:
+        set_user_active(7, False, db=db, current_user=SimpleNamespace(id=1))
+    assert exc.value.status_code == 400
+    assert db.user.is_active is True and db.commits == 0
+
+
+def test_role_admin_yang_terlanjur_nonaktif_bisa_diaktifkan():
+    db = _Session(_user(7, active=False, role="admin"))
+    assert set_user_active(7, True, db=db, current_user=SimpleNamespace(id=1)).is_active is True
