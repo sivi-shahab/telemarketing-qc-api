@@ -88,3 +88,33 @@ def test_export_tiket_satu_baris_per_tiket_dengan_tanggal_submit(db):
     assert ("tanggal_submit", "Tanggal Submit") in data["columns"]
     got = [(r["ticket_id"], r["tanggal_submit"]) for r in data["rows"]]
     assert got == [("ZZTS6", "2026-10-20 12:32:26"), ("ZZTS7", "2026-10-21 09:24:48")]
+
+
+def test_export_tiket_pengajuan_ulang_pakai_tanggal_baris_yang_lolos_filter(db):
+    """120559Qt9N (26 Okt 2026): clone 16 Okt ber-snapshot submit 16 Okt, clone
+    21 Okt ber-snapshot 21 Okt. Rentang 20-22 hanya meloloskan clone baru; kolom
+    Tanggal Submit harus tanggal clone itu, bukan nilai per tiket dari clone lama."""
+    from compliance.stats_aggregate import compute_ticket_export
+
+    _mk(db, "ZZTS8", "2026-10-16 16:36:03", status="pending",
+        uploaded_at=datetime(2026, 10, 16, 12, 0))
+    _mk(db, "ZZTS8", "2026-10-21 07:57:48", status="pending",
+        uploaded_at=datetime(2026, 10, 21, 8, 0))
+    rows, _ = crud.list_results(db, campaigns=[CAMPAIGN], date_start=date(2026, 10, 20),
+                                date_end=date(2026, 10, 22), page=1, limit=50)
+    assert len(rows) == 1
+    data = compute_ticket_export(db, rows)
+    assert [(r["ticket_id"], r["tanggal_submit"]) for r in data["rows"]] == [
+        ("ZZTS8", "2026-10-21 07:57:48")]
+
+
+def test_filter_ticket_date_sama_dengan_list_results(db):
+    """Export agregat menyaring lewat helper yang sama dengan ``list_results``."""
+    from db.models import Result as R
+
+    _mk(db, "ZZTS9", "2026-10-20 10:00:00")
+    _mk(db, "ZZTSA", "2026-10-25 10:00:00")
+    q = db.query(R).filter(R.campaign == CAMPAIGN)
+    got = {r.source_files[0][:5] for r in crud.filter_ticket_date(
+        db, q, date(2026, 10, 20), date(2026, 10, 22)).all()}
+    assert got == {"ZZTS9"}
