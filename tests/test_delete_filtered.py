@@ -243,38 +243,43 @@ def test_crud_menghitung_baris_untuk_banyak_tiket(db):
 
 
 # --------------------------------------------------------------------------
-# Aturan tanggal: load_date App C TERAKHIR (20 Oktober 2026)
+# Aturan tanggal: Tanggal Submit (submit_time), bukan load_date App C (26 Okt 2026)
 # --------------------------------------------------------------------------
 
 _LD_CAMPAIGN = "ZZ-TEST-LOAD-DATE"
 
 
 def _mk_load_date_tickets(db):
-    """Tiket A dimuat 14/16/19 Okt (terakhir 19), tiket B dimuat 15 Okt.
-    ``generated_at`` sengaja jauh dari semuanya supaya yang terbaca load_date."""
+    """Tiket A: submit 9 Okt, dimuat 14/16 Okt. Tiket B: submit 13 Okt, dimuat 19 Okt.
+    Aturan lama (load_date terakhir) memilih A untuk rentang 12-17 Okt; aturan
+    Tanggal Submit memilih B. ``generated_at`` jauh dari semuanya."""
     from datetime import date, datetime
 
     from db import crud
-    from db.models import Result
+    from db.models import Result, ResultData
 
-    for tid in ("ZZLD-A", "ZZLD-B"):
-        db.add(Result(
+    for tid, submit in (("ZZLD-A", "2026-10-09 10:00:00"), ("ZZLD-B", "2026-10-13 10:00:00")):
+        r = Result(
             id=uuid.uuid4(), campaign=_LD_CAMPAIGN,
             source_files=[f"{tid}_20260101120000.pdf"], status="done",
             generated_at=datetime(2026, 9, 1, 8, 0),
             uploaded_at=datetime(2020, 1, 1, 0, 0, 0),
-        ))
+        )
+        db.add(r)
+        db.flush()
+        db.add(ResultData(result_id=r.id, result_json={
+            "reference_data": {"cashline": {"submit_time": submit}}}))
     crud.upsert_ticket_load_dates(
         db,
-        [("ZZLD-A", date(2026, 10, d), "X") for d in (14, 16, 19)]
-        + [("ZZLD-B", date(2026, 10, 15), "X")],
+        [("ZZLD-A", date(2026, 10, d), "X") for d in (14, 16)]
+        + [("ZZLD-B", date(2026, 10, 19), "X")],
     )
     db.flush()
 
 
-def test_delete_all_rentang_tidak_ambil_tiket_load_terakhir_di_luar(db, admin_user):
-    """Penghapusan permanen tidak boleh menyentuh tiket yang load terakhirnya
-    (19 Okt) di luar rentang, walau load lamanya (14/16 Okt) ada di dalam."""
+def test_delete_all_rentang_pakai_tanggal_submit(db, admin_user):
+    """Penghapusan permanen mengambil tiket yang Tanggal Submit-nya di rentang —
+    persis yang terlihat di Results — apa pun load_date App C-nya."""
     _clear_running_jobs(db)
     _mk_load_date_tickets(db)
     tids, _skipped, _camps = stats._tickets_for_filtered_delete(

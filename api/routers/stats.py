@@ -741,8 +741,8 @@ def list_results(
     qc_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets assigned to this QC (NIP)"),
     qc_support_username: Optional[str] = Query(None, description="Team Leader QC filter: tickets uploaded by this QC Support (NIP)"),
     ticket_ids: Optional[str] = Query(None, description="Ticket id dipisah koma — batasi ke ticket TERTENTU (menu Assign Ticket). Kosong = tidak ada id yang diminta, BUKAN tanpa batas"),
-    date_start: Optional[str] = Query(None, description="Tanggal load App C (load terakhir tiket), batas bawah YYYY-MM-DD, inklusif"),
-    date_end: Optional[str] = Query(None, description="Tanggal load App C (load terakhir tiket), batas atas YYYY-MM-DD, inklusif"),
+    date_start: Optional[str] = Query(None, description="Tanggal Submit (submit_time TMS), batas bawah YYYY-MM-DD, inklusif"),
+    date_end: Optional[str] = Query(None, description="Tanggal Submit (submit_time TMS), batas atas YYYY-MM-DD, inklusif"),
     banding_pending: bool = Query(False, description="Keep only tickets with an appeal awaiting the caller's review tier"),
     manual_status_pending: bool = Query(False, description="Pending Check menu: keep only tickets with a Manual Status request awaiting the caller's review tier (TL QC / SPQ Head)"),
     page: int = Query(1, ge=1),
@@ -2346,11 +2346,16 @@ def export_result_xlsx(
 def export_verification_xlsx(
     category: str = Query(..., description="verifikasi_statik | verifikasi_dinamik | cashline_verification | cardholder_verification | fase:<nama fase percakapan>"),
     campaign: Optional[str] = Query(None, description="Batasi ke satu campaign"),
+    date_start: Optional[str] = Query(None, description="Tanggal Submit, batas bawah YYYY-MM-DD, inklusif (= filter Results)"),
+    date_end: Optional[str] = Query(None, description="Tanggal Submit, batas atas YYYY-MM-DD, inklusif (= filter Results)"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Export agregat SATU kategori verifikasi: semua baris yang tidak cocok pada
     tiket Not Qualified & Pending, dalam satu XLSX.
+
+    ``date_start``/``date_end`` (26 Oktober 2026) = rentang filter tanggal menu
+    Results; sebelumnya export ini selalu menarik SELURUH periode.
 
     Kolomnya menyesuaikan kategori (mis. Cashline Verification membawa "Ketentuan
     Produk" yang tidak ada pada card holder) — lihat ``compute_verification_export``.
@@ -2367,6 +2372,7 @@ def export_verification_xlsx(
         export_phase_labels,
     )
     scope = effective_campaigns_for(db, current_user)
+    d_start, d_end = _parse_ymd(date_start), _parse_ymd(date_end)
     if category.startswith(PHASE_EXPORT_PREFIX):
         # Kategori fase percakapan (18 September 2026): namanya dinamis mengikuti
         # ``conversation_phases`` KB, jadi divalidasi terhadap daftar milik cakupan
@@ -2374,11 +2380,13 @@ def export_verification_xlsx(
         phase = category[len(PHASE_EXPORT_PREFIX):]
         if phase not in export_phase_labels(db, campaign, scope):
             raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
-        data = compute_phase_export(db, phase, campaign, scope)
+        data = compute_phase_export(db, phase, campaign, scope,
+                                    date_start=d_start, date_end=d_end)
     else:
         if category not in VERIFICATION_EXPORT_CATEGORIES:
             raise HTTPException(status_code=422, detail="Kategori export tidak dikenal")
-        data = compute_verification_export(db, category, campaign, scope)
+        data = compute_verification_export(db, category, campaign, scope,
+                                           date_start=d_start, date_end=d_end)
 
     workbook = Workbook()
     sheet = workbook.active
@@ -2636,11 +2644,10 @@ def _tickets_for_filtered_delete(db, current_user, filters: dict):
        selesai — dan hasil baru itu bertahan sebagai satu-satunya entry, persis
        kebalikan dari yang diminta Admin.
 
-    3. **Filter tanggal = load_date App C TERAKHIR tiket** (20 Oktober 2026), aturan
-       yang sama dengan tampilan Results (``crud._ticket_date_expr``). Tiket yang
-       pernah dimuat di dalam rentang tetapi load terakhirnya di luar rentang
-       TIDAK ikut terhapus: penghapusan permanen tidak boleh mengambil tiket yang
-       masih aktif dimuat di luar rentang yang dilihat Admin.
+    3. **Filter tanggal = Tanggal Submit tiket** (``submit_time``; 26 Oktober 2026,
+       sempat load_date App C sejak 20 Oktober), aturan yang sama dengan tampilan
+       Results (``crud._ticket_date_expr``), jadi yang terhapus persis yang dilihat
+       Admin di rentang itu.
 
     Dipanggil ULANG oleh endpoint POST, bukan mempercayai angka preview: ada jeda
     antara Admin membaca modal dan menekan tombolnya.
