@@ -1,9 +1,10 @@
-"""Statistics memakai ``load_date`` App C TERAKHIR sebagai tanggal tiket (20 Oktober 2026).
+"""Statistics memakai Tanggal Submit sebagai tanggal tiket (26 Oktober 2026).
 
-Pasangan ``test_results_filter_load_date.py``: filter tanggal & grafik Statistics
-harus memilih tiket dan tanggal yang SAMA dengan menu Results. Tiket tanpa baris di
-``ticket_load_dates`` memakai aturan lama (Tanggal Agree -> generated_at -> WIB
-uploaded_at). Tenggat H+2 (``_submit_time_map``) TETAP Tanggal Agree.
+Pasangan ``test_results_filter_tanggal_submit.py``: filter tanggal & grafik
+Statistics harus memilih tiket dan tanggal yang SAMA dengan menu Results —
+``submit_time`` -> generated_at -> WIB uploaded_at. ``load_date`` App C (dasar
+20-26 Oktober) tetap dibuat di setiap tiket di bawah, justru untuk membuktikan
+bahwa ia tidak lagi menggeser tanggal.
 
 ``crud.cashline_agent_index`` di-stub: indeks aslinya membaca seluruh result prod dan
 memanggil DWH untuk cid tanpa agent_id — lambat dan tidak deterministik.
@@ -17,7 +18,7 @@ from compliance import stats_aggregate as sa
 from db import crud
 from db.models import QcAssignment, Result
 
-CAMPAIGN = "ZZ-TEST-STATS-LOAD-DATE"
+CAMPAIGN = "ZZ-TEST-STATS-TGL-SUBMIT"
 
 
 def d(day):
@@ -81,39 +82,39 @@ def test_ticketdates_single_dan_window():
     assert sa.TicketDates((d(12),), None).in_window(None, d(12))
 
 
-def test_failure_reasons_filter_load_terakhir(db, index, monkeypatch):
+def test_failure_reasons_filter_tanggal_submit(db, index, monkeypatch):
     # Semua tiket "evaluable" supaya ``total_submissions`` = jumlah tiket di jendela.
     monkeypatch.setattr(sa, "_adjusted_evaluation", lambda *a, **k: {})
     seen = _spy_scanned(monkeypatch)
-    a = _mk(db, index, "ZZSLD1", submit="2026-10-10 09:00:00", loads=(15,))  # masuk
-    b = _mk(db, index, "ZZSLD2", submit="2026-10-15 09:00:00")               # masuk (aturan lama)
-    _mk(db, index, "ZZSLD3", submit="2026-10-14 09:00:00", loads=(10,))      # keluar
-    c = _mk(db, index, "ZZSLD4", submit="2026-10-14 09:00:00", loads=(14, 19))  # keluar
+    a = _mk(db, index, "ZZSLD1", submit="2026-10-10 09:00:00", loads=(15,))  # keluar
+    b = _mk(db, index, "ZZSLD2", submit="2026-10-15 09:00:00")               # masuk
+    x = _mk(db, index, "ZZSLD3", submit="2026-10-14 09:00:00", loads=(10,))  # masuk
+    c = _mk(db, index, "ZZSLD4", submit="2026-10-14 09:00:00", loads=(14, 19))  # masuk
     out = sa.compute_failure_reasons(db, campaign=CAMPAIGN, date_start=d(12), date_end=d(17))
-    assert out["total_submissions"] == 2
-    assert seen[-1] == {str(a.id), str(b.id)}
+    assert out["total_submissions"] == 3
+    assert seen[-1] == {str(b.id), str(x.id), str(c.id)}
     # Sub-tab Hierarki Based: jendela yang sama memilih tiket yang sama.
     sa.compute_failure_reasons_hierarchy(
         db, campaign=CAMPAIGN, date_start=d(12), date_end=d(17))
-    assert seen[-1] == {str(a.id), str(b.id)}
-    # Load terakhir 19 Okt -> hanya ZZSLD4 di jendela 18-19.
+    assert seen[-1] == {str(b.id), str(x.id), str(c.id)}
+    # Submit 10 Okt -> hanya ZZSLD1, walau load_date-nya 15.
     sa.compute_failure_reasons_hierarchy(
-        db, campaign=CAMPAIGN, date_start=d(18), date_end=d(19))
-    assert seen[-1] == {str(c.id)}
+        db, campaign=CAMPAIGN, date_start=d(10), date_end=d(10))
+    assert seen[-1] == {str(a.id)}
 
 
-def test_timeseries_bucket_load_terakhir(db, index):
+def test_timeseries_bucket_tanggal_submit(db, index):
     _mk(db, index, "ZZSLD5", submit="2026-10-13 09:00:00", loads=(14, 16))
     out = sa.compute_ai_status_timeseries(
         db, ["ZZSLD5"], None, "daily", "2026-10-12", "2026-10-17")
     filled = {b["key"]: b["submissions"] for b in out["buckets"] if b["submissions"]}
-    assert filled == {"2026-10-16": 1}
+    assert filled == {"2026-10-13": 1}
 
 
-def test_timeseries_anchor_load_terakhir(db, index):
+def test_timeseries_anchor_tanggal_submit(db, index):
     _mk(db, index, "ZZSLD6", submit="2026-10-01 09:00:00", loads=(5, 19))
     out = sa.compute_ai_status_timeseries(db, ["ZZSLD6"], None, "daily", None, None)
-    assert out["end"] == "2026-10-19"
+    assert out["end"] == "2026-10-01"
 
 
 def test_submit_time_map_tidak_berubah(db, index):
@@ -121,16 +122,16 @@ def test_submit_time_map_tidak_berubah(db, index):
     assert sa._submit_time_map(db, [r]) == {r.id: "2026-10-10 11:52:32"}
 
 
-def test_ticket_chart_dates_load_terakhir(db, index):
+def test_ticket_chart_dates_tanggal_submit(db, index):
     _mk(db, index, "ZZSLD8", submit="2026-10-01 09:00:00", loads=(10, 15))
     _mk(db, index, "ZZSLD9", submit="2026-10-03 09:00:00")
     _mk(db, index, "ZZSLDA", generated_at=datetime(2026, 10, 4, 22, 58))
     assert sa.ticket_chart_dates(db, ["ZZSLD8", "ZZSLD9", "ZZSLDA"]) == {
-        "ZZSLD8": d(15), "ZZSLD9": d(3), "ZZSLDA": d(4),
+        "ZZSLD8": d(1), "ZZSLD9": d(3), "ZZSLDA": d(4),
     }
 
 
-def test_qc_productivity_filter_load_terakhir(db, index):
+def test_qc_productivity_filter_tanggal_submit(db, index):
     _mk(db, index, "ZZSLDB", submit="2026-10-01 09:00:00", loads=(10, 15))
     _mk(db, index, "ZZSLDC", submit="2026-10-14 09:00:00", loads=(14, 19))
     db.add_all([
@@ -143,16 +144,16 @@ def test_qc_productivity_filter_load_terakhir(db, index):
         for r in crud.qc_performance_rows(
             db, campaign=CAMPAIGN, date_start=d(12), date_end=d(17))
     }
-    assert rows["zzqc-load-1"] == 1
-    assert rows["zzqc-load-2"] == 0
+    assert rows["zzqc-load-1"] == 0  # submit 1 Okt, walau load_date 15
+    assert rows["zzqc-load-2"] == 1  # submit 14 Okt, walau load terakhir 19
 
 
-def test_stats_snapshot_filter_load_terakhir(db, index, monkeypatch):
+def test_stats_snapshot_filter_tanggal_submit(db, index, monkeypatch):
     """Tab Failure Rate (pohon Hierarki) memakai jendela yang sama — tiket yang
     dipindai ditangkap dari batch lookup appeal tepat setelah penyaringan."""
     seen = _spy_scanned(monkeypatch)
-    a = _mk(db, index, "ZZSLDD", submit="2026-10-10 09:00:00", loads=(15,))
-    _mk(db, index, "ZZSLDE", submit="2026-10-14 09:00:00", loads=(14, 19))
+    _mk(db, index, "ZZSLDD", submit="2026-10-10 09:00:00", loads=(15,))
+    a = _mk(db, index, "ZZSLDE", submit="2026-10-14 09:00:00", loads=(14, 19))
     b = _mk(db, index, "ZZSLDF", submit="2026-10-14 09:00:00")
     sa.compute_stats_snapshot(
         db, customer_ids=["ZZSLDD", "ZZSLDE", "ZZSLDF"], roster_uids=set(),
