@@ -167,6 +167,8 @@ class _ListQuery:
 def test_daftar_user_tl_qc_hanya_qc_telemarketing(tl_qc, monkeypatch):
     monkeypatch.setattr(rbac, "role_label_for", lambda db, u: u.role)
     monkeypatch.setattr(rbac, "data_scope_for", lambda db, u: "qc_assigned")
+    monkeypatch.setattr(rbac, "upload_access_for",
+                        lambda db, u: {"upload_audio": False, "upload_transcript": False})
     users = [_user(1), _user(2, campaigns=["Collection"]), _user(3, campaigns=["Complaint Handling", "Collection"])]
     q = _ListQuery(users)
     out = auth_router.list_users(db=SimpleNamespace(query=lambda _m: q), current_user=SimpleNamespace(id=9))

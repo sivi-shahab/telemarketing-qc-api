@@ -49,6 +49,13 @@ class UserCreate(BaseModel):
         return v
 
 
+class UserUploadAccessUpdate(BaseModel):
+    """Saklar per user (``PATCH /auth/users/{id}/upload_access``). Field yang tidak
+    dikirim (None) tidak diubah."""
+    upload_audio: Optional[bool] = None
+    upload_transcript: Optional[bool] = None
+
+
 class UserUpdate(BaseModel):
     """Edit User (``PATCH /auth/users/{id}``). Field yang tidak dikirim (None) tidak
     diubah; password kosong juga berarti tidak diubah."""
@@ -92,6 +99,10 @@ class UserListItem(UserResponse):
     # True bila cakupan datanya sisi sales — hanya untuk role itulah "campaign kosong"
     # berarti bermasalah; role lain memang tidak dibatasi campaign.
     campaign_from_roster: bool = False
+    # Status EFEKTIF saklar Upload Audio / Upload Transcript (role + saklar per
+    # user, lihat ``api.rbac.upload_access_for``).
+    upload_audio: bool = False
+    upload_transcript: bool = False
 
 
 class UserChangeEventItem(BaseModel):
