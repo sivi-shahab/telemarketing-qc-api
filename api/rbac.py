@@ -205,7 +205,33 @@ def permissions_for(db: Session, user) -> set:
         ocr = ocr_image_campaigns_from_env()
         if ocr and ocr_image_granted(effective_campaigns_for(db, user), ocr):
             out.add(perms.MENU_OCR_IMAGE)
-    return out
+    return apply_user_upload_access(out, user)
+
+
+def apply_user_upload_access(permissions: set, user) -> set:
+    """Saklar Upload Audio / Upload Transcript milik ORANG ini (Manage User, 30
+    Oktober 2026) ditempel di atas hak dari role. NULL = ikut role, sehingga default
+    tiap orang sama dengan sebelum fitur ini ada. Role ``admin`` dilewati.
+    ``permissions`` diubah di tempat — pemanggil memberi set miliknya sendiri."""
+    if getattr(user, "role", None) in perms.UPLOAD_ACCESS_LOCKED_ROLES:
+        return permissions
+    for column, granted in perms.USER_UPLOAD_ACCESS.items():
+        enabled = getattr(user, column, None)
+        if enabled is True:
+            permissions.update(granted)
+        elif enabled is False:
+            permissions.difference_update(granted)
+    return permissions
+
+
+def upload_access_for(db: Session, user) -> dict:
+    """Status efektif saklar upload user ini, untuk baris Manage User:
+    ``{"upload_audio": bool, "upload_transcript": bool}``."""
+    granted = permissions_for(db, user)
+    return {
+        column.removesuffix("_enabled"): all(p in granted for p in caps)
+        for column, caps in perms.USER_UPLOAD_ACCESS.items()
+    }
 
 
 # Cakupan yang diterima ``api.qc_scope.collection_view_scope``.

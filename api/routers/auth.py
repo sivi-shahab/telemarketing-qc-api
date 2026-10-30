@@ -23,6 +23,7 @@ from api.schemas.auth import (
     UserChangeEventItem,
     UserListItem,
     UserUpdate,
+    UserUploadAccessUpdate,
     RefreshRequest,
     TokenResponse,
     UserCreate,
@@ -153,7 +154,7 @@ def _user_list_item(db: Session, u, campaigns=None) -> UserListItem:
     ``list_users`` dan ``update_user``. ``campaigns`` boleh diberikan bila sudah
     dihitung pemanggil."""
     from api import permissions as P
-    from api.rbac import data_scope_for, effective_campaigns_for, role_label_for
+    from api.rbac import data_scope_for, effective_campaigns_for, role_label_for, upload_access_for
 
     if campaigns is None:
         campaigns = effective_campaigns_for(db, u)
@@ -161,6 +162,9 @@ def _user_list_item(db: Session, u, campaigns=None) -> UserListItem:
     item.role_label = role_label_for(db, u)
     item.campaigns = campaigns or []
     item.campaign_from_roster = P.is_sales_scope(data_scope_for(db, u))
+    access = upload_access_for(db, u)
+    item.upload_audio = access["upload_audio"]
+    item.upload_transcript = access["upload_transcript"]
     return item
 
 
@@ -391,6 +395,54 @@ def update_user(
     except Exception:
         db.rollback()
         raise
+    db.refresh(user)
+    return _user_list_item(db, user)
+
+
+@router.patch("/users/{user_id}/upload_access", response_model=UserListItem)
+def set_user_upload_access(
+    user_id: int,
+    body: UserUploadAccessUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require(ADMIN_USER_WRITE)),
+):
+    """Saklar Upload Audio / Upload Transcript per user di Manage User (Admin, 30
+    Oktober 2026). Nilai yang dikirim disimpan apa adanya (True/False) di
+    ``users.upload_*_enabled`` dan menimpa hak dari role; kolom yang belum pernah
+    disentuh tetap NULL = ikut role. Berlaku untuk semua role kecuali ``admin``.
+    Perubahan dicatat di riwayat user (``user_change_events``) bila status
+    efektifnya berubah."""
+    from api import permissions as P
+    from api.rbac import upload_access_for
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
+    if user.role in P.UPLOAD_ACCESS_LOCKED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Akses upload akun Admin tidak dapat diubah",
+        )
+    wanted = {"upload_audio": body.upload_audio, "upload_transcript": body.upload_transcript}
+    before = upload_access_for(db, user)
+    for field, enabled in wanted.items():
+        if enabled is not None:
+            setattr(user, f"{field}_enabled", enabled)
+    actor_id = current_user.id if current_user.id != 0 else None
+    for field, enabled in wanted.items():
+        if enabled is None or enabled == before[field]:
+            continue
+        db.add(UserChangeEvent(
+            user_id=user.id,
+            target_username=user.username,
+            field=field,
+            old_value="aktif" if before[field] else "nonaktif",
+            new_value="aktif" if enabled else "nonaktif",
+            actor_user_id=actor_id,
+            actor_username=getattr(current_user, "username", None),
+            actor_role=getattr(current_user, "role", None),
+        ))
+    db.commit()
     db.refresh(user)
     return _user_list_item(db, user)
 

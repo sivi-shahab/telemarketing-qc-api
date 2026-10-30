@@ -171,6 +171,16 @@ QC_USER_EDIT = "qc.user.edit"
 TRANSCRIPT_UPLOAD = "transcript.upload"
 AUDIO_UPLOAD = "audio.upload"
 
+# Saklar Upload Audio / Upload Transcript per user di Manage User (30 Oktober 2026).
+# Kolom ``users.upload_*_enabled`` -> capability yang ikut diberi/dicabut (menu +
+# endpoint). NULL = ikut role. Role ``admin`` tidak tunduk pada saklar ini — lihat
+# ``api.rbac.permissions_for``.
+USER_UPLOAD_ACCESS = {
+    "upload_audio_enabled": (MENU_UPLOAD_AUDIO, AUDIO_UPLOAD),
+    "upload_transcript_enabled": (MENU_UPLOAD_TRANSCRIPT, TRANSCRIPT_UPLOAD),
+}
+UPLOAD_ACCESS_LOCKED_ROLES = frozenset({"admin"})
+
 # Tata letak tabel Results versi Demo (27 Agustus 2026). Bukan hak akses melainkan
 # varian TAMPILAN: kolom Number of Calls & Export dilepas, Call Duration dipecah
 # per PDF, "Critical Failure(s)" dijuduli SCOREBOMB, dan kolom Passing Grade
