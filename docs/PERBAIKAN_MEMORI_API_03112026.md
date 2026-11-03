@@ -168,6 +168,20 @@ Statistics dan Failure Reason juga 40–50 % lebih cepat karena memakai cache Re
   `main` tanpa patch** (3 gagal bila file itu dijalankan sendiri). Penyebabnya
   bergantung pada env/urutan test dan tidak berkaitan dengan perubahan ini.
 
+### 3.4 Script untuk mengulang uji
+
+Kedua script ada di repo ini. Cara menjalankannya lengkap ada di docstring
+masing-masing: worktree dari commit prod, env dari container API, lalu container
+sementara dengan kode di-mount. Keduanya hanya membaca.
+
+| Script | Kegunaan |
+|---|---|
+| `scripts/perf_slim_equal.py` | Uji kesamaan utuh vs slim untuk 8 fungsi × kandidat di `CANDIDATES` (±45 menit). `mem <kandidat>` / `mem old` mengukur pemuatan evaluasi saja. **Wajib** sebelum mengubah `SLIM_SCORECARD_DROP` atau menjadikan fungsi lain `slim=True`. |
+| `scripts/perf_peak_memory.py <fungsi>` | Puncak RSS satu fungsi di proses baru. Jalankan dengan worktree lama dan baru untuk membandingkan. |
+
+Uji ulang 3 Nov dari versi repo: `ai_status_map` +404 MB, `mem A_all_text` +378 MB.
+Angka ini cocok dengan §3.2.
+
 ## 4. Yang tidak berubah
 
 - Tidak ada migrasi DB dan tidak ada perubahan format cache Redis.
@@ -187,9 +201,51 @@ memori ke OS, jadi lakukan juga langkah berikut:
    Opsi `--max-requests` membuat worker diganti berkala sehingga RSS kembali ke awal.
 2. Tambahkan env `MALLOC_ARENA_MAX=2` untuk mengurangi fragmentasi dari threadpool
    endpoint sync.
-3. Resource: `requests.memory: 4Gi`, `limits.memory: 8Gi`.
+3. Resource API: `requests.memory: 2Gi`, `limits.memory: 4Gi` (perhitungannya di §6).
+   Sampai PR ini di-deploy di kube, biarkan limit 8Gi.
 
-## 6. Deploy dan rollback
+## 6. Kebutuhan memori per repo setelah perubahan ini
+
+Dasar perhitungan: pemakaian container di server docker pada 3 Nov 2026 (`/proc/<pid>`
+VmRSS/VmHWM), ditambah angka per request di §3.2. Data saat itu berisi 3.913 tiket
+`done`. Angka "baru" untuk API dan worker-stats adalah **perkiraan**, karena belum
+di-deploy. Verifikasi setelah deploy dengan melihat VmHWM per proses.
+
+| Repo / service | Proses | Puncak terukur (kode lama) | Perkiraan puncak (kode baru) | requests | limits |
+|---|---|---|---|---|---|
+| **api** (gunicorn `-w 2`) | 2 worker + master | 2,8 GB dan 1,8 GB per worker, container 3,0 GiB | ±1,2–1,5 GB per worker, container ±3 GB | **2 Gi** | **4 Gi** |
+| **api** (kube, `uvicorn` 1 proses) | 1 proses | tidak diketahui (OOM di 8 Gi) | ±1,5–2 GB | 2 Gi | 4 Gi |
+| **worker** — `worker` (celery `--concurrency=8`) | parent + 8 child | 2,2 GiB; child ±300–400 MB (pernah 590–840 MB, 21 Okt) | **tidak berubah**, karena tidak memakai kode Statistics | 3 Gi | 8 Gi |
+| **worker** — `worker-stats` (`-Q stats`, concurrency 1) | parent + 1 child | 1,15 GB (child), container ±1,0 GiB | ±0,6–0,7 GB | **768 Mi** | **1,5 Gi** |
+| **worker** — `beat` | 1 | 142 MB | tidak berubah | 128 Mi | 256 Mi |
+| **worker** — `flower` | 1 | 273 MB | tidak berubah | 128 Mi | 384 Mi |
+| **core** | library, tidak jalan sendiri | — | — | — | — |
+
+Cara membaca angka API:
+
+- Basis satu proses API setelah import ±120 MB. Setelah melayani request biasa,
+  ukurannya ±1,4 GB karena memori tidak dikembalikan ke OS.
+- Satu request berat sebelumnya +740 s/d +1.013 MB, sekarang **+305 s/d +403 MB**.
+  Puncak lama 2,8 GB per worker setara dengan ±2–3 request berat yang bertumpuk.
+  Dengan pola tumpukan yang sama, puncak baru ±1,2–1,5 GB per worker.
+- Mode satu proses `uvicorn` (kube) menanggung semua request bersamaan dalam satu
+  proses, jadi puncaknya lebih tinggi daripada satu worker gunicorn. Dengan
+  `--max-requests` (§5), proses diganti berkala dan RSS kembali ke basis.
+- **Limit 4 Gi** memberi ruang sekitar 2× perkiraan puncak, untuk tumpukan request
+  yang lebih banyak dan pertumbuhan data.
+
+**Pertumbuhan data:** memori per request berat naik sebanding dengan jumlah tiket
+`done`, yaitu ±0,1 MB per tiket (slim) atau ±0,15 MB per tiket (utuh, Failure Reason
+/ export). Setiap tambahan 1.000 tiket menambah ±100–150 MB per request berat yang
+berjalan bersamaan. JOB-3 meng-upload ulang tiket yang sama beberapa kali sehari, jadi
+pantau `count(*)` di `results` dan `result_data`. Jalankan ulang
+`scripts/perf_peak_memory.py` bila jumlahnya sudah ±2× angka di atas.
+
+Dibanding rekomendasi `analisa_kebutuhan_ram.md` (21 Okt): limit API turun dari
+6 GiB menjadi 4 GiB. Limit worker tetap 8 GiB, karena besarnya ditentukan oleh
+pemrosesan PDF/OCR dan concurrency 8, bukan oleh perubahan ini.
+
+## 7. Deploy dan rollback
 
 - Perubahan ini ada di `core/` (api dan worker) serta `qc_core` (core). Worker ikut
   memakai `stats_aggregate` untuk hitung ulang Statistics (`worker-stats`), jadi
